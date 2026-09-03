@@ -31,22 +31,22 @@ omi-rss/
 ### Backend
 
 ```bash
-cd omi-rss/server
-cp .env.example .env        # fill in DB + config
+cd server
+cp .env.example .env           # fill in DB + config
 docker compose up -d
 ```
 
 ### App
 
 ```bash
-cd omi-rss/app
+cd app
 flutter pub get
 flutter run
 ```
 
 ### Extension
 
-Load `omi-rss/extension/` as an unpacked extension:
+Load `extension/` as an unpacked extension:
 
 1. Open `chrome://extensions` (or `brave://extensions`).
 2. Enable **Developer mode**.

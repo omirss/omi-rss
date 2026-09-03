@@ -149,6 +149,16 @@ Webroll can deliver value on day one as a strong feed reader. The network layer 
 
 A founding cohort seeds the initial graph, governance process, and taxonomy. Over time, founder influence fades as the network becomes self-sustaining.
 
+## Self-hosted reader instances
+
+Because canonical state is public append-only logs with a public read API, self-hosted omi-rss instances can participate at three levels without special coupling:
+
+1. Read-only discovery: pull the registry (API or cloned logs) as a discovery source in the reader.
+2. Local trust computation: compute density from the cloned vouch graph locally, with no live dependency on the central host.
+3. Write participation: hold an owner key and submit signed events to the registry's write API.
+
+The read path requires no registration or account. The registry never needs to know instances exist. In omi-rss, the integration point is the server's discovery module: OPML is the first provider; Webroll is a future drop-in provider.
+
 ## What makes Webroll distinct
 
 Webroll is built around a simple principle:

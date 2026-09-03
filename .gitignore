@@ -37,4 +37,11 @@ _internal/
 .env
 .env.*
 !.env.example
+!.env.production.example
+!.env.test
 *.local
+
+# --- build artifacts ---
+extension/build/
+*.tsbuildinfo
+_archive/
