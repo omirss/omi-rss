@@ -460,5 +460,5 @@ class OfflineDatabase {
 // Create singleton instance
 const offlineDB = new OfflineDatabase();
 
-// Export for use in other scripts
-window.offlineDB = offlineDB;
+// Export for use in other scripts (service workers have no window)
+globalThis.offlineDB = offlineDB;

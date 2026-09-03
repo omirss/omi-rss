@@ -199,12 +199,90 @@ class StorageService {
   async getAllFeeds() {
     const tx = await this.transaction(['feeds'], 'readonly');
     const store = tx.objectStore('feeds');
-    
+
     return new Promise((resolve, reject) => {
       const request = store.getAll();
       request.onsuccess = () => resolve(request.result || []);
       request.onerror = () => reject(request.error);
     });
+  }
+
+  // Alias used by the side panel
+  async init() {
+    await this.ensureReady();
+  }
+
+  // Save a single feed (upsert by provided id/url)
+  async saveFeed(feedData) {
+    const existing = feedData.url ? await this.getFeedByUrl(feedData.url) : null;
+    if (existing) {
+      return this.updateFeed(existing.id, feedData);
+    }
+    return this.addFeed(feedData);
+  }
+
+  // Save a standalone article (saved pages, notes)
+  async saveArticle(article) {
+    const tx = await this.transaction(['articles'], 'readwrite');
+    const store = tx.objectStore('articles');
+
+    const articleData = {
+      isRead: false,
+      isStarred: false,
+      savedAt: new Date().toISOString(),
+      ...article
+    };
+
+    return new Promise((resolve, reject) => {
+      const request = store.put(articleData);
+      request.onsuccess = () => {
+        articleData.id = articleData.id !== undefined ? articleData.id : request.result;
+        resolve(articleData);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  // Get a single article by id
+  async getArticle(id) {
+    const tx = await this.transaction(['articles'], 'readonly');
+    const store = tx.objectStore('articles');
+
+    return new Promise((resolve, reject) => {
+      const request = store.get(id);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  // Generic article update
+  async updateArticle(id, updates) {
+    const tx = await this.transaction(['articles'], 'readwrite');
+    const store = tx.objectStore('articles');
+
+    return new Promise((resolve, reject) => {
+      const getRequest = store.get(id);
+      getRequest.onsuccess = () => {
+        const article = getRequest.result;
+        if (!article) {
+          reject(new Error('Article not found'));
+          return;
+        }
+        const updated = { ...article, ...updates };
+        const putRequest = store.put(updated);
+        putRequest.onsuccess = () => resolve(updated);
+        putRequest.onerror = () => reject(putRequest.error);
+      };
+      getRequest.onerror = () => reject(getRequest.error);
+    });
+  }
+
+  async getAllArticles() {
+    return this.getArticles({ limit: 10000 });
+  }
+
+  async getArticlesByFeed(feedId) {
+    return this.getArticles({ feedId, limit: 10000 });
   }
 
   // Article operations

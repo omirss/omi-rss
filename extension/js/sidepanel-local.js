@@ -1,9 +1,6 @@
 // Local-first sidepanel script for Omi RSS Extension
 // This version works entirely with local storage without requiring a server
 
-// Import storage service
-let storageService;
-
 // State management
 const state = {
   currentView: 'all',
@@ -30,22 +27,21 @@ const elements = {
 // Initialize sidepanel
 document.addEventListener('DOMContentLoaded', async () => {
   console.log('Omi RSS Local Sidepanel loaded');
-  
-  // Initialize storage service
-  if (typeof StorageService !== 'undefined') {
-    storageService = new StorageService();
-    await storageService.init();
-  } else {
+
+  // Use the storageService singleton provided by storage-service.js
+  if (typeof storageService === 'undefined') {
     console.error('StorageService not loaded');
     return;
   }
-  
+
+  await storageService.init();
+
   // Cache DOM elements
   cacheElements();
-  
+
   // Initialize event listeners
   initializeEventListeners();
-  
+
   // Load initial data
   await loadInitialData();
 });
@@ -394,25 +390,19 @@ async function handleRefresh() {
     // Update all feeds
     const feedParser = new FeedParser();
     let newArticlesCount = 0;
-    
+
     for (const feed of state.feeds) {
       try {
-        const parsedFeed = await feedParser.parseFeed(feed.url);
-        
-        // Save new articles
-        for (const article of parsedFeed.articles) {
-          const exists = await storageService.getArticle(article.id);
-          if (!exists) {
-            await storageService.saveArticle({
-              ...article,
-              feedId: feed.id,
-              isRead: false,
-              isStarred: false
-            });
-            newArticlesCount++;
-          }
+        const result = await feedParser.parseFeed(feed.url);
+
+        if (!result.success) {
+          throw new Error(result.error);
         }
-        
+
+        // Save new articles (deduplicated by feedId + guid)
+        const added = await storageService.addArticles(result.feed.items, feed.id);
+        newArticlesCount += added.length;
+
         // Update feed
         await storageService.updateFeed(feed.id, {
           lastUpdated: new Date().toISOString(),
@@ -446,7 +436,7 @@ async function handleRefresh() {
 
 // Handle settings
 function handleSettings() {
-  chrome.tabs.create({ url: chrome.runtime.getURL('settings.html') });
+  chrome.tabs.create({ url: chrome.runtime.getURL('popup.html') });
 }
 
 // Handle search
@@ -544,40 +534,36 @@ function handleAddFeed() {
 async function subscribeFeed(url) {
   try {
     showLoading(true);
-    
+
     const feedParser = new FeedParser();
-    const parsedFeed = await feedParser.parseFeed(url);
-    
+    const result = await feedParser.parseFeed(url);
+
+    if (!result.success) {
+      throw new Error(result.error);
+    }
+
     // Check if feed already exists
     const existingFeed = state.feeds.find(f => f.url === url);
     if (existingFeed) {
       showNotification('Feed already subscribed');
       return;
     }
-    
+
     // Save feed
+    const favicon = await feedParser.getFeedFavicon(result.feed);
     const feed = {
-      id: `feed-${Date.now()}`,
-      title: parsedFeed.title,
+      title: result.feed.title,
       url: url,
-      description: parsedFeed.description,
-      favicon: parsedFeed.favicon,
-      lastUpdated: new Date().toISOString(),
-      unreadCount: parsedFeed.articles.length
+      description: result.feed.description,
+      favicon: favicon,
+      lastUpdated: new Date().toISOString()
     };
-    
-    await storageService.saveFeed(feed);
-    
-    // Save articles
-    for (const article of parsedFeed.articles) {
-      await storageService.saveArticle({
-        ...article,
-        feedId: feed.id,
-        isRead: false,
-        isStarred: false
-      });
-    }
-    
+
+    feed.id = await storageService.saveFeed(feed);
+
+    // Save articles (deduplicated by feedId + guid)
+    await storageService.addArticles(result.feed.items, feed.id);
+
     showNotification('Feed added successfully');
     await loadInitialData();
   } catch (error) {

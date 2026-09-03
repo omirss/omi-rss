@@ -34,6 +34,23 @@ let articleExtractor = null;
         sendResponse({ success: true });
         break;
         
+      case 'detect-feeds': {
+        const feeds = [];
+        document.querySelectorAll(
+          'link[type="application/rss+xml"], link[type="application/atom+xml"], link[rel="alternate"][type^="application/"]'
+        ).forEach(link => {
+          if (link.href && !feeds.some(f => f.url === link.href)) {
+            feeds.push({
+              url: link.href,
+              title: link.title || document.title || 'RSS Feed',
+              type: link.type
+            });
+          }
+        });
+        sendResponse({ feeds });
+        break;
+      }
+
       case 'check-saved':
         checkIfArticleSaved()
           .then(sendResponse)
@@ -407,8 +424,8 @@ function enableReaderMode() {
         <div class="reader-controls">
           <button class="reader-control" data-action="decrease-font" title="Decrease Font Size">A-</button>
           <button class="reader-control" data-action="increase-font" title="Increase Font Size">A+</button>
-          <button class="reader-control" data-action="toggle-theme" title="Toggle Theme">🌓</button>
-          <button class="reader-control" data-action="save" title="Save Article">💾</button>
+          <button class="reader-control" data-action="toggle-theme" title="Toggle Theme">Theme</button>
+          <button class="reader-control" data-action="save" title="Save Article">Save</button>
         </div>
       </div>
       <article class="reader-content">
@@ -511,27 +528,27 @@ function toggleReaderTheme() {
 async function saveFromReader() {
   const saveBtn = document.querySelector('[data-action="save"]');
   saveBtn.disabled = true;
-  saveBtn.textContent = '⏳';
-  
+  saveBtn.textContent = 'Saving';
+
   try {
     const response = await chrome.runtime.sendMessage({
       action: 'save-article',
       data: extractArticleContent()
     });
-    
+
     if (response.error) {
       throw new Error(response.error);
     }
-    
-    saveBtn.textContent = '✅';
+
+    saveBtn.textContent = 'Saved';
     setTimeout(() => {
-      saveBtn.textContent = '💾';
+      saveBtn.textContent = 'Save';
       saveBtn.disabled = false;
     }, 2000);
   } catch (error) {
-    saveBtn.textContent = '❌';
+    saveBtn.textContent = 'Error';
     setTimeout(() => {
-      saveBtn.textContent = '💾';
+      saveBtn.textContent = 'Save';
       saveBtn.disabled = false;
     }, 2000);
   }

@@ -46,10 +46,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 // Check authentication status
 async function checkAuth() {
   try {
-    const { auth } = await chrome.storage.local.get('auth');
-    if (auth?.token) {
+    const { access_token, user: storedUser } = await chrome.storage.local.get(['access_token', 'user']);
+    if (access_token) {
       isAuthenticated = true;
-      user = auth.user;
+      user = storedUser || null;
       return true;
     }
   } catch (error) {
@@ -155,10 +155,11 @@ async function handleLogin(e) {
   showLoading(true);
   
   try {
-    // Update server URL if changed
+    // Update server URL if changed (merge with existing settings)
     if (serverUrl) {
+      const { settings: currentSettings = {} } = await chrome.storage.local.get('settings');
       await chrome.storage.local.set({
-        settings: { apiUrl: serverUrl }
+        settings: { ...currentSettings, apiUrl: serverUrl }
       });
     }
     
@@ -207,36 +208,31 @@ function handleOfflineMode(e) {
 }
 
 // Handle create account
-function handleCreateAccount(e) {
+async function handleCreateAccount(e) {
   e.preventDefault();
-  chrome.tabs.create({ url: 'http://localhost:8080/register' });
+  chrome.tabs.create({ url: `${await getServerUrl()}/register` });
 }
 
 // Handle save page
 async function handleSavePage() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    
+
     // Check if online and authenticated
     if (isAuthenticated && !await checkOfflineMode()) {
-      // Try to save via API
+      // Background saves the page (server has no upload endpoint, so it is stored locally)
       const response = await chrome.runtime.sendMessage({
         action: 'save-article',
         data: { url: tab.url, title: tab.title }
       });
-      
+
       if (response.error) {
         throw new Error(response.error);
       }
-      
-      // Also save locally for offline access
-      await saveArticleLocally({
-        id: response.id || Date.now().toString(),
-        url: tab.url,
-        title: tab.title,
-        type: 'article',
-        savedAt: new Date().toISOString()
-      });
+
+      if (response.alreadySaved) {
+        showNotification('Article already saved', 'info');
+      }
     } else {
       // Save locally only
       await saveArticleLocally({
@@ -247,7 +243,7 @@ async function handleSavePage() {
         savedAt: new Date().toISOString()
       });
     }
-    
+
     // Refresh saved items
     if (currentTab === 'saved') {
       loadSavedItems();
@@ -330,8 +326,8 @@ async function handlePopOut() {
 }
 
 // Handle web version
-function handleWebVersion() {
-  chrome.tabs.create({ url: 'http://localhost:3000' });
+async function handleWebVersion() {
+  chrome.tabs.create({ url: await getServerUrl() });
   window.close();
 }
 
@@ -367,8 +363,8 @@ async function handleOpenSidePanel() {
 }
 
 // Handle add feed
-function handleAddFeed() {
-  chrome.tabs.create({ url: 'http://localhost:3000/feeds/add' });
+async function handleAddFeed() {
+  chrome.tabs.create({ url: `${await getServerUrl()}/feeds/add` });
   window.close();
 }
 
@@ -448,7 +444,12 @@ function renderFeeds() {
   feedsList.innerHTML = feeds.map(feed => `
     <div class="feed-item" data-feed-id="${feed.id}">
       <div class="feed-icon">
-        ${feed.favicon ? `<img src="${feed.favicon}" alt="">` : '📄'}
+        ${feed.favicon ? `<img src="${feed.favicon}" alt="">` : `
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <path d="M4 11a9 9 0 0 1 9 9"/>
+            <path d="M4 4a16 16 0 0 1 16 16"/>
+            <circle cx="5" cy="19" r="1"/>
+          </svg>`}
       </div>
       <div class="feed-info">
         <div class="feed-title">${escapeHtml(feed.title)}</div>
@@ -791,8 +792,14 @@ async function loadSettings() {
       document.getElementById('auto-detect-articles').checked = settings.autoDetectArticles || false;
       document.getElementById('enable-reader-mode').checked = settings.enableReaderMode !== false;
       document.getElementById('prefer-sidepanel').checked = settings.preferSidePanel || false;
-      document.getElementById('enable-sync').checked = settings.enableSync || false;
-      document.getElementById('settings-server-url').value = settings.apiUrl || 'http://localhost:8080';
+      const enableSyncToggle = document.getElementById('enable-sync');
+      if (enableSyncToggle) {
+        enableSyncToggle.checked = settings.enableSync || false;
+      }
+      const serverUrlInput = document.getElementById('settings-server-url');
+      if (serverUrlInput) {
+        serverUrlInput.value = settings.apiUrl || DEFAULT_SERVER_URL;
+      }
     }
     
     // Update user info
@@ -859,8 +866,22 @@ function closeFeedModal() {
 // Subscribe to feed
 async function subscribeFeed(feedUrl) {
   try {
-    // TODO: Implement subscribe API
-    showNotification('Subscribed to feed');
+    const response = await chrome.runtime.sendMessage({
+      action: 'subscribe-feed',
+      url: feedUrl
+    });
+
+    if (response.error) {
+      throw new Error(response.error);
+    }
+
+    if (response.success) {
+      showNotification(response.serverSynced
+        ? 'Subscribed to feed (synced to server)'
+        : 'Subscribed to feed (saved locally)');
+    } else {
+      showNotification(response.error || 'Already subscribed', 'warning');
+    }
     await loadFeeds();
   } catch (error) {
     showError('Failed to subscribe: ' + error.message);
@@ -1020,7 +1041,7 @@ function showNotification(message, type = 'info') {
   notification.className = `notification notification-${type}`;
   notification.innerHTML = `
     <div class="notification-content">
-      ${type === 'error' ? '❌' : type === 'warning' ? '⚠️' : 'ℹ️'} ${message}
+      ${message}
     </div>
   `;
   

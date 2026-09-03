@@ -336,7 +336,10 @@ function extractWithSiteRules(hostname) {
   return result;
 }
 
-// Enhanced extraction for complex sites
+// Replace the original extractArticleContent with enhanced version,
+// keeping a reference to the generic implementation from content.js
+const genericExtractArticleContent = extractArticleContent;
+
 function enhancedExtractContent() {
   const hostname = window.location.hostname;
   
@@ -347,7 +350,7 @@ function enhancedExtractContent() {
   }
 
   // Get generic extraction
-  const generic = extractArticleContent();
+  const generic = genericExtractArticleContent();
 
   // Merge results, preferring site-specific data
   if (siteSpecific) {

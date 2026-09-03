@@ -18,9 +18,11 @@ class SyncService {
     // Set up periodic sync
     this.startPeriodicSync();
 
-    // Listen for online/offline events
-    window.addEventListener('online', () => this.onOnline());
-    window.addEventListener('offline', () => this.onOffline());
+    // Listen for online/offline events (not available in service workers)
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', () => this.onOnline());
+      window.addEventListener('offline', () => this.onOffline());
+    }
 
     // Listen for sync messages
     chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -118,28 +120,28 @@ class SyncService {
       try {
         switch (item.action) {
           case 'save-article':
-            await this.uploadArticle(token, item.data);
-            results.articlesUploaded++;
-            break;
-          
+            throw new Error('Server does not accept direct article uploads; article kept locally');
+
           case 'update-article':
             await this.updateRemoteArticle(token, item.data);
             results.articlesUploaded++;
             break;
-          
+
           case 'delete-article':
-            await this.deleteRemoteArticle(token, item.data.id);
-            break;
-          
+            throw new Error('Server does not support article deletion');
+
           case 'subscribe-feed':
             await this.subscribeRemoteFeed(token, item.data);
             results.feedsSynced++;
             break;
-          
+
           case 'unsubscribe-feed':
             await this.unsubscribeRemoteFeed(token, item.data.id);
             results.feedsSynced++;
             break;
+
+          default:
+            throw new Error(`Unknown sync action: ${item.action}`);
         }
 
         // Mark as synced
@@ -164,52 +166,62 @@ class SyncService {
     }
   }
 
-  // Download server changes
+  // Download server state (the server has no incremental /sync endpoint)
   async downloadServerChanges(token, results) {
     const API_BASE_URL = await this.getApiBaseUrl();
-    
-    try {
-      // Get changes since last sync
-      const params = new URLSearchParams({
-        since: this.lastSyncTime || '1970-01-01T00:00:00Z'
-      });
 
-      const response = await fetch(`${API_BASE_URL}/sync/changes?${params}`, {
+    try {
+      const feedResponse = await fetch(`${API_BASE_URL}/feeds`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
       });
 
-      if (!response.ok) {
-        throw new Error(`Server responded with ${response.status}`);
+      if (!feedResponse.ok) {
+        throw new Error(`Server responded with ${feedResponse.status}`);
       }
 
-      const changes = await response.json();
+      const feedData = await feedResponse.json();
+      const feeds = feedData.feeds || [];
 
-      // Process articles
-      if (changes.articles?.length) {
-        for (const article of changes.articles) {
+      for (const feed of feeds) {
+        await this.processRemoteFeed(feed, results);
+      }
+
+      const articleResponse = await fetch(`${API_BASE_URL}/articles?limit=50`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (articleResponse.ok) {
+        const articleData = await articleResponse.json();
+        for (const article of (articleData.articles || [])) {
           await this.processRemoteArticle(article, results);
         }
       }
-
-      // Process feeds
-      if (changes.feeds?.length) {
-        for (const feed of changes.feeds) {
-          await this.processRemoteFeed(feed, results);
-        }
-      }
-
-      // Process deletions
-      if (changes.deletions?.length) {
-        for (const deletion of changes.deletions) {
-          await this.processRemoteDeletion(deletion, results);
-        }
-      }
-
     } catch (error) {
       console.error('Failed to download server changes:', error);
       results.errors.push(`Download changes: ${error.message}`);
+    }
+  }
+
+  // Process remote feed
+  async processRemoteFeed(remoteFeed, results) {
+    const existing = await offlineDB.getAllFeeds();
+    const local = existing.find(f => f.url === remoteFeed.url || f.serverId === remoteFeed.id);
+
+    if (!local) {
+      await offlineDB.saveFeed({
+        serverId: remoteFeed.id,
+        title: remoteFeed.title || remoteFeed.customTitle || remoteFeed.url,
+        url: remoteFeed.url,
+        description: remoteFeed.description || '',
+        syncStatus: 'synced'
+      });
+      results.feedsSynced++;
+    } else if (!local.serverId) {
+      await offlineDB.saveFeed({ ...local, serverId: remoteFeed.id, syncStatus: 'synced' });
     }
   }
 
@@ -312,7 +324,7 @@ class SyncService {
     // Show notification about conflict
     chrome.notifications.create({
       type: 'basic',
-      iconUrl: 'icons/icon-128.png',
+      iconUrl: chrome.runtime.getURL('icons/icon-128.png'),
       title: 'Sync Conflict',
       message: `Article "${local.title}" has conflicting changes`,
       buttons: [
@@ -343,42 +355,95 @@ class SyncService {
     await chrome.storage.local.set({ conflicts });
   }
 
-  // Upload article to server
-  async uploadArticle(token, article) {
+  // Push local article state changes (read/starred) to the server
+  async updateRemoteArticle(token, article) {
     const API_BASE_URL = await this.getApiBaseUrl();
-    
-    const response = await fetch(`${API_BASE_URL}/articles`, {
+    const articleId = article.serverId || article.id;
+
+    const state = {};
+    if (article.isRead !== undefined) {
+      state.isRead = article.isRead;
+    }
+    if (article.isStarred !== undefined || article.isSaved !== undefined) {
+      state.isStarred = article.isStarred !== undefined ? article.isStarred : article.isSaved;
+    }
+
+    const response = await fetch(`${API_BASE_URL}/articles/${articleId}/state`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(state)
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to update article state: ${response.status}`);
+    }
+
+    await offlineDB.updateArticle(article.id, { syncStatus: 'synced' });
+  }
+
+  // Subscribe to a feed on the server
+  async subscribeRemoteFeed(token, feed) {
+    const API_BASE_URL = await this.getApiBaseUrl();
+
+    const response = await fetch(`${API_BASE_URL}/feeds`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(article)
+      body: JSON.stringify({ url: feed.url })
     });
 
     if (!response.ok) {
-      throw new Error(`Failed to upload article: ${response.status}`);
+      throw new Error(`Failed to subscribe feed: ${response.status}`);
     }
 
-    const serverArticle = await response.json();
-    
-    // Update local article with server ID
-    await offlineDB.updateArticle(article.id, {
-      serverId: serverArticle.id,
-      syncStatus: 'synced'
+    const serverFeed = await response.json().catch(() => ({}));
+    if (feed.id !== undefined && serverFeed.id) {
+      await offlineDB.saveFeed({ ...feed, serverId: serverFeed.id, syncStatus: 'synced' });
+    }
+  }
+
+  // Unsubscribe from a feed on the server
+  async unsubscribeRemoteFeed(token, feedId) {
+    const API_BASE_URL = await this.getApiBaseUrl();
+
+    const feeds = await offlineDB.getAllFeeds();
+    const local = feeds.find(f => f.id === feedId || f.serverId === feedId);
+    const serverId = local?.serverId || feedId;
+
+    const response = await fetch(`${API_BASE_URL}/feeds/${serverId}`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
     });
+
+    if (!response.ok) {
+      throw new Error(`Failed to unsubscribe feed: ${response.status}`);
+    }
   }
 
   // Get auth token
   async getAuthToken() {
-    const { authToken } = await chrome.storage.local.get('authToken');
-    return authToken;
+    if (typeof getAccessToken === 'function') {
+      return getAccessToken();
+    }
+    const { access_token } = await chrome.storage.local.get('access_token');
+    return access_token || null;
   }
 
   // Get API base URL
   async getApiBaseUrl() {
-    const { apiBaseUrl } = await chrome.storage.local.get('apiBaseUrl');
-    return apiBaseUrl || 'http://localhost:8080/api';
+    if (typeof getApiBaseUrl === 'function') {
+      return getApiBaseUrl();
+    }
+    const { settings } = await chrome.storage.local.get('settings');
+    const root = (settings && settings.apiUrl) || 'http://localhost:3000';
+    return root.replace(/\/+$/, '').replace(/\/api$/, '') + '/api';
   }
 
   // Clean up old sync queue items
@@ -392,14 +457,14 @@ class SyncService {
     if (!results.success) {
       chrome.notifications.create({
         type: 'basic',
-        iconUrl: 'icons/icon-128.png',
+        iconUrl: chrome.runtime.getURL('icons/icon-128.png'),
         title: 'Sync Failed',
         message: `Sync encountered errors: ${results.errors.join(', ')}`
       });
     } else if (results.articlesUploaded > 0 || results.articlesDownloaded > 0) {
       chrome.notifications.create({
         type: 'basic',
-        iconUrl: 'icons/icon-128.png',
+        iconUrl: chrome.runtime.getURL('icons/icon-128.png'),
         title: 'Sync Complete',
         message: `Uploaded: ${results.articlesUploaded}, Downloaded: ${results.articlesDownloaded}, Conflicts: ${results.articlesConflicts}`
       });
@@ -459,5 +524,5 @@ class SyncService {
 // Create singleton instance
 const syncService = new SyncService();
 
-// Export for use in other scripts
-window.syncService = syncService;
+// Export for use in other scripts (service workers have no window)
+globalThis.syncService = syncService;

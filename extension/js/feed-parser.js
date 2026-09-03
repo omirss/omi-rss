@@ -120,19 +120,24 @@ class FeedParser {
 
   // Parse XML feeds (RSS/Atom)
   async parseXMLFeed(xmlText, feedUrl) {
+    // Service workers have no DOMParser - fall back to a text-based parser
+    if (typeof DOMParser === 'undefined') {
+      return this.parseXMLFeedText(xmlText, feedUrl);
+    }
+
     const parser = new DOMParser();
     const doc = parser.parseFromString(xmlText, 'text/xml');
-    
+
     // Check for parse errors
     const parseError = doc.querySelector('parsererror');
     if (parseError) {
       throw new Error('Invalid XML: ' + parseError.textContent);
     }
-    
+
     // Detect feed type
     const rssElement = doc.querySelector('rss');
     const feedElement = doc.querySelector('feed');
-    
+
     if (rssElement) {
       return this.parseRSSFeed(doc, feedUrl);
     } else if (feedElement) {
@@ -140,6 +145,93 @@ class FeedParser {
     } else {
       throw new Error('Unknown XML feed format');
     }
+  }
+
+  // Text-based RSS/Atom parsing for environments without DOMParser
+  parseXMLFeedText(xmlText, feedUrl) {
+    const isAtom = /<feed[\s>]/i.test(xmlText) && !/<rss[\s>]/i.test(xmlText);
+
+    const pick = (block, tag) => {
+      const match = block.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`, 'i'));
+      return match ? this.decodeXmlEntities(match[1].replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').trim()) : null;
+    };
+
+    const readBlocks = (containerText, tag) => {
+      const blocks = [];
+      const re = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`, 'gi');
+      let match;
+      while ((match = re.exec(containerText)) !== null) {
+        blocks.push(match[1]);
+      }
+      return blocks;
+    };
+
+    let feed;
+
+    if (isAtom) {
+      feed = {
+        type: 'atom',
+        title: pick(xmlText, 'title'),
+        description: pick(xmlText, 'subtitle') || '',
+        url: feedUrl,
+        siteUrl: pick(xmlText, 'link') || feedUrl,
+        items: []
+      };
+
+      for (const entry of readBlocks(xmlText, 'entry')) {
+        const linkMatch = entry.match(/<link[^>]*href=["']([^"']+)["'][^>]*>/i);
+        feed.items.push({
+          guid: pick(entry, 'id') || (linkMatch ? linkMatch[1] : ''),
+          title: pick(entry, 'title') || 'Untitled',
+          link: (linkMatch && linkMatch[1]) || '',
+          summary: pick(entry, 'summary') || '',
+          content: pick(entry, 'content') || '',
+          published: pick(entry, 'published') || pick(entry, 'updated') || null,
+          updated: pick(entry, 'updated') || null
+        });
+      }
+    } else {
+      const channelMatch = xmlText.match(/<channel[^>]*>([\s\S]*?)<\/channel>/i);
+      const channel = channelMatch ? channelMatch[1] : xmlText;
+
+      feed = {
+        type: 'rss',
+        title: pick(channel, 'title'),
+        description: pick(channel, 'description') || '',
+        url: feedUrl,
+        siteUrl: pick(channel, 'link') || feedUrl,
+        items: []
+      };
+
+      for (const item of readBlocks(channel, 'item')) {
+        const contentEncoded = pick(item, 'content:encoded');
+        feed.items.push({
+          guid: pick(item, 'guid') || pick(item, 'link') || '',
+          title: pick(item, 'title') || 'Untitled',
+          link: pick(item, 'link') || '',
+          description: pick(item, 'description') || '',
+          content: contentEncoded || '',
+          pubDate: pick(item, 'pubDate') || null,
+          author: pick(item, 'author') || pick(item, 'dc:creator') || ''
+        });
+      }
+    }
+
+    if (!feed.title) {
+      throw new Error('Unknown XML feed format');
+    }
+
+    return feed;
+  }
+
+  // Decode common XML entities
+  decodeXmlEntities(text) {
+    return text
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;|&apos;/g, "'")
+      .replace(/&amp;/g, '&');
   }
 
   // Parse RSS 2.0 feed
@@ -417,9 +509,21 @@ class FeedParser {
 
   // Strip HTML tags from text
   stripHtml(html) {
-    const tmp = document.createElement('div');
-    tmp.innerHTML = html;
-    return tmp.textContent || tmp.innerText || '';
+    if (typeof document !== 'undefined') {
+      const tmp = document.createElement('div');
+      tmp.innerHTML = html;
+      return tmp.textContent || tmp.innerText || '';
+    }
+    return String(html)
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[\s\S]*?<\/style>/gi, '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   // Test feed URL without fully parsing

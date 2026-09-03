@@ -8,7 +8,9 @@
     "storage",
     "contextMenus",
     "notifications",
-    "sidePanel"
+    "sidePanel",
+    "scripting",
+    "downloads"
   ],
   "host_permissions": [
     "http://*/*",
@@ -38,8 +40,8 @@
       "matches": ["<all_urls>"],
       "js": [
         "js/offline-db.js",
-        "js/extractors/site-specific.js",
-        "js/content.js"
+        "js/content.js",
+        "js/extractors/site-specific.js"
       ],
       "css": ["css/content.css"],
       "run_at": "document_idle"

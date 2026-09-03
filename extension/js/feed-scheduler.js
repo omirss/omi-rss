@@ -1,8 +1,12 @@
 // Feed Update Scheduler for Browser Extension
 class FeedScheduler {
   constructor() {
-    this.storageService = new StorageService();
-    this.feedParser = new FeedParser();
+    this.storageService = (typeof storageService !== 'undefined')
+      ? storageService
+      : new StorageService();
+    this.feedParser = (typeof feedParser !== 'undefined')
+      ? feedParser
+      : new FeedParser();
     this.updateIntervals = new Map(); // feedId -> intervalId
     this.isRunning = false;
     this.defaultUpdateInterval = 3600000; // 1 hour
@@ -212,7 +216,7 @@ class FeedScheduler {
     
     chrome.notifications.create({
       type: 'basic',
-      iconUrl: feed.favicon || '/icons/icon-128.png',
+      iconUrl: feed.favicon || chrome.runtime.getURL('icons/icon-128.png'),
       title: title,
       message: message,
       buttons: [

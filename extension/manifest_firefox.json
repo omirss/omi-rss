@@ -8,15 +8,26 @@
     "storage",
     "contextMenus",
     "notifications",
-    "tabs"
+    "tabs",
+    "scripting",
+    "downloads"
   ],
   "host_permissions": [
     "http://*/*",
     "https://*/*"
   ],
   "background": {
-    "scripts": ["js/background.js"],
-    "type": "module"
+    "scripts": [
+      "js/config.js",
+      "js/api.js",
+      "js/sync-manager.js",
+      "js/storage-service.js",
+      "js/feed-parser.js",
+      "js/feed-scheduler.js",
+      "js/offline-db.js",
+      "js/sync-service.js",
+      "js/background.js"
+    ]
   },
   "action": {
     "default_popup": "popup.html",
