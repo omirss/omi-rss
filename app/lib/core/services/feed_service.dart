@@ -11,7 +11,7 @@ import '../parsers/atom_parser.dart';
 import '../parsers/json_feed_parser.dart';
 import '../database/database.dart';
 import 'feed_discovery_service.dart';
-import '../../services/feed_parser_service.dart';
+import '../../services/feed_parser_service.dart' as parser;
 
 /// Feed service for managing RSS/Atom/JSON feeds with FreshRSS features
 class FeedService {
@@ -19,7 +19,7 @@ class FeedService {
   final RssParser _rssParser;
   final AtomParser _atomParser;
   final JsonFeedParser _jsonFeedParser;
-  final FeedParserService _feedParserService;
+  final parser.FeedParserService _feedParserService;
   final AppDatabase? _database;
   final FeedDiscoveryService? _discoveryService;
   
@@ -38,12 +38,12 @@ class FeedService {
     Dio? dio,
     AppDatabase? database,
     FeedDiscoveryService? discoveryService,
-    FeedParserService? feedParserService,
+    parser.FeedParserService? feedParserService,
   }) : _dio = dio ?? Dio(),
         _rssParser = RssParser(),
         _atomParser = AtomParser(),
         _jsonFeedParser = JsonFeedParser(),
-        _feedParserService = feedParserService ?? FeedParserService(dio: dio),
+        _feedParserService = feedParserService ?? parser.FeedParserService(dio: dio),
         _database = database,
         _discoveryService = discoveryService {
     // Configure Dio
@@ -58,7 +58,7 @@ class FeedService {
   /// Subscribe to a new feed
   Future<Feed> subscribeFeed(String url) async {
     try {
-      // Use the new FeedParserService to parse the feed
+      // Parse the feed
       final parsedFeed = await _feedParserService.parseFeed(url);
       
       // Generate unique ID for the feed
@@ -71,13 +71,13 @@ class FeedService {
       // Map FeedType from parser to model
       FeedType feedType;
       switch (parsedFeed.type) {
-        case FeedParserService.FeedType.rss:
+        case parser.FeedType.rss:
           feedType = FeedType.rss;
           break;
-        case FeedParserService.FeedType.atom:
+        case parser.FeedType.atom:
           feedType = FeedType.atom;
           break;
-        case FeedParserService.FeedType.json:
+        case parser.FeedType.json:
           feedType = FeedType.json;
           break;
         default:
@@ -118,7 +118,7 @@ class FeedService {
     final startTime = DateTime.now();
     
     try {
-      // Use the new FeedParserService to parse the feed
+      // Parse the feed
       final parsedFeed = await _feedParserService.parseFeed(feed.url);
       final responseTime = DateTime.now().difference(startTime);
       

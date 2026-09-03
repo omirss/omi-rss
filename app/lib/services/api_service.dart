@@ -33,6 +33,10 @@ class ApiService {
     ));
   }
 
+  void updateBaseUrl(String url) {
+    _dio.options.baseUrl = url;
+  }
+
   // Authentication endpoints
   Future<Map<String, dynamic>> login(String email, String password) async {
     try {

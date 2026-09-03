@@ -9,13 +9,8 @@ import '../components/glass_snack_bar.dart';
 import '../components/glass_dialog.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../../providers/feed_provider.dart';
 import '../../providers/statistics_provider.dart';
 import '../../providers/analytics_provider.dart';
-import '../../providers/paywall_provider.dart';
-import '../../features/paywall/paywall_bypass_dialog.dart';
-import '../../providers/tts_provider.dart';
-import '../../features/tts/tts_controls.dart';
 import '../../features/gestures/gesture_detector_wrapper.dart';
 import '../../providers/offline_provider.dart';
 import '../../providers/article_actions_provider.dart';
@@ -133,16 +128,6 @@ class _ArticleReaderScreenState extends ConsumerState<ArticleReaderScreen> {
       
       // Start reading session
       ref.read(readingSessionProvider.notifier).startSession(widget.article.id);
-      
-      // Auto-play TTS if enabled
-      final ttsSettings = ref.read(ttsSettingsProvider);
-      if (ttsSettings.autoPlay) {
-        final content = widget.article.fullContent ?? 
-                       widget.article.content ?? 
-                       widget.article.summary ?? '';
-        final plainText = _stripHtml(content);
-        ref.read(ttsPlaybackProvider.notifier).playArticle(plainText);
-      }
     });
     
     // Auto-hide controls on scroll and track scroll depth
@@ -173,9 +158,6 @@ class _ArticleReaderScreenState extends ConsumerState<ArticleReaderScreen> {
   void dispose() {
     // Stop tracking time
     _stopwatch.stop();
-    
-    // Stop TTS if playing
-    ref.read(ttsPlaybackProvider.notifier).stop();
     
     // Track article read analytics
     final trackArticleRead = ref.read(trackArticleReadProvider);
@@ -390,12 +372,6 @@ class _ArticleReaderScreenState extends ConsumerState<ArticleReaderScreen> {
                   ),
                   const SizedBox(width: 8),
                   GlassButton(
-                    icon: Icons.lock_open,
-                    onPressed: () => _showPaywallBypassDialog(),
-                    variant: GlassButtonVariant.icon,
-                  ),
-                  const SizedBox(width: 8),
-                  GlassButton(
                     icon: _isOffline ? Icons.offline_pin : Icons.offline_pin_outlined,
                     onPressed: () => _toggleOfflineStatus(),
                     variant: GlassButtonVariant.icon,
@@ -414,13 +390,6 @@ class _ArticleReaderScreenState extends ConsumerState<ArticleReaderScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // TTS Controls
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: TTSControls(
-                    articleText: _stripHtml(content),
-                  ),
-                ),
                 // Reading controls
                 GlassContainer(
                   borderRadius: const BorderRadius.only(
@@ -529,25 +498,6 @@ class _ArticleReaderScreenState extends ConsumerState<ArticleReaderScreen> {
     }
   }
   
-  void _showPaywallBypassDialog() async {
-    final result = await showDialog<PaywallBypassResult>(
-      context: context,
-      builder: (context) => PaywallBypassDialog(
-        articleUrl: widget.article.url,
-        articleTitle: widget.article.title,
-      ),
-    );
-    
-    // If bypass was successful, update the article content
-    if (result != null && result.success && result.content != null) {
-      // This would ideally update the article content in the UI
-      // For now, we'll just show a success message
-      if (mounted) {
-        context.showSuccessSnackBar('Article content retrieved successfully');
-      }
-    }
-  }
-
   void _showReaderSettings(BuildContext context) {
     final settings = ref.read(readerSettingsProvider);
     

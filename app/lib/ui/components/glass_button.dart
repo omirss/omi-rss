@@ -22,6 +22,7 @@ class GlassButton extends StatefulWidget {
   final double? height;
   final GlassButtonVariant variant;
   final Color? textColor;
+  final Color? iconColor;
   final double? fontSize;
   final EdgeInsets? padding;
   final GlassThemeData? theme;
@@ -37,6 +38,7 @@ class GlassButton extends StatefulWidget {
     this.height = 56,
     this.variant = GlassButtonVariant.elevated,
     this.textColor,
+    this.iconColor,
     this.fontSize = 16,
     this.padding,
     this.theme,
@@ -391,7 +393,7 @@ class _GlassButtonState extends State<GlassButton>
       return Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(widget.icon, color: color, size: 20),
+          Icon(widget.icon, color: widget.iconColor ?? color, size: 20),
           const SizedBox(width: 8),
           Text(
             widget.text!,
@@ -406,7 +408,7 @@ class _GlassButtonState extends State<GlassButton>
     } else if (widget.icon != null) {
       return Icon(
         widget.icon,
-        color: color,
+        color: widget.iconColor ?? color,
         size: widget.variant == GlassButtonVariant.fab ? 28 : 24,
       );
     } else {

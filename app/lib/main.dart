@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'config/api_config.dart';
 import 'ui/glass_theme.dart';
 import 'ui/animations/particle_background.dart';
 import 'ui/layouts/three_column_layout.dart';
@@ -12,22 +12,15 @@ import 'ui/components/glass_dialog.dart';
 import 'ui/components/glass_snack_bar.dart';
 import 'ui/components/glass_drawer.dart';
 import 'ui/components/glass_tooltip.dart';
-import 'ui/screens/extension_popup_screen.dart';
 import 'ui/screens/article_reader_screen.dart';
-import 'core/services/extension_service.dart';
 import 'providers/database_provider.dart';
 import 'providers/feed_provider.dart';
 import 'providers/auth_provider.dart';
-import 'providers/api_feed_provider.dart';
+import 'providers/api_feed_provider.dart' hide feedsProvider, articlesProvider;
 import 'providers/opml_provider.dart';
 import 'ui/screens/auth/login_screen.dart';
-import 'ui/screens/sync_screen.dart';
-import 'ui/screens/article_reader_screen.dart';
 import 'ui/screens/settings_screen.dart';
 import 'ui/screens/statistics_screen.dart';
-import 'ui/screens/feed_generation_screen.dart';
-import 'ui/screens/ai_dashboard_screen.dart';
-import 'ui/screens/market_dashboard_screen.dart';
 import 'ui/screens/discover_screen.dart';
 import 'ui/screens/saved_articles_screen.dart';
 import 'features/analytics/analytics_dashboard.dart';
@@ -35,12 +28,10 @@ import 'features/search/search_page.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-import 'dart:html' as html;
 
-// Starred providers for tracking current view
-final showStarredProvider = StateProvider<bool>((ref) => false);
-
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await ApiConfig.load();
   runApp(
     const ProviderScope(
       child: RSSGlassmorphismReaderApp(),
@@ -59,13 +50,6 @@ class _RSSGlassmorphismReaderAppState extends ConsumerState<RSSGlassmorphismRead
   @override
   void initState() {
     super.initState();
-    // Initialize extension service if running on web
-    if (kIsWeb) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        ref.read(extensionServiceProvider).initialize();
-      });
-    }
-    
     // Initialize database and sample feeds
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       // Ensure database is initialized
@@ -75,19 +59,9 @@ class _RSSGlassmorphismReaderAppState extends ConsumerState<RSSGlassmorphismRead
       ref.read(initializeSampleFeedsProvider);
     });
   }
-
+  
   @override
   Widget build(BuildContext context) {
-    // Check if running as extension popup
-    bool isExtensionPopup = false;
-    if (kIsWeb) {
-      final extensionService = ref.watch(extensionServiceProvider);
-      isExtensionPopup = html.window.location.pathname.contains('popup.html') ||
-          (extensionService.isRunningInExtension && 
-           html.window.innerWidth! <= 400 && 
-           html.window.innerHeight! <= 600);
-    }
-
     return MaterialApp(
       title: 'RSS Glassmorphism Reader',
       theme: ThemeData(
@@ -98,9 +72,7 @@ class _RSSGlassmorphismReaderAppState extends ConsumerState<RSSGlassmorphismRead
       debugShowCheckedModeBanner: false,
       initialRoute: '/',
       routes: {
-        '/': (context) => isExtensionPopup
-            ? const ExtensionPopupScreen()
-            : const AuthenticationWrapper(),
+        '/': (context) => const AuthenticationWrapper(),
         '/login': (context) => const GlassTheme(
               data: GlassThemeData.defaultTheme,
               child: LoginScreen(),
@@ -275,7 +247,6 @@ class _HomePageState extends ConsumerState<HomePage> {
                 Consumer(
                   builder: (context, ref, child) {
                     final feedsAsync = ref.watch(feedsProvider);
-                    final articlesAsync = ref.watch(articlesProvider(ArticleQuery()));
                     final selectedFeedId = ref.watch(selectedFeedProvider);
                     
                     return feedsAsync.when(
@@ -298,7 +269,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                                   onTap: () {
                                     ref.read(selectedFeedProvider.notifier).state = null;
                                     ref.read(showStarredProvider.notifier).state = false;
-                                    ref.read(articleFilterProvider.notifier).all();
+                                    ref.read(articleFilterProvider.notifier).showAll();
                                   },
                                 );
                               },
@@ -309,7 +280,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                               return Consumer(
                                 builder: (context, ref, child) {
                                   final feedArticles = ref.watch(
-                                    articlesProvider(ArticleQuery(feedId: int.tryParse(feed.id))),
+                                    apiArticlesProvider(ArticleQuery(feedId: int.tryParse(feed.id))),
                                   );
                                   final unreadCount = feedArticles.maybeWhen(
                                     data: (articles) => articles.where((a) => !a.isRead).length,
@@ -347,7 +318,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                                   onTap: () {
                                     ref.read(selectedFeedProvider.notifier).state = null;
                                     ref.read(showStarredProvider.notifier).state = true;
-                                    ref.read(articleFilterProvider.notifier).starred();
+                                    ref.read(articleFilterProvider.notifier).showStarred();
                                   },
                                 );
                               },
@@ -769,7 +740,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 const Text(
-                                  'Omi RSS Reader is a modern, AI-powered RSS reader with beautiful glassmorphism design.',
+                                  'Omi RSS Reader is a modern, local-first RSS reader with beautiful glassmorphism design.',
                                   style: TextStyle(fontSize: 16),
                                 ),
                                 const SizedBox(height: 16),
@@ -781,12 +752,12 @@ class _HomePageState extends ConsumerState<HomePage> {
                                   ),
                                 ),
                                 const SizedBox(height: 8),
-                                _buildFeatureItem(Icons.psychology, 'AI-powered article analysis'),
-                                _buildFeatureItem(Icons.trending_up, 'Real-time market data integration'),
-                                _buildFeatureItem(Icons.auto_awesome, 'Smart feed generation'),
-                                _buildFeatureItem(Icons.sync, 'Cross-device synchronization'),
-                                _buildFeatureItem(Icons.folder_shared, 'Collaborative folders'),
-                                _buildFeatureItem(Icons.lock, 'End-to-end encryption'),
+                                _buildFeatureItem(Icons.rss_feed, 'Local-first feed subscriptions'),
+                                _buildFeatureItem(Icons.article, 'Full-text article reading'),
+                                _buildFeatureItem(Icons.download_for_offline, 'Offline reading'),
+                                _buildFeatureItem(Icons.star, 'Starred articles'),
+                                _buildFeatureItem(Icons.import_export, 'OPML import and export'),
+                                _buildFeatureItem(Icons.bar_chart, 'Reading statistics'),
                                 const SizedBox(height: 16),
                                 const Text(
                                   'Version: 1.0.0',
@@ -830,16 +801,10 @@ class _HomePageState extends ConsumerState<HomePage> {
               crossAxisSpacing: 16,
               children: [
                 _buildFeatureCard(
-                  'AI Perspectives',
-                  'Get multiple viewpoints on any article',
-                  Icons.psychology,
+                  'All Your Feeds',
+                  'Subscribe to any RSS, Atom, or JSON feed',
+                  Icons.rss_feed,
                   GlassColors.primaryGradient,
-                ),
-                _buildFeatureCard(
-                  'Market Data',
-                  'Real-time financial information',
-                  Icons.trending_up,
-                  GlassColors.secondaryGradient,
                 ),
                 _buildFeatureCard(
                   'Full Text',
@@ -848,9 +813,15 @@ class _HomePageState extends ConsumerState<HomePage> {
                   GlassColors.accentGradient,
                 ),
                 _buildFeatureCard(
-                  'Sync Everywhere',
-                  'Access your feeds on any device',
-                  Icons.sync,
+                  'Offline Reading',
+                  'Save articles for later',
+                  Icons.download_for_offline,
+                  GlassColors.secondaryGradient,
+                ),
+                _buildFeatureCard(
+                  'Starred Articles',
+                  'Keep track of what matters',
+                  Icons.star,
                   GlassColors.auroraColors.sublist(0, 2),
                 ),
               ],
@@ -997,47 +968,6 @@ class _HomePageState extends ConsumerState<HomePage> {
           },
         ),
         GlassDrawerItem(
-          id: 'generate',
-          title: 'Generate Feed',
-          icon: Icons.auto_awesome,
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => const FeedGenerationScreen(),
-              ),
-            );
-          },
-        ),
-        GlassDrawerItem(
-          id: 'ai',
-          title: 'AI Analysis',
-          icon: Icons.psychology,
-          badge: 'NEW',
-          badgeColor: Colors.green,
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => const AIDashboardScreen(),
-              ),
-            );
-          },
-        ),
-        GlassDrawerItem(
-          id: 'market',
-          title: 'Market Data',
-          icon: Icons.trending_up,
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => const MarketDashboardScreen(),
-              ),
-            );
-          },
-        ),
-        GlassDrawerItem(
           id: 'analytics',
           title: 'Analytics',
           icon: Icons.analytics,
@@ -1099,32 +1029,6 @@ class _HomePageState extends ConsumerState<HomePage> {
               onTap: () {
                 Navigator.of(context).pop();
                 _exportOPML(context);
-              },
-            ),
-            ListTile(
-              leading: Icon(
-                Icons.sync,
-                color: Colors.white.withOpacity(0.7),
-                size: 20,
-              ),
-              title: Text(
-                'Sync & Backup',
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.9),
-                  fontSize: 14,
-                ),
-              ),
-              onTap: () {
-                Navigator.of(context).pop();
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const GlassTheme(
-                      data: GlassThemeData.defaultTheme,
-                      child: SyncScreen(),
-                    ),
-                  ),
-                );
               },
             ),
             ListTile(

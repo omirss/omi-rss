@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'package:dio/dio.dart';
-import '../../models/article.dart';
+import '../../core/models/article.dart';
 
 // Search result model
 class SearchResult {

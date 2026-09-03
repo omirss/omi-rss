@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
-import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import '../../core/models/article.dart';
 import '../../core/models/feed.dart';
 import '../components/glass_card.dart';
@@ -103,8 +101,6 @@ class ArticleList extends ConsumerStatefulWidget {
 }
 
 class _ArticleListState extends ConsumerState<ArticleList> {
-  final ItemScrollController _itemScrollController = ItemScrollController();
-  final ItemPositionsListener _itemPositionsListener = ItemPositionsListener.create();
   final Set<String> _selectedArticleIds = {};
   bool _isSelectionMode = false;
   
@@ -162,11 +158,7 @@ class _ArticleListState extends ConsumerState<ArticleList> {
       return _buildEmptyState();
     }
     
-    if (widget.enableVirtualization && articles.length > 50) {
-      return _buildVirtualizedList(articles);
-    } else {
-      return _buildRegularList(articles);
-    }
+    return _buildRegularList(articles);
   }
   
   Widget _buildEmptyState() {
@@ -204,33 +196,11 @@ class _ArticleListState extends ConsumerState<ArticleList> {
     );
   }
   
-  Widget _buildVirtualizedList(List<Article> articles) {
-    return ScrollablePositionedList.builder(
+  Widget _buildRegularList(List<Article> articles) {
+    return ListView.builder(
+      controller: widget.scrollController,
       itemCount: articles.length,
       itemBuilder: (context, index) => _buildArticleItem(articles[index], index),
-      itemScrollController: _itemScrollController,
-      itemPositionsListener: _itemPositionsListener,
-    );
-  }
-  
-  Widget _buildRegularList(List<Article> articles) {
-    return AnimationLimiter(
-      child: ListView.builder(
-        controller: widget.scrollController,
-        itemCount: articles.length,
-        itemBuilder: (context, index) {
-          return AnimationConfiguration.staggeredList(
-            position: index,
-            duration: const Duration(milliseconds: 375),
-            child: SlideAnimation(
-              verticalOffset: 50.0,
-              child: FadeInAnimation(
-                child: _buildArticleItem(articles[index], index),
-              ),
-            ),
-          );
-        },
-      ),
     );
   }
   

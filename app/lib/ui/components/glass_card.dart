@@ -18,6 +18,8 @@ class GlassCard extends StatefulWidget {
   final bool enableLongPressMenu;
   final List<PopupMenuItem>? longPressMenuItems;
   final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
+  final Color? borderColor;
   final GlassThemeData? theme;
   
   const GlassCard({
@@ -35,6 +37,8 @@ class GlassCard extends StatefulWidget {
     this.enableLongPressMenu = false,
     this.longPressMenuItems,
     this.onTap,
+    this.onLongPress,
+    this.borderColor,
     this.theme,
   }) : assert(elevation >= 1 && elevation <= 5, 'Elevation must be between 1 and 5');
 
@@ -105,7 +109,8 @@ class _GlassCardState extends State<GlassCard> with SingleTickerProviderStateMix
                 ),
               ],
               onTap: widget.onTap,
-              onLongPress: widget.enableLongPressMenu ? _showLongPressMenu : null,
+              onLongPress: widget.enableLongPressMenu ? _showLongPressMenu : widget.onLongPress,
+              borderColor: widget.borderColor,
               child: Stack(
                 children: [
                   widget.child,

@@ -4,7 +4,6 @@ import 'package:webfeed/webfeed.dart';
 import 'package:xml/xml.dart' as xml;
 import 'package:html/parser.dart' as html_parser;
 import 'package:logger/logger.dart';
-import '../database/database.dart';
 
 class FeedParserService {
   final Dio _dio;

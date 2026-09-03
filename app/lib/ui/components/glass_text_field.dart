@@ -18,8 +18,8 @@ class GlassTextField extends StatefulWidget {
   final String? hintText;
   final String? errorText;
   final String? helperText;
-  final IconData? prefixIcon;
-  final IconData? suffixIcon;
+  final Object? prefixIcon;
+  final Object? suffixIcon;
   final bool obscureText;
   final bool enablePasswordToggle;
   final bool enableClearButton;
@@ -35,6 +35,8 @@ class GlassTextField extends StatefulWidget {
   final GlassThemeData? theme;
   final bool enabled;
   final FocusNode? focusNode;
+  final String? initialValue;
+  final TextStyle? textStyle;
   
   const GlassTextField({
     super.key,
@@ -60,6 +62,8 @@ class GlassTextField extends StatefulWidget {
     this.theme,
     this.enabled = true,
     this.focusNode,
+    this.initialValue,
+    this.textStyle,
   });
 
   @override
@@ -84,7 +88,9 @@ class _GlassTextFieldState extends State<GlassTextField>
   void initState() {
     super.initState();
     
-    _controller = widget.controller ?? TextEditingController();
+    _controller = widget.controller ?? TextEditingController(
+      text: widget.initialValue,
+    );
     _focusNode = widget.focusNode ?? FocusNode();
     _obscureText = widget.obscureText;
     
@@ -246,10 +252,11 @@ class _GlassTextFieldState extends State<GlassTextField>
       onChanged: widget.onChanged,
       onEditingComplete: widget.onEditingComplete,
       onSubmitted: widget.onSubmitted,
-      style: TextStyle(
-        color: widget.enabled ? Colors.white : Colors.white.withOpacity(0.5),
-        fontSize: 16,
-      ),
+      style: widget.textStyle ??
+          TextStyle(
+            color: widget.enabled ? Colors.white : Colors.white.withOpacity(0.5),
+            fontSize: 16,
+          ),
       decoration: InputDecoration(
         labelText: widget.labelText,
         hintText: widget.hintText,
@@ -264,15 +271,25 @@ class _GlassTextFieldState extends State<GlassTextField>
         contentPadding: const EdgeInsets.all(16),
         border: InputBorder.none,
         counterText: '',
-        prefixIcon: widget.prefixIcon != null || widget.isSearch
-            ? Icon(
-                widget.prefixIcon ?? Icons.search,
-                color: Colors.white.withOpacity(0.7),
-              )
-            : null,
+        prefixIcon: _buildPrefixIcon(),
         suffixIcon: _buildSuffixIcon(),
       ),
     );
+  }
+  
+  Widget? _buildPrefixIcon() {
+    final icon = widget.prefixIcon;
+    if (icon is Widget) return icon;
+    if (icon is IconData) {
+      return Icon(icon, color: Colors.white.withOpacity(0.7));
+    }
+    if (widget.isSearch) {
+      return Icon(
+        Icons.search,
+        color: Colors.white.withOpacity(0.7),
+      );
+    }
+    return null;
   }
   
   Widget? _buildSuffixIcon() {
@@ -313,12 +330,17 @@ class _GlassTextFieldState extends State<GlassTextField>
     
     // Custom suffix icon
     if (widget.suffixIcon != null) {
-      icons.add(
-        Icon(
-          widget.suffixIcon,
-          color: Colors.white.withOpacity(0.7),
-        ),
-      );
+      final suffix = widget.suffixIcon;
+      if (suffix is Widget) {
+        icons.add(suffix);
+      } else if (suffix is IconData) {
+        icons.add(
+          Icon(
+            suffix,
+            color: Colors.white.withOpacity(0.7),
+          ),
+        );
+      }
     }
     
     if (icons.isEmpty) return null;

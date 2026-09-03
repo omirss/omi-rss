@@ -15,6 +15,7 @@ class GlassContainer extends StatefulWidget {
   final EdgeInsets? padding;
   final EdgeInsets? margin;
   final List<Color>? gradientColors;
+  final Color? borderColor;
   final VoidCallback? onTap;
   final VoidCallback? onLongPress;
   final bool enableHover;
@@ -33,6 +34,7 @@ class GlassContainer extends StatefulWidget {
     this.padding,
     this.margin,
     this.gradientColors,
+    this.borderColor,
     this.onTap,
     this.onLongPress,
     this.enableHover = true,
@@ -166,7 +168,7 @@ class _GlassContainerState extends State<GlassContainer>
                               ),
                               borderRadius: widget.borderRadius ?? theme.borderRadius,
                               border: Border.all(
-                                color: theme.borderColor,
+                                color: widget.borderColor ?? theme.borderColor,
                                 width: theme.borderWidth,
                               ),
                               boxShadow: [

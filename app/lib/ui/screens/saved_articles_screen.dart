@@ -10,7 +10,6 @@ import '../components/glass_dialog.dart';
 import '../components/glass_text_field.dart';
 import '../widgets/article_list.dart';
 import '../../providers/feed_provider.dart';
-import '../../providers/article_actions_provider.dart';
 import '../../core/models/article.dart';
 import 'article_reader_screen.dart';
 

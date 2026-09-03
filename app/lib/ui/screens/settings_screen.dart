@@ -8,14 +8,14 @@ import '../components/glass_text_field.dart';
 import '../components/glass_switch.dart';
 import '../components/glass_snack_bar.dart';
 import '../components/glass_dialog.dart';
-import '../../providers/feed_provider.dart';
-import '../../providers/sync_provider.dart';
 import '../../providers/opml_provider.dart';
+import '../../services/api_service.dart';
+import '../../config/api_config.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 // Settings provider
 final settingsProvider = StateNotifierProvider<SettingsNotifier, AppSettings>((ref) {
-  return SettingsNotifier();
+  return SettingsNotifier(ref);
 });
 
 class AppSettings {
@@ -29,6 +29,7 @@ class AppSettings {
   final bool enableOfflineMode;
   final bool enableSmartCategorization;
   final String corsProxy;
+  final String serverUrl;
   
   AppSettings({
     this.autoUpdateFeeds = true,
@@ -41,6 +42,7 @@ class AppSettings {
     this.enableOfflineMode = true,
     this.enableSmartCategorization = false,
     this.corsProxy = 'https://api.allorigins.win/raw?url=',
+    this.serverUrl = '',
   });
   
   AppSettings copyWith({
@@ -54,6 +56,7 @@ class AppSettings {
     bool? enableOfflineMode,
     bool? enableSmartCategorization,
     String? corsProxy,
+    String? serverUrl,
   }) {
     return AppSettings(
       autoUpdateFeeds: autoUpdateFeeds ?? this.autoUpdateFeeds,
@@ -66,12 +69,15 @@ class AppSettings {
       enableOfflineMode: enableOfflineMode ?? this.enableOfflineMode,
       enableSmartCategorization: enableSmartCategorization ?? this.enableSmartCategorization,
       corsProxy: corsProxy ?? this.corsProxy,
+      serverUrl: serverUrl ?? this.serverUrl,
     );
   }
 }
 
 class SettingsNotifier extends StateNotifier<AppSettings> {
-  SettingsNotifier() : super(AppSettings()) {
+  final Ref ref;
+  
+  SettingsNotifier(this.ref) : super(AppSettings()) {
     _loadSettings();
   }
   
@@ -88,6 +94,7 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
       enableOfflineMode: prefs.getBool('enableOfflineMode') ?? true,
       enableSmartCategorization: prefs.getBool('enableSmartCategorization') ?? false,
       corsProxy: prefs.getString('corsProxy') ?? 'https://api.allorigins.win/raw?url=',
+      serverUrl: ApiConfig.baseUrl,
     );
   }
   
@@ -153,6 +160,12 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
   void setCorsProxy(String proxy) {
     state = state.copyWith(corsProxy: proxy);
     _saveSettings();
+  }
+  
+  void setServerUrl(String url) {
+    state = state.copyWith(serverUrl: url);
+    ApiConfig.setServerUrl(url);
+    ref.read(apiServiceProvider).updateBaseUrl(ApiConfig.baseUrl);
   }
 }
 
@@ -259,11 +272,20 @@ class SettingsScreen extends ConsumerWidget {
             const SizedBox(height: 24),
             
             // Sync Settings
-            _buildSectionHeader('Sync & Notifications'),
+            _buildSectionHeader('Server & Sync'),
             GlassContainer(
               padding: const EdgeInsets.all(20),
               child: Column(
                 children: [
+                  _buildTextSetting(
+                    'Server URL',
+                    'Self-hosted server API URL (empty for local-only mode)',
+                    Icons.dns,
+                    settings.serverUrl,
+                    (value) => ref.read(settingsProvider.notifier).setServerUrl(value),
+                    hintText: 'http://localhost:8080/api',
+                  ),
+                  const Divider(color: Colors.white24, height: 32),
                   _buildSwitchTile(
                     'Enable Sync',
                     'Sync data between devices',
@@ -545,8 +567,9 @@ class SettingsScreen extends ConsumerWidget {
     String subtitle,
     IconData icon,
     String value,
-    Function(String) onChanged,
-  ) {
+    Function(String) onChanged, {
+    String hintText = 'Enter proxy URL',
+  }) {
     return Column(
       children: [
         Row(
@@ -588,7 +611,7 @@ class SettingsScreen extends ConsumerWidget {
         ),
         const SizedBox(height: 12),
         GlassTextField(
-          hintText: 'Enter proxy URL',
+          hintText: hintText,
           initialValue: value,
           onChanged: onChanged,
           textStyle: const TextStyle(fontSize: 14),
@@ -699,6 +722,7 @@ class SettingsScreen extends ConsumerWidget {
           onPressed: () {
             Navigator.of(context).pop();
             // Reset to default settings
+            ref.read(settingsProvider.notifier).setServerUrl('');
             ref.read(settingsProvider.notifier).state = AppSettings();
             context.showSuccessSnackBar('Settings reset to defaults');
           },

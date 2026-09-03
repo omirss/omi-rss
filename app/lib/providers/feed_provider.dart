@@ -1,7 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import '../core/services/feed_service.dart';
-import '../core/services/feed_discovery_service.dart';
+import '../core/services/feed_discovery_service.dart' hide DiscoveredFeed;
 import '../core/database/database.dart';
 import '../core/models/feed.dart';
 import '../core/models/article.dart';

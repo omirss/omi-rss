@@ -7,8 +7,6 @@ import 'tables/feeds_table.dart';
 import 'tables/articles_table.dart';
 import 'tables/categories_table.dart';
 import 'tables/settings_table.dart';
-import 'tables/bypass_rules_table.dart';
-import 'tables/market_watchlist_table.dart';
 import 'tables/sync_metadata_table.dart';
 import '../models/folder.dart';
 import 'daos/feed_dao.dart';
@@ -26,8 +24,6 @@ part 'database.g.dart';
     ArticlesTable,
     CategoriesTable,
     SettingsTable,
-    BypassRulesTable,
-    MarketWatchlistTable,
     SyncMetadataTable,
     FoldersTable,
     FolderFeedsTable,

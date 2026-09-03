@@ -1,33 +1,41 @@
-import 'package:freezed_annotation/freezed_annotation.dart';
-
-part 'feed_statistics.freezed.dart';
-part 'feed_statistics.g.dart';
-
 /// Feed statistics model
-@freezed
-class FeedStatistics with _$FeedStatistics {
-  const factory FeedStatistics({
-    required String feedId,
-    required int totalArticles,
-    required int unreadArticles,
-    required int starredArticles,
-    required double articlesPerDay,
-    required double readRate,
-    required DateTime? lastArticleDate,
-    required DateTime? oldestArticleDate,
-    required int averageArticleLength,
-    required Map<String, int> articlesByHour,
-    required Map<String, int> articlesByDayOfWeek,
-    required Map<String, int> articlesByMonth,
-    required List<String> topKeywords,
-    required List<String> topAuthors,
-    required int totalReadingTimeMinutes,
-    required DateTime lastUpdated,
-  }) = _FeedStatistics;
-  
-  factory FeedStatistics.fromJson(Map<String, dynamic> json) =>
-      _$FeedStatisticsFromJson(json);
-  
+class FeedStatistics {
+  final String feedId;
+  final int totalArticles;
+  final int unreadArticles;
+  final int starredArticles;
+  final double articlesPerDay;
+  final double readRate;
+  final DateTime? lastArticleDate;
+  final DateTime? oldestArticleDate;
+  final int averageArticleLength;
+  final Map<String, int> articlesByHour;
+  final Map<String, int> articlesByDayOfWeek;
+  final Map<String, int> articlesByMonth;
+  final List<String> topKeywords;
+  final List<String> topAuthors;
+  final int totalReadingTimeMinutes;
+  final DateTime lastUpdated;
+
+  const FeedStatistics({
+    required this.feedId,
+    required this.totalArticles,
+    required this.unreadArticles,
+    required this.starredArticles,
+    required this.articlesPerDay,
+    required this.readRate,
+    required this.lastArticleDate,
+    required this.oldestArticleDate,
+    required this.averageArticleLength,
+    required this.articlesByHour,
+    required this.articlesByDayOfWeek,
+    required this.articlesByMonth,
+    required this.topKeywords,
+    required this.topAuthors,
+    required this.totalReadingTimeMinutes,
+    required this.lastUpdated,
+  });
+
   factory FeedStatistics.empty(String feedId) => FeedStatistics(
     feedId: feedId,
     totalArticles: 0,
@@ -49,79 +57,105 @@ class FeedStatistics with _$FeedStatistics {
 }
 
 /// Aggregated statistics for multiple feeds
-@freezed
-class AggregatedStatistics with _$AggregatedStatistics {
-  const factory AggregatedStatistics({
-    required int totalFeeds,
-    required int activeFeeds,
-    required int totalArticles,
-    required int unreadArticles,
-    required int starredArticles,
-    required double averageArticlesPerDay,
-    required double averageReadRate,
-    required Map<String, int> articlesByCategory,
-    required Map<String, double> healthByCategory,
-    required List<FeedPerformance> topPerformingFeeds,
-    required List<FeedPerformance> worstPerformingFeeds,
-    required Map<DateTime, int> articlesOverTime,
-    required int totalReadingTimeMinutes,
-    required DateTime lastUpdated,
-  }) = _AggregatedStatistics;
-  
-  factory AggregatedStatistics.fromJson(Map<String, dynamic> json) =>
-      _$AggregatedStatisticsFromJson(json);
+class AggregatedStatistics {
+  final int totalFeeds;
+  final int activeFeeds;
+  final int totalArticles;
+  final int unreadArticles;
+  final int starredArticles;
+  final double averageArticlesPerDay;
+  final double averageReadRate;
+  final Map<String, int> articlesByCategory;
+  final Map<String, double> healthByCategory;
+  final List<FeedPerformance> topPerformingFeeds;
+  final List<FeedPerformance> worstPerformingFeeds;
+  final Map<DateTime, int> articlesOverTime;
+  final int totalReadingTimeMinutes;
+  final DateTime lastUpdated;
+
+  const AggregatedStatistics({
+    required this.totalFeeds,
+    required this.activeFeeds,
+    required this.totalArticles,
+    required this.unreadArticles,
+    required this.starredArticles,
+    required this.averageArticlesPerDay,
+    required this.averageReadRate,
+    required this.articlesByCategory,
+    required this.healthByCategory,
+    required this.topPerformingFeeds,
+    required this.worstPerformingFeeds,
+    required this.articlesOverTime,
+    required this.totalReadingTimeMinutes,
+    required this.lastUpdated,
+  });
 }
 
 /// Feed performance metrics
-@freezed
-class FeedPerformance with _$FeedPerformance {
-  const factory FeedPerformance({
-    required String feedId,
-    required String feedTitle,
-    required double healthScore,
-    required double articlesPerDay,
-    required double readRate,
-    required int errorCount,
-    required DateTime? lastSuccessfulUpdate,
-    required Duration averageUpdateTime,
-  }) = _FeedPerformance;
-  
-  factory FeedPerformance.fromJson(Map<String, dynamic> json) =>
-      _$FeedPerformanceFromJson(json);
+class FeedPerformance {
+  final String feedId;
+  final String feedTitle;
+  final double healthScore;
+  final double articlesPerDay;
+  final double readRate;
+  final int errorCount;
+  final DateTime? lastSuccessfulUpdate;
+  final Duration averageUpdateTime;
+
+  const FeedPerformance({
+    required this.feedId,
+    required this.feedTitle,
+    required this.healthScore,
+    required this.articlesPerDay,
+    required this.readRate,
+    required this.errorCount,
+    required this.lastSuccessfulUpdate,
+    required this.averageUpdateTime,
+  });
 }
 
 /// Reading statistics
-@freezed
-class ReadingStatistics with _$ReadingStatistics {
-  const factory ReadingStatistics({
-    required int articlesReadToday,
-    required int articlesReadThisWeek,
-    required int articlesReadThisMonth,
-    required int totalReadingTimeToday,
-    required int totalReadingTimeThisWeek,
-    required int totalReadingTimeThisMonth,
-    required double averageReadingSpeed,
-    required Map<String, int> readingTimeByCategory,
-    required Map<int, int> readingTimeByHour,
-    required List<ReadingStreak> streaks,
-    required DateTime lastUpdated,
-  }) = _ReadingStatistics;
-  
-  factory ReadingStatistics.fromJson(Map<String, dynamic> json) =>
-      _$ReadingStatisticsFromJson(json);
+class ReadingStatistics {
+  final int articlesReadToday;
+  final int articlesReadThisWeek;
+  final int articlesReadThisMonth;
+  final int totalReadingTimeToday;
+  final int totalReadingTimeThisWeek;
+  final int totalReadingTimeThisMonth;
+  final double averageReadingSpeed;
+  final Map<String, int> readingTimeByCategory;
+  final Map<int, int> readingTimeByHour;
+  final List<ReadingStreak> streaks;
+  final DateTime lastUpdated;
+
+  const ReadingStatistics({
+    required this.articlesReadToday,
+    required this.articlesReadThisWeek,
+    required this.articlesReadThisMonth,
+    required this.totalReadingTimeToday,
+    required this.totalReadingTimeThisWeek,
+    required this.totalReadingTimeThisMonth,
+    required this.averageReadingSpeed,
+    required this.readingTimeByCategory,
+    required this.readingTimeByHour,
+    required this.streaks,
+    required this.lastUpdated,
+  });
 }
 
 /// Reading streak
-@freezed
-class ReadingStreak with _$ReadingStreak {
-  const factory ReadingStreak({
-    required DateTime startDate,
-    required DateTime endDate,
-    required int daysCount,
-    required int articlesRead,
-    required bool isCurrent,
-  }) = _ReadingStreak;
-  
-  factory ReadingStreak.fromJson(Map<String, dynamic> json) =>
-      _$ReadingStreakFromJson(json);
+class ReadingStreak {
+  final DateTime startDate;
+  final DateTime endDate;
+  final int daysCount;
+  final int articlesRead;
+  final bool isCurrent;
+
+  const ReadingStreak({
+    required this.startDate,
+    required this.endDate,
+    required this.daysCount,
+    required this.articlesRead,
+    required this.isCurrent,
+  });
 }
