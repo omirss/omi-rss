@@ -1,5 +1,0 @@
-extension\
-*.bat
-*.sh
-exclude.txt
-README.md
