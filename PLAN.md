@@ -136,6 +136,9 @@ least one desktop platform.
 - OPML import/export verified against real data (both app and server paths)
 - Extension store-ready zips via `./build.sh` (replace placeholder Firefox
   gecko id with a real one)
+- Serve the Flutter web build from the server as an optional web UI (mount
+  into nginx / serve statically alongside the API; absent build = API-only).
+  On web, the app's server-URL setting defaults to its own origin
 - READMEs and this plan updated to match shipped reality
 - Tag `v0.2.0`; publish Docker image; self-host deployment guide
 
