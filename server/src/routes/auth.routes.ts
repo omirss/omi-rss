@@ -3,7 +3,7 @@ import { z } from 'zod';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { getDb } from '../database';
-import { users, oauthProviders } from '../database/schema';
+import { users } from '../database/schema';
 import { eq, or } from 'drizzle-orm';
 import { AppError } from '../middleware/errorHandler';
 import { authRateLimiter } from '../middleware/rateLimiter';
@@ -40,7 +40,7 @@ const resetPasswordSchema = z.object({
 router.post('/register', async (req, res, next) => {
   try {
     // Apply rate limiting
-    await authRateLimiter.consume(req.ip);
+    await authRateLimiter.consume(req.ip || 'unknown');
 
     // Validate request body
     const data = registerSchema.parse(req.body);
@@ -101,7 +101,7 @@ router.post('/register', async (req, res, next) => {
         role: 'user',
       },
       process.env.JWT_SECRET!,
-      { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+      { expiresIn: (process.env.JWT_EXPIRES_IN || '7d') as jwt.SignOptions['expiresIn'] },
     );
 
     logger.info(`New user registered: ${newUser.email}`);
@@ -120,7 +120,7 @@ router.post('/register', async (req, res, next) => {
 router.post('/login', async (req, res, next) => {
   try {
     // Apply rate limiting
-    await authRateLimiter.consume(req.ip);
+    await authRateLimiter.consume(req.ip || 'unknown');
 
     // Validate request body
     const data = loginSchema.parse(req.body);
@@ -134,8 +134,8 @@ router.post('/login', async (req, res, next) => {
       .where(
         or(
           eq(users.email, data.emailOrUsername),
-          eq(users.username, data.emailOrUsername)
-        )
+          eq(users.username, data.emailOrUsername),
+        ),
       )
       .limit(1);
 
@@ -169,7 +169,7 @@ router.post('/login', async (req, res, next) => {
         role: user.role,
       },
       process.env.JWT_SECRET!,
-      { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+      { expiresIn: (process.env.JWT_EXPIRES_IN || '7d') as jwt.SignOptions['expiresIn'] },
     );
 
     logger.info(`User logged in: ${user.email}`);
@@ -232,7 +232,7 @@ router.get('/verify-email/:token', async (req, res, next) => {
 router.post('/forgot-password', async (req, res, next) => {
   try {
     // Apply rate limiting
-    await authRateLimiter.consume(req.ip);
+    await authRateLimiter.consume(req.ip || 'unknown');
 
     // Validate request body
     const data = forgotPasswordSchema.parse(req.body);
@@ -358,7 +358,7 @@ router.post('/refresh', async (req, res, next) => {
         role: user.role,
       },
       process.env.JWT_SECRET!,
-      { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+      { expiresIn: (process.env.JWT_EXPIRES_IN || '7d') as jwt.SignOptions['expiresIn'] },
     );
 
     res.json({ token });
@@ -371,7 +371,6 @@ router.post('/refresh', async (req, res, next) => {
 router.get('/oauth/:provider/callback', async (req, res, next) => {
   try {
     const { provider } = req.params;
-    const { code, state } = req.query;
 
     // Handle OAuth callback based on provider
     // This would integrate with passport strategies

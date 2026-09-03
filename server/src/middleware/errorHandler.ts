@@ -1,4 +1,4 @@
-import { Request, Response, NextFunction } from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import { ZodError } from 'zod';
 import { logger } from '../utils/logger';
 
@@ -14,8 +14,8 @@ export class AppError extends Error {
   }
 }
 
-export function errorHandler(err: Error, req: Request, res: Response, next: NextFunction) {
-  let error = { ...err };
+export function errorHandler(err: Error, req: Request, res: Response, _next: NextFunction) {
+  const error = { ...err };
   error.message = err.message;
 
   // Log error
@@ -71,7 +71,7 @@ export function errorHandler(err: Error, req: Request, res: Response, next: Next
 
   // Default error
   const statusCode = res.statusCode !== 200 ? res.statusCode : 500;
-  res.status(statusCode).json({
+  return res.status(statusCode).json({
     error: process.env.NODE_ENV === 'production' ? 'Internal server error' : err.message,
     ...(process.env.NODE_ENV !== 'production' && { stack: err.stack }),
     timestamp: new Date().toISOString(),

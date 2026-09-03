@@ -1,8 +1,5 @@
-import { Server as SocketIOServer, Socket } from 'socket.io';
+import type { Server as SocketIOServer, Socket } from 'socket.io';
 import jwt from 'jsonwebtoken';
-import { getDb } from '../database';
-import { users, devices } from '../database/schema';
-import { eq } from 'drizzle-orm';
 import { logger } from '../utils/logger';
 import { getRedisClient, publish, subscribe } from './redis.service';
 
@@ -19,7 +16,7 @@ export function initializeSocketIO(socketServer: SocketIOServer) {
   // Authentication middleware
   io.use(async (socket: AuthenticatedSocket, next) => {
     try {
-      const token = socket.handshake.auth.token;
+      const { token } = socket.handshake.auth;
       if (!token) {
         return next(new Error('Authentication required'));
       }
@@ -28,15 +25,6 @@ export function initializeSocketIO(socketServer: SocketIOServer) {
       const decoded = jwt.verify(token, process.env.JWT_SECRET!) as any;
       socket.userId = decoded.userId;
       socket.deviceId = socket.handshake.query.deviceId as string;
-
-      // Update device last seen
-      if (socket.deviceId) {
-        const db = getDb();
-        await db
-          .update(devices)
-          .set({ lastSyncAt: new Date() })
-          .where(eq(devices.deviceId, socket.deviceId));
-      }
 
       next();
     } catch (error) {
@@ -60,9 +48,9 @@ export function initializeSocketIO(socketServer: SocketIOServer) {
     }
 
     // Handle real-time sync
-    socket.on('sync:start', async (data) => {
+    socket.on('sync:start', async () => {
       logger.info(`Sync started for user ${socket.userId}`);
-      
+
       // Notify other devices
       socket.to(`user:${socket.userId}`).emit('sync:started', {
         deviceId: socket.deviceId,
@@ -193,10 +181,6 @@ export function initializeSocketIO(socketServer: SocketIOServer) {
     // Send notification to specific user
     io.to(`user:${data.userId}`).emit('notification', data);
   });
-
-  // Initialize market WebSocket namespace
-  const { initializeMarketWebSocket } = require('./market/websocket');
-  initializeMarketWebSocket(io);
 
   return io;
 }

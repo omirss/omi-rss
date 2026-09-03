@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { getDb } from '../database';
 import { articles, userArticleStates, feeds } from '../database/schema';
-import { eq, and, desc, asc, sql, inArray, or, ilike } from 'drizzle-orm';
+import { eq, and, desc, asc, sql, inArray, or, ilike, type SQL } from 'drizzle-orm';
 import { AppError } from '../middleware/errorHandler';
 
 const router = Router();
@@ -21,13 +21,11 @@ const filterSchema = z.object({
   isRead: z.string().transform(val => val === 'true').optional(),
   isStarred: z.string().transform(val => val === 'true').optional(),
   search: z.string().optional(),
-  tags: z.string().transform(val => val.split(',')).optional(),
 });
 
 const updateArticleStateSchema = z.object({
   isRead: z.boolean().optional(),
   isStarred: z.boolean().optional(),
-  tags: z.array(z.string()).optional(),
 });
 
 const batchUpdateSchema = z.object({
@@ -42,39 +40,7 @@ router.get('/', async (req, res, next) => {
     const filters = filterSchema.parse(req.query);
     const db = getDb();
 
-    // Build query
-    let query = db
-      .select({
-        id: articles.id,
-        feedId: articles.feedId,
-        title: articles.title,
-        link: articles.link,
-        description: articles.description,
-        content: articles.content,
-        author: articles.author,
-        publishedAt: articles.publishedAt,
-        imageUrl: articles.imageUrl,
-        enclosures: articles.enclosures,
-        isRead: userArticleStates.isRead,
-        isStarred: userArticleStates.isStarred,
-        readAt: userArticleStates.readAt,
-        tags: userArticleStates.tags,
-        feedTitle: feeds.title,
-        feedFavicon: feeds.favicon,
-      })
-      .from(articles)
-      .innerJoin(feeds, eq(articles.feedId, feeds.id))
-      .leftJoin(
-        userArticleStates,
-        and(
-          eq(userArticleStates.articleId, articles.id),
-          eq(userArticleStates.userId, req.user!.id)
-        )
-      )
-      .where(eq(feeds.userId, req.user!.id));
-
-    // Apply filters
-    const conditions = [];
+    const conditions: Array<SQL | undefined> = [eq(feeds.userId, req.user!.id)];
 
     if (filters.feedId) {
       conditions.push(eq(articles.feedId, filters.feedId));
@@ -91,8 +57,8 @@ router.get('/', async (req, res, next) => {
         conditions.push(
           or(
             eq(userArticleStates.isRead, false),
-            sql`${userArticleStates.isRead} IS NULL`
-          )
+            sql`${userArticleStates.isRead} IS NULL`,
+          ),
         );
       }
     }
@@ -105,34 +71,51 @@ router.get('/', async (req, res, next) => {
       conditions.push(
         or(
           ilike(articles.title, `%${filters.search}%`),
-          ilike(articles.description, `%${filters.search}%`),
-          ilike(articles.content, `%${filters.search}%`)
-        )
+          ilike(articles.summary, `%${filters.search}%`),
+          ilike(articles.content, `%${filters.search}%`),
+        ),
       );
     }
 
-    if (conditions.length > 0) {
-      query = query.where(and(...conditions));
-    }
-
-    // Apply sorting
     const sortColumn = {
       publishedAt: articles.publishedAt,
       title: articles.title,
       feedTitle: feeds.title,
     }[pagination.sortBy];
 
-    if (pagination.sortOrder === 'desc') {
-      query = query.orderBy(desc(sortColumn));
-    } else {
-      query = query.orderBy(asc(sortColumn));
-    }
-
-    // Apply pagination
     const offset = (pagination.page - 1) * pagination.limit;
-    query = query.limit(pagination.limit).offset(offset);
 
-    const articleList = await query;
+    const articleList = await db
+      .select({
+        id: articles.id,
+        feedId: articles.feedId,
+        title: articles.title,
+        url: articles.url,
+        summary: articles.summary,
+        content: articles.content,
+        author: articles.author,
+        publishedAt: articles.publishedAt,
+        imageUrl: articles.imageUrl,
+        enclosures: articles.enclosures,
+        isRead: userArticleStates.isRead,
+        isStarred: userArticleStates.isStarred,
+        readAt: userArticleStates.readAt,
+        feedTitle: feeds.title,
+        feedFavicon: feeds.favicon,
+      })
+      .from(articles)
+      .innerJoin(feeds, eq(articles.feedId, feeds.id))
+      .leftJoin(
+        userArticleStates,
+        and(
+          eq(userArticleStates.articleId, articles.id),
+          eq(userArticleStates.userId, req.user!.id),
+        ),
+      )
+      .where(and(...conditions))
+      .orderBy(pagination.sortOrder === 'desc' ? desc(sortColumn) : asc(sortColumn))
+      .limit(pagination.limit)
+      .offset(offset);
 
     // Get total count
     const [{ count }] = await db
@@ -146,7 +129,6 @@ router.get('/', async (req, res, next) => {
         ...article,
         isRead: article.isRead || false,
         isStarred: article.isStarred || false,
-        tags: article.tags || [],
       })),
       pagination: {
         page: pagination.page,
@@ -171,8 +153,8 @@ router.get('/:articleId', async (req, res, next) => {
         id: articles.id,
         feedId: articles.feedId,
         title: articles.title,
-        link: articles.link,
-        description: articles.description,
+        url: articles.url,
+        summary: articles.summary,
         content: articles.content,
         author: articles.author,
         publishedAt: articles.publishedAt,
@@ -181,7 +163,6 @@ router.get('/:articleId', async (req, res, next) => {
         isRead: userArticleStates.isRead,
         isStarred: userArticleStates.isStarred,
         readAt: userArticleStates.readAt,
-        tags: userArticleStates.tags,
         feedTitle: feeds.title,
         feedFavicon: feeds.favicon,
       })
@@ -191,14 +172,14 @@ router.get('/:articleId', async (req, res, next) => {
         userArticleStates,
         and(
           eq(userArticleStates.articleId, articles.id),
-          eq(userArticleStates.userId, req.user!.id)
-        )
+          eq(userArticleStates.userId, req.user!.id),
+        ),
       )
       .where(
         and(
           eq(articles.id, articleId),
-          eq(feeds.userId, req.user!.id)
-        )
+          eq(feeds.userId, req.user!.id),
+        ),
       )
       .limit(1);
 
@@ -231,7 +212,6 @@ router.get('/:articleId', async (req, res, next) => {
         ...article,
         isRead: true,
         isStarred: article.isStarred || false,
-        tags: article.tags || [],
       },
     });
   } catch (error) {
@@ -254,8 +234,8 @@ router.put('/:articleId/state', async (req, res, next) => {
       .where(
         and(
           eq(articles.id, articleId),
-          eq(feeds.userId, req.user!.id)
-        )
+          eq(feeds.userId, req.user!.id),
+        ),
       )
       .limit(1);
 
@@ -279,10 +259,9 @@ router.put('/:articleId/state', async (req, res, next) => {
 
     if (updates.isStarred !== undefined) {
       stateData.isStarred = updates.isStarred;
-    }
-
-    if (updates.tags !== undefined) {
-      stateData.tags = updates.tags;
+      if (updates.isStarred) {
+        stateData.starredAt = new Date();
+      }
     }
 
     await db
@@ -313,8 +292,8 @@ router.post('/batch-update', async (req, res, next) => {
       .where(
         and(
           inArray(articles.id, articleIds),
-          eq(feeds.userId, req.user!.id)
-        )
+          eq(feeds.userId, req.user!.id),
+        ),
       );
 
     const ownedArticleIds = ownedArticles.map(a => a.id);
@@ -340,10 +319,9 @@ router.post('/batch-update', async (req, res, next) => {
 
       if (updates.isStarred !== undefined) {
         stateData.isStarred = updates.isStarred;
-      }
-
-      if (updates.tags !== undefined) {
-        stateData.tags = updates.tags;
+        if (updates.isStarred) {
+          stateData.starredAt = new Date();
+        }
       }
 
       await db
@@ -370,22 +348,7 @@ router.post('/mark-all-read', async (req, res, next) => {
     const filters = filterSchema.parse(req.query);
     const db = getDb();
 
-    // Build query to find articles
-    let query = db
-      .select({ id: articles.id })
-      .from(articles)
-      .innerJoin(feeds, eq(articles.feedId, feeds.id))
-      .leftJoin(
-        userArticleStates,
-        and(
-          eq(userArticleStates.articleId, articles.id),
-          eq(userArticleStates.userId, req.user!.id)
-        )
-      )
-      .where(eq(feeds.userId, req.user!.id));
-
-    // Apply filters
-    const conditions = [];
+    const conditions: Array<SQL | undefined> = [eq(feeds.userId, req.user!.id)];
 
     if (filters.feedId) {
       conditions.push(eq(articles.feedId, filters.feedId));
@@ -399,15 +362,22 @@ router.post('/mark-all-read', async (req, res, next) => {
     conditions.push(
       or(
         eq(userArticleStates.isRead, false),
-        sql`${userArticleStates.isRead} IS NULL`
-      )
+        sql`${userArticleStates.isRead} IS NULL`,
+      ),
     );
 
-    if (conditions.length > 0) {
-      query = query.where(and(...conditions));
-    }
-
-    const unreadArticles = await query;
+    const unreadArticles = await db
+      .select({ id: articles.id })
+      .from(articles)
+      .innerJoin(feeds, eq(articles.feedId, feeds.id))
+      .leftJoin(
+        userArticleStates,
+        and(
+          eq(userArticleStates.articleId, articles.id),
+          eq(userArticleStates.userId, req.user!.id),
+        ),
+      )
+      .where(and(...conditions));
 
     // Mark all as read
     for (const article of unreadArticles) {

@@ -41,8 +41,8 @@ async function seed() {
           userId: demoUser.id,
           name: 'Technology',
           color: '#3B82F6',
-          icon: '💻',
-          sortOrder: 1,
+          icon: 'code',
+          position: 1,
         })
         .returning();
 
@@ -52,8 +52,8 @@ async function seed() {
           userId: demoUser.id,
           name: 'News',
           color: '#EF4444',
-          icon: '📰',
-          sortOrder: 2,
+          icon: 'news',
+          position: 2,
         })
         .returning();
 

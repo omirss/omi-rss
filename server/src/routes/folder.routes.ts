@@ -35,7 +35,7 @@ router.get('/', async (req, res, next) => {
         color: folders.color,
         icon: folders.icon,
         parentId: folders.parentId,
-        sortOrder: folders.sortOrder,
+        position: folders.position,
         createdAt: folders.createdAt,
         updatedAt: folders.updatedAt,
         feedCount: sql<number>`COUNT(DISTINCT ${feeds.id})`.as('feedCount'),
@@ -56,17 +56,25 @@ router.get('/', async (req, res, next) => {
       .leftJoin(articles, eq(articles.feedId, feeds.id))
       .where(eq(folders.userId, req.user!.id))
       .groupBy(folders.id)
-      .orderBy(folders.sortOrder, folders.name);
+      .orderBy(folders.position, folders.name);
 
     // Build folder tree
-    const folderMap = new Map(userFolders.map(f => [f.id, { ...f, children: [] }]));
-    const rootFolders: any[] = [];
+    type FolderNode = typeof userFolders[number] & { children: FolderNode[] };
+    const folderMap = new Map<string, FolderNode>(userFolders.map(f => [f.id, { ...f, children: [] }]));
+    const rootFolders: FolderNode[] = [];
 
     userFolders.forEach(folder => {
       if (folder.parentId && folderMap.has(folder.parentId)) {
-        folderMap.get(folder.parentId)!.children.push(folderMap.get(folder.id));
+        const parent = folderMap.get(folder.parentId)!;
+        const child = folderMap.get(folder.id);
+        if (parent && child) {
+          parent.children.push(child);
+        }
       } else if (!folder.parentId) {
-        rootFolders.push(folderMap.get(folder.id));
+        const root = folderMap.get(folder.id);
+        if (root) {
+          rootFolders.push(root);
+        }
       }
     });
 
@@ -88,8 +96,8 @@ router.get('/:folderId', async (req, res, next) => {
       .where(
         and(
           eq(folders.id, folderId),
-          eq(folders.userId, req.user!.id)
-        )
+          eq(folders.userId, req.user!.id),
+        ),
       )
       .limit(1);
 
@@ -120,8 +128,8 @@ router.get('/:folderId', async (req, res, next) => {
       .where(
         and(
           eq(feeds.folderId, folderId),
-          eq(feeds.userId, req.user!.id)
-        )
+          eq(feeds.userId, req.user!.id),
+        ),
       )
       .groupBy(feeds.id);
 
@@ -150,8 +158,8 @@ router.post('/', async (req, res, next) => {
           eq(folders.name, data.name),
           data.parentId 
             ? eq(folders.parentId, data.parentId)
-            : isNull(folders.parentId)
-        )
+            : isNull(folders.parentId),
+        ),
       )
       .limit(1);
 
@@ -159,9 +167,9 @@ router.post('/', async (req, res, next) => {
       throw new AppError('Folder with this name already exists at this level', 409);
     }
 
-    // Get max sort order
-    const [maxSortOrder] = await db
-      .select({ max: sql<number>`MAX(${folders.sortOrder})` })
+    // Get max position
+    const [maxPosition] = await db
+      .select({ max: sql<number>`MAX(${folders.position})` })
       .from(folders)
       .where(eq(folders.userId, req.user!.id));
 
@@ -174,7 +182,7 @@ router.post('/', async (req, res, next) => {
         color: data.color,
         icon: data.icon,
         parentId: data.parentId,
-        sortOrder: (maxSortOrder?.max || 0) + 1,
+        position: Number(maxPosition?.max || 0) + 1,
       })
       .returning();
 
@@ -198,8 +206,8 @@ router.put('/:folderId', async (req, res, next) => {
       .where(
         and(
           eq(folders.id, folderId),
-          eq(folders.userId, req.user!.id)
-        )
+          eq(folders.userId, req.user!.id),
+        ),
       )
       .limit(1);
 
@@ -236,8 +244,8 @@ router.put('/:folderId', async (req, res, next) => {
               ? eq(folders.parentId, parentToCheck)
               : isNull(folders.parentId),
             // Exclude current folder
-            sql`${folders.id} != ${folderId}`
-          )
+            sql`${folders.id} != ${folderId}`,
+          ),
         )
         .limit(1);
 
@@ -275,8 +283,8 @@ router.delete('/:folderId', async (req, res, next) => {
       .where(
         and(
           eq(folders.id, folderId),
-          eq(folders.userId, req.user!.id)
-        )
+          eq(folders.userId, req.user!.id),
+        ),
       )
       .limit(1);
 
@@ -338,7 +346,7 @@ router.post('/reorder', async (req, res, next) => {
       await db
         .update(folders)
         .set({
-          sortOrder: i + 1,
+          position: i + 1,
           updatedAt: new Date(),
         })
         .where(eq(folders.id, validFolderIds[i]));
@@ -355,7 +363,7 @@ async function checkIfDescendant(
   db: any,
   parentId: string,
   potentialDescendantId: string,
-  userId: string
+  userId: string,
 ): Promise<boolean> {
   const children = await db
     .select({ id: folders.id, parentId: folders.parentId })
@@ -363,8 +371,8 @@ async function checkIfDescendant(
     .where(
       and(
         eq(folders.userId, userId),
-        eq(folders.parentId, parentId)
-      )
+        eq(folders.parentId, parentId),
+      ),
     );
 
   for (const child of children) {

@@ -1,22 +1,21 @@
-import Queue from 'bull';
+import type Queue from 'bull';
 import { getDb } from '../database';
-import { feeds, articles, userArticleStates } from '../database/schema';
-import { eq, and, gt, sql } from 'drizzle-orm';
+import { feeds, articles } from '../database/schema';
+import { eq, and, sql } from 'drizzle-orm';
 import { logger } from '../utils/logger';
 import { broadcastFeedUpdate } from '../services/socket.service';
-import axios from 'axios';
 import Parser from 'rss-parser';
 import crypto from 'crypto';
 
 const parser = new Parser({
   customFields: {
     feed: ['subtitle', 'image'],
-    item: ['image', 'enclosure', 'media:content'],
+    item: ['image', 'enclosure', 'media:content', 'content:encoded', 'description', 'author'],
   },
 });
 
 export function feedUpdateWorker(queue: Queue.Queue) {
-  queue.process('update-all-feeds', async (job) => {
+  queue.process('update-all-feeds', async () => {
     logger.info('Starting scheduled feed update');
     
     const db = getDb();
@@ -28,8 +27,8 @@ export function feedUpdateWorker(queue: Queue.Queue) {
       .where(
         and(
           eq(feeds.isActive, true),
-          sql`${feeds.lastFetchedAt} IS NULL OR ${feeds.lastFetchedAt} < NOW() - INTERVAL '1 minute' * ${feeds.updateInterval}`
-        )
+          sql`${feeds.lastFetchedAt} IS NULL OR ${feeds.lastFetchedAt} < NOW() - INTERVAL '1 minute' * ${feeds.updateInterval}`,
+        ),
       );
 
     logger.info(`Found ${activeFeeds.length} feeds to update`);
@@ -37,8 +36,8 @@ export function feedUpdateWorker(queue: Queue.Queue) {
     // Update feeds in parallel (with concurrency limit)
     const results = await Promise.allSettled(
       activeFeeds.map((feed) =>
-        queue.add('update-single-feed', { feedId: feed.id }, { delay: 0 })
-      )
+        queue.add('update-single-feed', { feedId: feed.id }, { delay: 0 }),
+      ),
     );
 
     const successful = results.filter((r) => r.status === 'fulfilled').length;
@@ -76,7 +75,7 @@ export function feedUpdateWorker(queue: Queue.Queue) {
           title: feedData.title || feed.title,
           description: feedData.description || feed.description,
           siteUrl: feedData.link || feed.siteUrl,
-          imageUrl: feedData.image?.url || feedData.image || feed.imageUrl,
+          imageUrl: extractImageUrl(feedData) || feed.imageUrl,
           lastFetchedAt: new Date(),
           lastFetchError: null,
           errorCount: 0,
@@ -88,7 +87,7 @@ export function feedUpdateWorker(queue: Queue.Queue) {
       
       for (const item of feedData.items) {
         // Generate unique GUID
-        const guid = item.guid || item.link || crypto.createHash('md5').update(item.title + item.pubDate).digest('hex');
+        const guid = item.guid || item.link || crypto.createHash('md5').update((item.title || '') + (item.pubDate || '')).digest('hex');
         
         // Check if article already exists
         const [existingArticle] = await db
@@ -107,7 +106,7 @@ export function feedUpdateWorker(queue: Queue.Queue) {
             author: item.creator || item.author,
             content: item['content:encoded'] || item.content,
             summary: item.summary || item.description,
-            imageUrl: extractImageUrl(item),
+            imageUrl: extractItemImageUrl(item),
             publishedAt: item.pubDate ? new Date(item.pubDate) : new Date(),
             categories: item.categories || [],
             enclosures: item.enclosure ? [item.enclosure] : [],
@@ -143,13 +142,13 @@ export function feedUpdateWorker(queue: Queue.Queue) {
       return { feedId, newArticles: newArticles.length };
     } catch (error) {
       logger.error(`Failed to update feed ${feedId}:`, error);
-      
+
       // Update error count
       const db = getDb();
       await db
         .update(feeds)
         .set({
-          lastFetchError: error.message,
+          lastFetchError: error instanceof Error ? error.message : String(error),
           errorCount: sql`${feeds.errorCount} + 1`,
           lastFetchedAt: new Date(),
         })
@@ -160,23 +159,30 @@ export function feedUpdateWorker(queue: Queue.Queue) {
   });
 
   queue.process('send-new-article-notifications', async (job) => {
-    const { feedId, articleCount, articles } = job.data;
-    
-    // This would be implemented to send notifications
-    // For now, just log
+    const { feedId, articleCount } = job.data;
+
     logger.info(`Would send notifications for ${articleCount} new articles in feed ${feedId}`);
   });
 }
 
-function extractImageUrl(item: any): string | null {
-  // Try various image sources
-  if (item.image) return item.image;
-  if (item['media:content']?.$ ?.url) return item['media:content'].$.url;
+function extractItemImageUrl(item: any): string | null {
+  if (typeof item.image === 'string') return item.image;
+  if (item['media:content']?.$?.url) return item['media:content'].$.url;
   if (item.enclosure?.type?.startsWith('image/')) return item.enclosure.url;
-  
-  // Extract from content
+
   const imgMatch = item.content?.match(/<img[^>]+src="([^">]+)"/);
   if (imgMatch) return imgMatch[1];
-  
+
+  return null;
+}
+
+function extractImageUrl(feedData: any): string | null {
+  const { image } = feedData;
+  if (typeof image === 'string') return image;
+  if (image?.url) return image.url;
+  for (const item of feedData.items || []) {
+    const itemImage = extractItemImageUrl(item);
+    if (itemImage) return itemImage;
+  }
   return null;
 }

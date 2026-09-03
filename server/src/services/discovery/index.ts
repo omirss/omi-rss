@@ -1,19 +1,14 @@
 import { getDb } from '../../database';
-import { 
-  feeds, 
-  articles, 
+import {
+  feeds,
+  articles,
   userArticleStates,
-  aiAnalysis,
-  users,
   readingStats,
 } from '../../database/schema';
-import { eq, and, gt, sql, desc, asc, inArray, like, notInArray } from 'drizzle-orm';
+import { eq, and, desc } from 'drizzle-orm';
 import { logger } from '../../utils/logger';
 import { getRedis } from '../redis';
-import { aiService } from '../ai';
-import axios from 'axios';
 import Parser from 'rss-parser';
-import { v4 as uuidv4 } from 'uuid';
 
 interface FeedSuggestion {
   url: string;
@@ -39,16 +34,19 @@ interface UserInterests {
   keywords: Map<string, number>;
   authors: Map<string, number>;
   sources: Map<string, number>;
-  readingTimes: Map<number, number>; // hour -> count
+  readingTimes: Map<number, number>;
   contentLength: { short: number; medium: number; long: number };
 }
 
 export class FeedDiscoveryService {
-  private redis = getRedis();
-  private db = getDb();
+  private get redis() {
+    return getRedis();
+  }
+  private get db() {
+    return getDb();
+  }
   private parser = new Parser();
-  
-  // Curated feed collections
+
   private curatedFeeds: FeedCategory[] = [
     {
       name: 'Technology',
@@ -131,16 +129,13 @@ export class FeedDiscoveryService {
     language?: string;
   }): Promise<FeedSuggestion[]> {
     try {
-      // Get user interests
       const userInterests = await this.analyzeUserInterests(userId);
-      
-      // Get already subscribed feeds
+
       const subscribedFeeds = await this.getUserSubscribedFeeds(userId);
       const subscribedUrls = new Set(subscribedFeeds.map(f => f.url));
 
-      // Filter curated feeds
       let suggestions: FeedSuggestion[] = [];
-      
+
       for (const category of this.curatedFeeds) {
         if (options?.categories && !options.categories.includes(category.name)) {
           continue;
@@ -156,28 +151,24 @@ export class FeedDiscoveryService {
         }
       }
 
-      // Sort by relevance score
       suggestions.sort((a, b) => (b.relevanceScore || 0) - (a.relevanceScore || 0));
 
-      // Apply limit
       if (options?.limit) {
         suggestions = suggestions.slice(0, options.limit);
       }
 
-      // Enhance with additional metadata
       const enhanced = await Promise.all(
         suggestions.map(async (suggestion) => {
           const metadata = await this.fetchFeedMetadata(suggestion.url);
           return { ...suggestion, ...metadata };
-        })
+        }),
       );
 
-      // Cache results
       await this.redis.set(
         `discovery:suggestions:${userId}`,
         JSON.stringify(enhanced),
         'EX',
-        3600 // 1 hour
+        3600,
       );
 
       return enhanced;
@@ -187,58 +178,12 @@ export class FeedDiscoveryService {
     }
   }
 
-  async generateCustomFeed(userId: string, prompt: string): Promise<FeedSuggestion[]> {
-    try {
-      // Use AI to understand the prompt and generate feed suggestions
-      const analysis = await aiService.generateContent(userId, {
-        prompt: `Based on this user request: "${prompt}", suggest 5-10 RSS feeds that would match their interests. 
-        Format the response as a JSON array with objects containing: url, title, description, category, and reason.
-        Focus on active, high-quality feeds that publish regularly.`,
-        temperature: 0.7,
-        maxTokens: 1000,
-      });
-
-      let suggestions: FeedSuggestion[] = [];
-      
-      try {
-        // Parse AI response
-        const jsonMatch = analysis.text.match(/\[[\s\S]*\]/);
-        if (jsonMatch) {
-          suggestions = JSON.parse(jsonMatch[0]);
-        }
-      } catch (parseError) {
-        logger.error('Failed to parse AI response:', parseError);
-        
-        // Fallback to keyword-based search
-        suggestions = await this.searchFeedsByKeywords(prompt);
-      }
-
-      // Validate and enhance suggestions
-      const validated = await Promise.all(
-        suggestions.map(async (suggestion) => {
-          const isValid = await this.validateFeedUrl(suggestion.url);
-          if (isValid) {
-            const metadata = await this.fetchFeedMetadata(suggestion.url);
-            return { ...suggestion, ...metadata };
-          }
-          return null;
-        })
-      );
-
-      return validated.filter((s): s is FeedSuggestion => s !== null);
-    } catch (error) {
-      logger.error('Failed to generate custom feed:', error);
-      throw error;
-    }
-  }
-
-  async searchPublicFeeds(query: string, options?: {
+  searchPublicFeeds(query: string, options?: {
     category?: string;
     language?: string;
     limit?: number;
   }): Promise<FeedSuggestion[]> {
     try {
-      // Search in our curated database first
       const results: FeedSuggestion[] = [];
       const queryLower = query.toLowerCase();
 
@@ -258,33 +203,28 @@ export class FeedDiscoveryService {
         }
       }
 
-      // Search using external feed search APIs
-      const externalResults = await this.searchExternalFeedDirectories(query, options);
+      const externalResults = this.searchExternalFeedDirectories(query, options);
       results.push(...externalResults);
 
-      // Remove duplicates
       const uniqueResults = Array.from(
-        new Map(results.map(r => [r.url, r])).values()
+        new Map(results.map(r => [r.url, r])).values(),
       );
 
-      // Sort by relevance
       uniqueResults.sort((a, b) => {
         const aScore = this.calculateSearchRelevance(a, query);
         const bScore = this.calculateSearchRelevance(b, query);
         return bScore - aScore;
       });
 
-      // Apply limit
-      const limited = options?.limit 
+      const limited = options?.limit
         ? uniqueResults.slice(0, options.limit)
         : uniqueResults;
 
-      // Enhance with metadata
       return Promise.all(
         limited.map(async (result) => {
           const metadata = await this.fetchFeedMetadata(result.url);
           return { ...result, ...metadata };
-        })
+        }),
       );
     } catch (error) {
       logger.error('Failed to search feeds:', error);
@@ -292,47 +232,8 @@ export class FeedDiscoveryService {
     }
   }
 
-  async getTrendingFeeds(options?: {
-    timeframe?: 'day' | 'week' | 'month';
-    category?: string;
-    limit?: number;
-  }): Promise<FeedSuggestion[]> {
-    try {
-      // Get trending feeds based on global usage
-      const timeframe = options?.timeframe || 'week';
-      const limit = options?.limit || 20;
-
-      // This would typically query a global analytics database
-      // For now, we'll return popular feeds with simulated popularity scores
-      const trendingFeeds = this.curatedFeeds
-        .flatMap(category => {
-          if (options?.category && category.name !== options.category) {
-            return [];
-          }
-          return category.feeds.map(feed => ({
-            ...feed,
-            popularity: Math.random() * 1000, // Simulated popularity
-          }));
-        })
-        .sort((a, b) => (b.popularity || 0) - (a.popularity || 0))
-        .slice(0, limit);
-
-      // Enhance with metadata
-      return Promise.all(
-        trendingFeeds.map(async (feed) => {
-          const metadata = await this.fetchFeedMetadata(feed.url);
-          return { ...feed, ...metadata };
-        })
-      );
-    } catch (error) {
-      logger.error('Failed to get trending feeds:', error);
-      throw error;
-    }
-  }
-
   async getRelatedFeeds(feedId: string, limit: number = 10): Promise<FeedSuggestion[]> {
     try {
-      // Get the feed details
       const [feed] = await this.db
         .select()
         .from(feeds)
@@ -343,7 +244,6 @@ export class FeedDiscoveryService {
         throw new Error('Feed not found');
       }
 
-      // Get recent articles from this feed
       const recentArticles = await this.db
         .select()
         .from(articles)
@@ -351,16 +251,14 @@ export class FeedDiscoveryService {
         .orderBy(desc(articles.publishedAt))
         .limit(20);
 
-      // Analyze content to find related topics
-      const topics = await this.extractTopicsFromArticles(recentArticles);
-      
-      // Find feeds with similar topics
+      const topics = this.extractTopicsFromArticles(recentArticles);
+
       const relatedFeeds: FeedSuggestion[] = [];
-      
+
       for (const category of this.curatedFeeds) {
         for (const candidateFeed of category.feeds) {
           if (candidateFeed.url === feed.url) continue;
-          
+
           const similarity = this.calculateTopicSimilarity(topics, candidateFeed);
           if (similarity > 0.5) {
             relatedFeeds.push({
@@ -372,7 +270,6 @@ export class FeedDiscoveryService {
         }
       }
 
-      // Sort by similarity and limit
       return relatedFeeds
         .sort((a, b) => (b.relevanceScore || 0) - (a.relevanceScore || 0))
         .slice(0, limit);
@@ -382,55 +279,18 @@ export class FeedDiscoveryService {
     }
   }
 
-  async recommendFeedsBasedOnReadingHistory(userId: string, limit: number = 20): Promise<FeedSuggestion[]> {
-    try {
-      // Analyze user's reading patterns
-      const interests = await this.analyzeUserInterests(userId);
-      
-      // Get collaborative filtering recommendations
-      const collaborativeRecs = await this.getCollaborativeRecommendations(userId);
-      
-      // Get content-based recommendations
-      const contentRecs = await this.getContentBasedRecommendations(userId, interests);
-      
-      // Merge and deduplicate recommendations
-      const allRecs = [...collaborativeRecs, ...contentRecs];
-      const uniqueRecs = Array.from(
-        new Map(allRecs.map(r => [r.url, r])).values()
-      );
-
-      // Sort by combined score
-      uniqueRecs.sort((a, b) => (b.relevanceScore || 0) - (a.relevanceScore || 0));
-
-      // Apply limit and enhance
-      const limited = uniqueRecs.slice(0, limit);
-      
-      return Promise.all(
-        limited.map(async (rec) => {
-          const metadata = await this.fetchFeedMetadata(rec.url);
-          return { ...rec, ...metadata };
-        })
-      );
-    } catch (error) {
-      logger.error('Failed to recommend feeds:', error);
-      throw error;
-    }
-  }
-
   private async analyzeUserInterests(userId: string): Promise<UserInterests> {
-    // Get user's reading history
     const readArticles = await this.db
       .select({
         article: articles,
-        state: userArticleStates,
       })
       .from(userArticleStates)
       .innerJoin(articles, eq(articles.id, userArticleStates.articleId))
       .where(
         and(
           eq(userArticleStates.userId, userId),
-          eq(userArticleStates.isRead, true)
-        )
+          eq(userArticleStates.isRead, true),
+        ),
       )
       .limit(1000);
 
@@ -443,27 +303,23 @@ export class FeedDiscoveryService {
       contentLength: { short: 0, medium: 0, long: 0 },
     };
 
-    // Analyze categories
     for (const { article } of readArticles) {
-      // Categories
       if (article.categories && Array.isArray(article.categories)) {
-        for (const category of article.categories) {
+        for (const category of article.categories as string[]) {
           interests.categories.set(
             category,
-            (interests.categories.get(category) || 0) + 1
+            (interests.categories.get(category) || 0) + 1,
           );
         }
       }
 
-      // Authors
       if (article.author) {
         interests.authors.set(
           article.author,
-          (interests.authors.get(article.author) || 0) + 1
+          (interests.authors.get(article.author) || 0) + 1,
         );
       }
 
-      // Content length preferences
       const wordCount = (article.content || '').split(/\s+/).length;
       if (wordCount < 500) {
         interests.contentLength.short++;
@@ -474,35 +330,32 @@ export class FeedDiscoveryService {
       }
     }
 
-    // Get reading time patterns
-    const readingStats = await this.db
+    const stats = await this.db
       .select()
       .from(readingStats)
       .where(eq(readingStats.userId, userId))
       .orderBy(desc(readingStats.date))
       .limit(30);
 
-    for (const stat of readingStats) {
-      if (stat.hourlyDistribution) {
-        Object.entries(stat.hourlyDistribution).forEach(([hour, count]) => {
+    for (const stat of stats) {
+      const distribution = stat.hourlyDistribution as Record<string, number> | null;
+      if (distribution) {
+        Object.entries(distribution).forEach(([hour, count]) => {
           const h = parseInt(hour);
-          interests.readingTimes.set(h, (interests.readingTimes.get(h) || 0) + count as number);
+          interests.readingTimes.set(h, (interests.readingTimes.get(h) || 0) + count);
         });
       }
     }
 
     return interests;
   }
-
   private calculateRelevanceScore(feed: FeedSuggestion, interests: UserInterests): number {
     let score = 0;
 
-    // Category match
     if (feed.category && interests.categories.has(feed.category)) {
       score += interests.categories.get(feed.category)! * 0.3;
     }
 
-    // Keyword match in title/description
     const feedText = `${feed.title} ${feed.description || ''}`.toLowerCase();
     for (const [keyword, count] of interests.keywords) {
       if (feedText.includes(keyword.toLowerCase())) {
@@ -510,35 +363,35 @@ export class FeedDiscoveryService {
       }
     }
 
-    // Normalize score to 0-1 range
     return Math.min(score / 100, 1);
   }
 
-  private async fetchFeedMetadata(url: string): Promise<Partial<FeedSuggestion>> {
+  async fetchFeedMetadata(url: string): Promise<Partial<FeedSuggestion>> {
     try {
-      // Check cache first
       const cached = await this.redis.get(`feed:metadata:${url}`);
       if (cached) {
-        return JSON.parse(cached);
+        return JSON.parse(cached) as Partial<FeedSuggestion>;
       }
 
-      // Parse feed
-      const feed = await this.parser.parseURL(url);
-      
+      const feed = (await this.parser.parseURL(url)) as {
+        title?: string;
+        description?: string;
+        language?: string;
+        lastBuildDate?: Date;
+      };
+
       const metadata: Partial<FeedSuggestion> = {
         title: feed.title || 'Unknown Feed',
         description: feed.description,
         language: feed.language,
         lastUpdated: feed.lastBuildDate ? new Date(feed.lastBuildDate) : undefined,
-        favicon: feed.image?.url,
       };
 
-      // Cache metadata
       await this.redis.set(
         `feed:metadata:${url}`,
         JSON.stringify(metadata),
         'EX',
-        86400 // 24 hours
+        86400,
       );
 
       return metadata;
@@ -548,42 +401,10 @@ export class FeedDiscoveryService {
     }
   }
 
-  private async validateFeedUrl(url: string): Promise<boolean> {
-    try {
-      const response = await axios.head(url, { timeout: 5000 });
-      return response.status === 200;
-    } catch {
-      return false;
-    }
-  }
-
-  private async searchFeedsByKeywords(keywords: string): Promise<FeedSuggestion[]> {
-    const keywordList = keywords.toLowerCase().split(/\s+/);
-    const results: FeedSuggestion[] = [];
-
-    for (const category of this.curatedFeeds) {
-      for (const feed of category.feeds) {
-        const feedText = `${feed.title} ${feed.description || ''} ${feed.category || ''}`.toLowerCase();
-        const matches = keywordList.filter(kw => feedText.includes(kw)).length;
-        
-        if (matches > 0) {
-          results.push({
-            ...feed,
-            relevanceScore: matches / keywordList.length,
-          });
-        }
-      }
-    }
-
-    return results.sort((a, b) => (b.relevanceScore || 0) - (a.relevanceScore || 0));
-  }
-
-  private async searchExternalFeedDirectories(
-    query: string,
-    options?: { category?: string; language?: string }
-  ): Promise<FeedSuggestion[]> {
-    // This would integrate with external feed directories
-    // For now, return empty array
+  private searchExternalFeedDirectories(
+    _query: string,
+    _options?: { category?: string; language?: string },
+  ): FeedSuggestion[] {
     return [];
   }
 
@@ -592,21 +413,21 @@ export class FeedDiscoveryService {
     const titleMatch = feed.title.toLowerCase().includes(queryLower) ? 0.5 : 0;
     const descMatch = (feed.description || '').toLowerCase().includes(queryLower) ? 0.3 : 0;
     const categoryMatch = (feed.category || '').toLowerCase().includes(queryLower) ? 0.2 : 0;
-    
+
     return titleMatch + descMatch + categoryMatch;
   }
 
-  private async getUserSubscribedFeeds(userId: string) {
+  private getUserSubscribedFeeds(userId: string) {
     return this.db
       .select()
       .from(feeds)
       .where(eq(feeds.userId, userId));
   }
 
-  private async extractTopicsFromArticles(articles: any[]): Promise<string[]> {
+  private extractTopicsFromArticles(articleList: Array<{ categories: unknown }>): string[] {
     const topics = new Set<string>();
-    
-    for (const article of articles) {
+
+    for (const article of articleList) {
       if (article.categories && Array.isArray(article.categories)) {
         article.categories.forEach((cat: string) => topics.add(cat));
       }
@@ -617,10 +438,10 @@ export class FeedDiscoveryService {
 
   private calculateTopicSimilarity(topics: string[], feed: FeedSuggestion): number {
     if (!feed.category) return 0;
-    
+
     const feedTopics = feed.category.toLowerCase().split(/[,\s]+/);
     const topicsLower = topics.map(t => t.toLowerCase());
-    
+
     let matches = 0;
     for (const feedTopic of feedTopics) {
       if (topicsLower.some(t => t.includes(feedTopic) || feedTopic.includes(t))) {
@@ -631,114 +452,36 @@ export class FeedDiscoveryService {
     return matches / Math.max(feedTopics.length, topics.length);
   }
 
-  private async getCollaborativeRecommendations(userId: string): Promise<FeedSuggestion[]> {
-    // Find users with similar reading patterns
-    const similarUsers = await this.findSimilarUsers(userId);
-    
-    // Get feeds that similar users subscribe to
-    const recommendations: Map<string, number> = new Map();
-    
-    for (const similarUser of similarUsers) {
-      const userFeeds = await this.getUserSubscribedFeeds(similarUser.userId);
-      
-      for (const feed of userFeeds) {
-        const score = recommendations.get(feed.url) || 0;
-        recommendations.set(feed.url, score + similarUser.similarity);
-      }
-    }
-
-    // Convert to suggestions
-    const suggestions: FeedSuggestion[] = [];
-    for (const [url, score] of recommendations) {
-      // Skip if user already subscribes
-      const userFeeds = await this.getUserSubscribedFeeds(userId);
-      if (userFeeds.some(f => f.url === url)) continue;
-
-      suggestions.push({
-        url,
-        title: 'Unknown', // Will be enhanced later
-        relevanceScore: score,
-        reason: 'Popular with similar users',
-      });
-    }
-
-    return suggestions;
-  }
-
-  private async getContentBasedRecommendations(
+  async importOPML(
     userId: string,
-    interests: UserInterests
-  ): Promise<FeedSuggestion[]> {
-    const recommendations: FeedSuggestion[] = [];
-
-    // Recommend based on top categories
-    const topCategories = Array.from(interests.categories.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([cat]) => cat);
-
-    for (const category of this.curatedFeeds) {
-      if (topCategories.some(tc => category.name.toLowerCase().includes(tc.toLowerCase()))) {
-        for (const feed of category.feeds) {
-          recommendations.push({
-            ...feed,
-            relevanceScore: 0.8,
-            reason: `Based on your interest in ${category.name}`,
-          });
-        }
-      }
-    }
-
-    return recommendations;
-  }
-
-  private async findSimilarUsers(userId: string, limit: number = 10): Promise<Array<{ userId: string; similarity: number }>> {
-    // This would implement collaborative filtering
-    // For now, return empty array
-    return [];
-  }
-
-  async importOPML(userId: string, opmlContent: string): Promise<{ imported: number; failed: number; errors: string[] }> {
+    opmlContent: string,
+  ): Promise<{ imported: number; failed: number; errors: string[] }> {
     try {
-      const parser = new (require('opml-parser'))();
-      const feeds: any[] = [];
+      const entries = this.parseOPML(opmlContent);
       const errors: string[] = [];
-
-      parser.on('feed', (feed: any) => {
-        feeds.push(feed);
-      });
-
-      parser.on('error', (error: any) => {
-        errors.push(error.message);
-      });
-
-      // Parse OPML
-      await new Promise((resolve, reject) => {
-        parser.on('end', resolve);
-        parser.on('error', reject);
-        parser.write(opmlContent);
-        parser.end();
-      });
-
       let imported = 0;
       let failed = 0;
 
-      // Import feeds
-      for (const feed of feeds) {
+      const subscribed = await this.getUserSubscribedFeeds(userId);
+      const knownUrls = new Set(subscribed.map(f => f.url));
+
+      for (const entry of entries) {
+        if (knownUrls.has(entry.url)) {
+          continue;
+        }
+
         try {
           await this.db.insert(feeds).values({
             userId,
-            url: feed.xmlUrl || feed.url,
-            title: feed.title || 'Imported Feed',
-            description: feed.description,
-            siteUrl: feed.htmlUrl,
-            createdAt: new Date(),
-            updatedAt: new Date(),
+            url: entry.url,
+            title: entry.title || 'Imported Feed',
+            siteUrl: entry.siteUrl || null,
           });
+          knownUrls.add(entry.url);
           imported++;
         } catch (error) {
           failed++;
-          errors.push(`Failed to import ${feed.title}: ${error}`);
+          errors.push(`Failed to import ${entry.title || entry.url}`);
         }
       }
 
@@ -747,6 +490,46 @@ export class FeedDiscoveryService {
       logger.error('Failed to import OPML:', error);
       throw error;
     }
+  }
+
+  private parseOPML(opmlContent: string): Array<{ url: string; title?: string; siteUrl?: string }> {
+    const results: Array<{ url: string; title?: string; siteUrl?: string }> = [];
+    const outlineRegex = /<outline\b[^>]*>/gi;
+    let match: RegExpExecArray | null;
+
+    while ((match = outlineRegex.exec(opmlContent)) !== null) {
+      const tag = match[0];
+      const xmlUrl = this.getXmlAttribute(tag, 'xmlUrl');
+      if (!xmlUrl) continue;
+
+      const title = this.getXmlAttribute(tag, 'title') || this.getXmlAttribute(tag, 'text');
+      const htmlUrl = this.getXmlAttribute(tag, 'htmlUrl');
+
+      results.push({
+        url: this.unescapeXml(xmlUrl),
+        title: title ? this.unescapeXml(title) : undefined,
+        siteUrl: htmlUrl ? this.unescapeXml(htmlUrl) : undefined,
+      });
+    }
+
+    return results;
+  }
+
+  private getXmlAttribute(tag: string, name: string): string | null {
+    const doubleQuoted = tag.match(new RegExp(`${name}\\s*=\\s*"([^"]*)"`, 'i'));
+    if (doubleQuoted) return doubleQuoted[1];
+    const singleQuoted = tag.match(new RegExp(`${name}\\s*=\\s*'([^']*)'`, 'i'));
+    if (singleQuoted) return singleQuoted[1];
+    return null;
+  }
+
+  private unescapeXml(text: string): string {
+    return text
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&apos;/g, "'");
   }
 
   async exportOPML(userId: string): Promise<string> {
@@ -764,9 +547,8 @@ export class FeedDiscoveryService {
   </head>
   <body>`;
 
-      // Group feeds by folder
       const feedsByFolder = new Map<string, typeof userFeeds>();
-      
+
       for (const feed of userFeeds) {
         const folder = feed.folderId || 'Uncategorized';
         if (!feedsByFolder.has(folder)) {
@@ -775,14 +557,13 @@ export class FeedDiscoveryService {
         feedsByFolder.get(folder)!.push(feed);
       }
 
-      // Generate OPML
       for (const [folder, folderFeeds] of feedsByFolder) {
-        opml += `\n    <outline text="${folder}" title="${folder}">`;
-        
+        opml += `\n    <outline text="${this.escapeXml(folder)}" title="${this.escapeXml(folder)}">`;
+
         for (const feed of folderFeeds) {
           opml += `\n      <outline type="rss" text="${this.escapeXml(feed.title)}" title="${this.escapeXml(feed.title)}" xmlUrl="${this.escapeXml(feed.url)}" htmlUrl="${this.escapeXml(feed.siteUrl || '')}" />`;
         }
-        
+
         opml += '\n    </outline>';
       }
 
@@ -805,5 +586,4 @@ export class FeedDiscoveryService {
   }
 }
 
-// Export singleton instance
 export const feedDiscoveryService = new FeedDiscoveryService();

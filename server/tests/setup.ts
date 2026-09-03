@@ -123,18 +123,14 @@ if (!process.env.DEBUG) {
 
 // TypeScript declarations
 declare global {
-  namespace NodeJS {
-    interface Global {
-      testUtils: {
-        generateId: () => string;
-        createTestUser: (overrides?: any) => any;
-        createTestFeed: (userId: string, overrides?: any) => any;
-        createTestArticle: (feedId: string, overrides?: any) => any;
-        sleep: (ms: number) => Promise<void>;
-      };
-    }
-  }
-  
+  var testUtils: {
+    generateId: () => string;
+    createTestUser: (overrides?: any) => any;
+    createTestFeed: (userId: string, overrides?: any) => any;
+    createTestArticle: (feedId: string, overrides?: any) => any;
+    sleep: (ms: number) => Promise<void>;
+  };
+
   namespace jest {
     interface Matchers<R> {
       toBeWithinRange(floor: number, ceiling: number): R;

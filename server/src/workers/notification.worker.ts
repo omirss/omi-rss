@@ -1,8 +1,8 @@
-import Queue from 'bull';
+import type Queue from 'bull';
 import { logger } from '../utils/logger';
 import { getDb } from '../database';
 import { notifications } from '../database/schema';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
 export function notificationWorker(queue: Queue.Queue) {
   queue.process('send-email', async (job) => {
@@ -46,8 +46,10 @@ export function notificationWorker(queue: Queue.Queue) {
         .update(notifications)
         .set({ readAt: new Date() })
         .where(
-          eq(notifications.id, notificationId),
-          eq(notifications.userId, userId)
+          and(
+            eq(notifications.id, notificationId),
+            eq(notifications.userId, userId),
+          ),
         );
 
       return { success: true };

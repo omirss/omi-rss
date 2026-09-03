@@ -1,10 +1,9 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
+import { describe, it, expect, beforeAll, beforeEach } from '@jest/globals';
 import request from 'supertest';
 import { Express } from 'express';
 import { createTestServer } from '../helpers/testServer';
 import { getDb } from '../../src/database';
 import { users } from '../../src/database/schema';
-import { eq } from 'drizzle-orm';
 
 describe('Auth Integration Tests', () => {
   let app: Express;

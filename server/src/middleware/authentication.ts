@@ -1,4 +1,4 @@
-import { Request, Response, NextFunction } from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { getDb } from '../database';
 import { users } from '../database/schema';
@@ -58,7 +58,7 @@ export async function authentication(req: Request, res: Response, next: NextFunc
       role: user.role,
     };
 
-    next();
+    return next();
   } catch (error) {
     if (error instanceof jwt.TokenExpiredError) {
       return res.status(401).json({ error: 'Token expired' });
@@ -82,7 +82,7 @@ export function requireRole(role: string) {
       return res.status(403).json({ error: 'Insufficient permissions' });
     }
 
-    next();
+    return next();
   };
 }
 
@@ -92,8 +92,7 @@ export function optionalAuth(req: Request, res: Response, next: NextFunction) {
     return next();
   }
 
-  authentication(req, res, (err) => {
-    // Continue even if authentication fails
+  authentication(req, res, () => {
     next();
   });
 }

@@ -7,7 +7,6 @@ import { TestDataFactory } from '../helpers/testData';
 describe('User Journey E2E Tests', () => {
   let app: Express;
   let authToken: string;
-  let userId: string;
   let feedId: string;
   let articleId: string;
 
@@ -37,7 +36,6 @@ describe('User Journey E2E Tests', () => {
       expect(response.body).toHaveProperty('token');
       
       authToken = response.body.token;
-      userId = response.body.user.id;
     });
 
     it('Step 2: Add First RSS Feed', async () => {

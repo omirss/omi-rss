@@ -10,18 +10,21 @@ jest.mock('bcrypt');
 jest.mock('jsonwebtoken');
 
 describe('AuthService', () => {
-  const mockDb = {
-    select: jest.fn().mockReturnThis(),
-    from: jest.fn().mockReturnThis(),
-    where: jest.fn().mockReturnThis(),
-    limit: jest.fn().mockReturnThis(),
-    insert: jest.fn().mockReturnThis(),
-    values: jest.fn().mockReturnThis(),
-    returning: jest.fn().mockReturnThis(),
-  };
+  let mockDb: any;
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockDb = {
+      select: jest.fn().mockReturnThis(),
+      from: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      limit: jest.fn<any>().mockResolvedValue([]),
+      insert: jest.fn().mockReturnThis(),
+      values: jest.fn().mockReturnThis(),
+      returning: jest.fn<any>().mockResolvedValue([]),
+      update: jest.fn().mockReturnThis(),
+      set: jest.fn().mockReturnThis(),
+    };
     (getDb as jest.Mock).mockReturnValue(mockDb);
   });
 
@@ -34,7 +37,7 @@ describe('AuthService', () => {
       };
 
       mockDb.limit.mockResolvedValueOnce([]); // No existing user
-      (bcrypt.hash as jest.Mock).mockResolvedValue('hashedPassword');
+      (bcrypt.hash as any).mockResolvedValue('hashedPassword');
       mockDb.returning.mockResolvedValueOnce([{
         id: '123',
         email: userData.email,
@@ -95,7 +98,7 @@ describe('AuthService', () => {
       };
 
       mockDb.limit.mockResolvedValueOnce([mockUser]);
-      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+      (bcrypt.compare as any).mockResolvedValue(true);
       (jwt.sign as jest.Mock).mockReturnValue('token123');
 
       const result = await authService.login(credentials.email, credentials.password);
@@ -120,7 +123,7 @@ describe('AuthService', () => {
       };
 
       mockDb.limit.mockResolvedValueOnce([mockUser]);
-      (bcrypt.compare as jest.Mock).mockResolvedValue(false);
+      (bcrypt.compare as any).mockResolvedValue(false);
 
       await expect(authService.login('test@example.com', 'wrongpassword')).rejects.toThrow('Invalid credentials');
     });
@@ -133,7 +136,7 @@ describe('AuthService', () => {
       };
 
       mockDb.limit.mockResolvedValueOnce([mockUser]);
-      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+      (bcrypt.compare as any).mockResolvedValue(true);
 
       await expect(authService.login('test@example.com', 'password')).rejects.toThrow('Account is deactivated');
     });
@@ -178,15 +181,15 @@ describe('AuthService', () => {
       };
 
       mockDb.limit.mockResolvedValueOnce([mockUser]);
-      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
-      (bcrypt.hash as jest.Mock).mockResolvedValue('newHashedPassword');
+      (bcrypt.compare as any).mockResolvedValue(true);
+      (bcrypt.hash as any).mockResolvedValue('newHashedPassword');
       
       const mockUpdate = {
         update: jest.fn().mockReturnThis(),
         set: jest.fn().mockReturnThis(),
         where: jest.fn().mockReturnThis(),
       };
-      (getDb as jest.Mock).mockReturnValueOnce(mockUpdate);
+      (getDb as jest.Mock).mockReturnValueOnce(mockDb).mockReturnValueOnce(mockUpdate);
 
       await authService.changePassword(userId, oldPassword, newPassword);
 
@@ -202,7 +205,7 @@ describe('AuthService', () => {
       };
 
       mockDb.limit.mockResolvedValueOnce([mockUser]);
-      (bcrypt.compare as jest.Mock).mockResolvedValue(false);
+      (bcrypt.compare as any).mockResolvedValue(false);
 
       await expect(authService.changePassword('123', 'wrongold', 'newpass')).rejects.toThrow('Current password is incorrect');
     });

@@ -9,7 +9,7 @@ let transporter: nodemailer.Transporter;
 // Initialize email transporter
 export async function initializeEmailService() {
   try {
-    transporter = nodemailer.createTransporter({
+    transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST,
       port: parseInt(process.env.SMTP_PORT || '587'),
       secure: process.env.SMTP_PORT === '465',
@@ -45,8 +45,8 @@ export async function sendEmail(options: EmailOptions): Promise<void> {
       return;
     }
 
-    let html = options.html;
-    let text = options.text;
+    let { html } = options;
+    const { text } = options;
 
     // Load and compile template if specified
     if (options.template) {

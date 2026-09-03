@@ -1,8 +1,8 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { getDb } from '../database';
-import { feeds, folders, articles, userArticleStates } from '../database/schema';
-import { eq, and, desc, sql } from 'drizzle-orm';
+import { feeds, articles, userArticleStates } from '../database/schema';
+import { eq, and, sql } from 'drizzle-orm';
 import { AppError } from '../middleware/errorHandler';
 import { feedUpdateQueue } from '../workers';
 import { logger } from '../utils/logger';
@@ -85,7 +85,7 @@ router.get('/:feedId', async (req, res, next) => {
       .from(feeds)
       .where(and(
         eq(feeds.id, feedId),
-        eq(feeds.userId, req.user!.id)
+        eq(feeds.userId, req.user!.id),
       ))
       .limit(1);
 
@@ -113,7 +113,7 @@ router.get('/:feedId', async (req, res, next) => {
 
     res.json({ 
       feed,
-      stats: stats || { totalArticles: 0, unreadArticles: 0 }
+      stats: stats || { totalArticles: 0, unreadArticles: 0 },
     });
   } catch (error) {
     next(error);
@@ -132,7 +132,7 @@ router.post('/', async (req, res, next) => {
       .from(feeds)
       .where(and(
         eq(feeds.url, data.url),
-        eq(feeds.userId, req.user!.id)
+        eq(feeds.userId, req.user!.id),
       ))
       .limit(1);
 
@@ -149,6 +149,7 @@ router.post('/', async (req, res, next) => {
     }
 
     // Create feed
+    const feedImage = feedData.image as string | { url?: string } | undefined;
     const [newFeed] = await db
       .insert(feeds)
       .values({
@@ -157,7 +158,7 @@ router.post('/', async (req, res, next) => {
         title: feedData.title || 'Untitled Feed',
         description: feedData.description,
         siteUrl: feedData.link,
-        imageUrl: feedData.image?.url || feedData.image,
+        imageUrl: typeof feedImage === 'string' ? feedImage : feedImage?.url,
         customTitle: data.customTitle,
         folderId: data.folderId,
         updateInterval: data.updateInterval || 30,
@@ -167,7 +168,7 @@ router.post('/', async (req, res, next) => {
 
     // Queue immediate feed update
     await feedUpdateQueue.add('update-single-feed', { 
-      feedId: newFeed.id 
+      feedId: newFeed.id, 
     });
 
     logger.info(`User ${req.user!.id} subscribed to feed: ${newFeed.title}`);
@@ -191,7 +192,7 @@ router.put('/:feedId', async (req, res, next) => {
       .from(feeds)
       .where(and(
         eq(feeds.id, feedId),
-        eq(feeds.userId, req.user!.id)
+        eq(feeds.userId, req.user!.id),
       ))
       .limit(1);
 
@@ -227,7 +228,7 @@ router.delete('/:feedId', async (req, res, next) => {
       .from(feeds)
       .where(and(
         eq(feeds.id, feedId),
-        eq(feeds.userId, req.user!.id)
+        eq(feeds.userId, req.user!.id),
       ))
       .limit(1);
 
@@ -260,7 +261,7 @@ router.post('/:feedId/refresh', async (req, res, next) => {
       .from(feeds)
       .where(and(
         eq(feeds.id, feedId),
-        eq(feeds.userId, req.user!.id)
+        eq(feeds.userId, req.user!.id),
       ))
       .limit(1);
 
@@ -270,7 +271,7 @@ router.post('/:feedId/refresh', async (req, res, next) => {
 
     // Queue feed update
     await feedUpdateQueue.add('update-single-feed', { 
-      feedId 
+      feedId, 
     }, {
       priority: 1, // Higher priority for manual refresh
     });
@@ -293,7 +294,7 @@ router.post('/:feedId/mark-all-read', async (req, res, next) => {
       .from(feeds)
       .where(and(
         eq(feeds.id, feedId),
-        eq(feeds.userId, req.user!.id)
+        eq(feeds.userId, req.user!.id),
       ))
       .limit(1);
 
@@ -329,7 +330,7 @@ router.post('/:feedId/mark-all-read', async (req, res, next) => {
 
     res.json({ 
       message: 'All articles marked as read',
-      count: feedArticles.length 
+      count: feedArticles.length, 
     });
   } catch (error) {
     next(error);

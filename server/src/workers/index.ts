@@ -1,5 +1,4 @@
 import Queue from 'bull';
-import { getRedisClient } from '../services/redis.service';
 import { logger } from '../utils/logger';
 import { feedUpdateWorker } from './feedUpdate.worker';
 import { notificationWorker } from './notification.worker';
@@ -14,7 +13,6 @@ export let cleanupQueue: Queue.Queue;
 
 export async function initializeWorkers() {
   try {
-    const redisClient = getRedisClient();
     const redisConfig = {
       redis: {
         host: process.env.REDIS_HOST || 'localhost',
@@ -54,7 +52,7 @@ async function scheduleRecurringJobs() {
       repeat: {
         cron: '*/5 * * * *',
       },
-    }
+    },
   );
 
   // Cleanup old data - daily at 3 AM
@@ -65,7 +63,7 @@ async function scheduleRecurringJobs() {
       repeat: {
         cron: '0 3 * * *',
       },
-    }
+    },
   );
 
   // Analytics aggregation - every hour
@@ -76,7 +74,7 @@ async function scheduleRecurringJobs() {
       repeat: {
         cron: '0 * * * *',
       },
-    }
+    },
   );
 
   logger.info('Recurring jobs scheduled');
@@ -96,7 +94,7 @@ export async function closeWorkers() {
       if (queue) {
         await queue.close();
       }
-    })
+    }),
   );
 
   logger.info('Workers shut down gracefully');

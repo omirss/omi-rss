@@ -6,9 +6,9 @@ import {
   userArticleStates, 
   articles, 
   feeds, 
-  folders 
+  folders, 
 } from '../database/schema';
-import { eq, and, sql, between, desc, gte } from 'drizzle-orm';
+import { eq, and, sql, between, desc, gte, isNotNull } from 'drizzle-orm';
 import { AppError } from '../middleware/errorHandler';
 
 const router = Router();
@@ -52,8 +52,8 @@ router.get('/overview', async (req, res, next) => {
         userArticleStates,
         and(
           eq(userArticleStates.articleId, articles.id),
-          eq(userArticleStates.userId, req.user!.id)
-        )
+          eq(userArticleStates.userId, req.user!.id),
+        ),
       )
       .leftJoin(folders, eq(folders.userId, req.user!.id))
       .where(eq(feeds.userId, req.user!.id));
@@ -73,8 +73,8 @@ router.get('/overview', async (req, res, next) => {
         and(
           eq(userArticleStates.userId, req.user!.id),
           eq(userArticleStates.isRead, true),
-          gte(userArticleStates.readAt, thirtyDaysAgo)
-        )
+          gte(userArticleStates.readAt, thirtyDaysAgo),
+        ),
       );
 
     // Get most read feeds
@@ -93,8 +93,8 @@ router.get('/overview', async (req, res, next) => {
       .where(
         and(
           eq(userArticleStates.userId, req.user!.id),
-          eq(userArticleStates.isRead, true)
-        )
+          eq(userArticleStates.isRead, true),
+        ),
       )
       .groupBy(feeds.id)
       .orderBy(desc(sql`COUNT(DISTINCT ${userArticleStates.articleId})`))
@@ -150,8 +150,8 @@ router.get('/history', async (req, res, next) => {
         and(
           eq(userArticleStates.userId, req.user!.id),
           eq(userArticleStates.isRead, true),
-          between(userArticleStates.readAt!, start, end)
-        )
+          between(userArticleStates.readAt, start, end),
+        ),
       )
       .groupBy(sql`TO_CHAR(${userArticleStates.readAt}, '${dateFormat}')`)
       .orderBy(sql`TO_CHAR(${userArticleStates.readAt}, '${dateFormat}')`);
@@ -172,30 +172,21 @@ router.get('/reading-time', async (req, res, next) => {
   try {
     const db = getDb();
 
-    // Get average reading time per article
     const [stats] = await db
       .select({
-        totalReadingTime: readingStats.totalReadingTime,
-        articlesRead: readingStats.articlesRead,
-        lastUpdated: readingStats.updatedAt,
+        totalReadingTime: sql<number>`COALESCE(SUM(${readingStats.readingTime}), 0)`,
+        articlesRead: sql<number>`COALESCE(SUM(${readingStats.articlesRead}), 0)`,
+        lastUpdated: sql<string>`MAX(${readingStats.updatedAt})`,
       })
       .from(readingStats)
-      .where(eq(readingStats.userId, req.user!.id))
-      .limit(1);
+      .where(eq(readingStats.userId, req.user!.id));
 
-    if (!stats) {
-      res.json({
-        totalReadingTime: 0,
-        articlesRead: 0,
-        averageReadingTime: 0,
-        estimatedWordsPerMinute: 200,
-      });
-      return;
-    }
+    const totalReadingTime = Number(stats?.totalReadingTime || 0);
+    const articlesRead = Number(stats?.articlesRead || 0);
 
     // Calculate average reading time
-    const averageReadingTime = stats.articlesRead > 0
-      ? Math.round(stats.totalReadingTime / stats.articlesRead)
+    const averageReadingTime = articlesRead > 0
+      ? Math.round(totalReadingTime / articlesRead)
       : 0;
 
     // Get reading time by hour of day
@@ -209,8 +200,8 @@ router.get('/reading-time', async (req, res, next) => {
         and(
           eq(userArticleStates.userId, req.user!.id),
           eq(userArticleStates.isRead, true),
-          userArticleStates.readAt !== null
-        )
+          isNotNull(userArticleStates.readAt),
+        ),
       )
       .groupBy(sql`EXTRACT(HOUR FROM ${userArticleStates.readAt})`)
       .orderBy(sql`EXTRACT(HOUR FROM ${userArticleStates.readAt})`);
@@ -226,77 +217,19 @@ router.get('/reading-time', async (req, res, next) => {
         and(
           eq(userArticleStates.userId, req.user!.id),
           eq(userArticleStates.isRead, true),
-          userArticleStates.readAt !== null
-        )
+          isNotNull(userArticleStates.readAt),
+        ),
       )
       .groupBy(sql`EXTRACT(DOW FROM ${userArticleStates.readAt})`)
       .orderBy(sql`EXTRACT(DOW FROM ${userArticleStates.readAt})`);
 
     res.json({
-      totalReadingTime: stats.totalReadingTime,
-      articlesRead: stats.articlesRead,
+      totalReadingTime,
+      articlesRead,
       averageReadingTime,
       estimatedWordsPerMinute: 200,
       readingByHour,
       readingByDayOfWeek,
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Get tag statistics
-router.get('/tags', async (req, res, next) => {
-  try {
-    const db = getDb();
-
-    // Get tag usage statistics
-    const tagStats = await db
-      .select({
-        tag: sql<string>`UNNEST(${userArticleStates.tags})`,
-        count: sql<number>`COUNT(*)`,
-      })
-      .from(userArticleStates)
-      .where(
-        and(
-          eq(userArticleStates.userId, req.user!.id),
-          sql`array_length(${userArticleStates.tags}, 1) > 0`
-        )
-      )
-      .groupBy(sql`UNNEST(${userArticleStates.tags})`)
-      .orderBy(desc(sql`COUNT(*)`))
-      .limit(20);
-
-    // Get co-occurrence matrix for top tags
-    const topTags = tagStats.slice(0, 10).map(t => t.tag);
-    const coOccurrences: Record<string, Record<string, number>> = {};
-
-    if (topTags.length > 0) {
-      for (const tag1 of topTags) {
-        coOccurrences[tag1] = {};
-        for (const tag2 of topTags) {
-          if (tag1 !== tag2) {
-            const [count] = await db
-              .select({
-                count: sql<number>`COUNT(*)`,
-              })
-              .from(userArticleStates)
-              .where(
-                and(
-                  eq(userArticleStates.userId, req.user!.id),
-                  sql`${tag1} = ANY(${userArticleStates.tags})`,
-                  sql`${tag2} = ANY(${userArticleStates.tags})`
-                )
-              );
-            coOccurrences[tag1][tag2] = count.count;
-          }
-        }
-      }
-    }
-
-    res.json({
-      tags: tagStats,
-      coOccurrences,
     });
   } catch (error) {
     next(error);
@@ -308,7 +241,7 @@ router.post('/reading-time', async (req, res, next) => {
   try {
     const { articleId, timeSpent } = z.object({
       articleId: z.string().uuid(),
-      timeSpent: z.number().min(0).max(3600), // Max 1 hour
+      timeSpent: z.number().min(0).max(3600),
     }).parse(req.body);
 
     const db = getDb();
@@ -321,8 +254,8 @@ router.post('/reading-time', async (req, res, next) => {
       .where(
         and(
           eq(articles.id, articleId),
-          eq(feeds.userId, req.user!.id)
-        )
+          eq(feeds.userId, req.user!.id),
+        ),
       )
       .limit(1);
 
@@ -330,18 +263,22 @@ router.post('/reading-time', async (req, res, next) => {
       throw new AppError('Article not found', 404);
     }
 
+    const day = new Date();
+    day.setHours(0, 0, 0, 0);
+
     // Update or create reading stats
     await db
       .insert(readingStats)
       .values({
         userId: req.user!.id,
-        totalReadingTime: timeSpent,
+        date: day,
+        readingTime: timeSpent,
         articlesRead: 1,
       })
       .onConflictDoUpdate({
-        target: [readingStats.userId],
+        target: [readingStats.userId, readingStats.date],
         set: {
-          totalReadingTime: sql`${readingStats.totalReadingTime} + ${timeSpent}`,
+          readingTime: sql`${readingStats.readingTime} + ${timeSpent}`,
           articlesRead: sql`${readingStats.articlesRead} + 1`,
           updatedAt: new Date(),
         },
@@ -369,8 +306,8 @@ async function calculateReadingStreak(db: any, userId: string): Promise<{
       and(
         eq(userArticleStates.userId, userId),
         eq(userArticleStates.isRead, true),
-        userArticleStates.readAt !== null
-      )
+        isNotNull(userArticleStates.readAt),
+      ),
     )
     .groupBy(sql`DATE(${userArticleStates.readAt})`)
     .orderBy(desc(sql`DATE(${userArticleStates.readAt})`));
@@ -383,7 +320,7 @@ async function calculateReadingStreak(db: any, userId: string): Promise<{
     };
   }
 
-  const dates = readDates.map(r => new Date(r.date));
+  const dates = readDates.map((r: { date: string }) => new Date(r.date));
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
