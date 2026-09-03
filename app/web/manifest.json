@@ -1,23 +1,28 @@
 {
-    "name": "rss_glassmorphism_reader",
+    "name": "Omi RSS",
     "short_name": "Omi RSS",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0a0a0a",
     "theme_color": "#0a0a0a",
     "description": "A local-first RSS reader.",
-    "orientation": "portrait-primary",
+    "orientation": "any",
     "prefer_related_applications": false,
     "icons": [
         {
-            "src": "icons/Icon-192.png",
-            "sizes": "192x192",
+            "src": "icons/icon-48.png",
+            "sizes": "48x48",
             "type": "image/png"
         },
         {
-            "src": "icons/Icon-512.png",
-            "sizes": "512x512",
+            "src": "icons/icon-128.png",
+            "sizes": "128x128",
             "type": "image/png"
+        },
+        {
+            "src": "icons/icon.svg",
+            "sizes": "any",
+            "type": "image/svg+xml"
         }
     ]
 }

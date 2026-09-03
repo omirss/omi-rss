@@ -95,20 +95,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      // Logo
-                      GlassContainer(
-                        width: 80,
-                        height: 80,
-                        borderRadius: BorderRadius.circular(20),
-                        child: Icon(
-                          Icons.rss_feed,
-                          size: 40,
-                          color: Colors.white,
-                        ),
-                      ),
-                      
-                      const SizedBox(height: 32),
-                      
                       // Title
                       Text(
                         'Omi RSS Reader',
