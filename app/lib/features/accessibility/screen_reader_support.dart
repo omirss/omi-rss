@@ -265,7 +265,7 @@ class AccessibleListItem extends ConsumerWidget {
       child: ListTile(
         leading: leading,
         title: Text(title),
-        subtitle: subtitle != null ? Text(subtitle) : null,
+        subtitle: subtitle != null ? Text(subtitle!) : null,
         trailing: trailing,
         onTap: enabled ? onTap : null,
         onLongPress: enabled ? onLongPress : null,

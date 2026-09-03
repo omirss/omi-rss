@@ -282,20 +282,16 @@ class ImportService {
       title: '$source Import',
       description: 'Articles imported from $source',
       url: 'https://imported.local/$source',
-      feedUrl: 'https://imported.local/$source/feed',
-      category: 'Imported',
-      iconUrl: null,
-      lastUpdated: DateTime.now(),
-      updateFrequency: 0, // No updates for imported feeds
       isActive: true,
-      metadata: {
+      updateFrequency: 31536000,
+      customFields: {
         'source': source,
         'importedAt': DateTime.now().toIso8601String(),
         'articleCount': articles.length,
       },
     );
   }
-  
+
   // Convert imported articles to Article format
   List<Article> convertToArticles(String feedId, List<ImportedArticle> imports) {
     return imports.map((import) {
@@ -303,6 +299,7 @@ class ImportService {
       return Article(
         id: 'imported_${import.url.hashCode}_${now.millisecondsSinceEpoch}',
         feedId: feedId,
+        guid: import.url,
         title: import.title,
         url: import.url,
         content: import.excerpt ?? '',
@@ -313,7 +310,7 @@ class ImportService {
         isRead: import.isArchived,
         isStarred: import.isFavorite,
         categories: import.tags,
-        metadata: {
+        customFields: {
           'imported': true,
           'source': feedId.contains('pocket') ? 'pocket' : 'instapaper',
         },

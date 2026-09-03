@@ -141,9 +141,9 @@ class _ThreeColumnLayoutState extends State<ThreeColumnLayout>
     final theme = GlassTheme.of(context);
     
     // Calculate actual widths
-    final actualLeftWidth = _leftCollapsed ? 60 : _leftWidth;
-    final actualRightWidth = _rightCollapsed ? 60 : _rightWidth;
-    final actualMiddleWidth = screenWidth - actualLeftWidth - actualRightWidth - (widget.dividerWidth * 2);
+    final actualLeftWidth = (_leftCollapsed ? 60 : _leftWidth).toDouble();
+    final actualRightWidth = (_rightCollapsed ? 60 : _rightWidth).toDouble();
+    final actualMiddleWidth = (screenWidth - actualLeftWidth - actualRightWidth - (widget.dividerWidth * 2)).toDouble();
     
     return Row(
       children: [

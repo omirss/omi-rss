@@ -2,8 +2,30 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/models/reading_statistics.dart';
 import '../core/models/article.dart';
 import '../core/models/feed.dart';
+import '../core/models/feed_statistics.dart';
+import '../core/services/statistics_service.dart';
 import 'database_provider.dart';
 import 'dart:math';
+
+/// Statistics service provider
+final statisticsServiceProvider = Provider<StatisticsService>((ref) {
+  return StatisticsService(ref.watch(databaseProvider));
+});
+
+/// Per-feed statistics provider
+final feedStatisticsProvider = FutureProvider.family<FeedStatistics, String>((ref, feedId) {
+  return ref.watch(statisticsServiceProvider).getFeedStatistics(feedId);
+});
+
+/// Aggregated statistics across all feeds
+final aggregatedStatisticsProvider = FutureProvider.family<AggregatedStatistics, String?>((ref, categoryId) {
+  return ref.watch(statisticsServiceProvider).getAggregatedStatistics(categoryId: categoryId);
+});
+
+/// Detailed reading statistics (streaks, speed, per-category time)
+final detailedReadingStatisticsProvider = FutureProvider<DetailedReadingStatistics>((ref) {
+  return ref.watch(statisticsServiceProvider).getReadingStatistics();
+});
 
 // Provider for reading statistics
 final readingStatisticsProvider = FutureProvider<ReadingStatistics>((ref) async {

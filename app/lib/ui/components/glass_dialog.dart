@@ -103,6 +103,53 @@ class GlassDialog extends StatefulWidget {
 
   @override
   State<GlassDialog> createState() => _GlassDialogState();
+
+  /// Shows a loading dialog with glass effect
+  static Future<void> showLoading({
+    required BuildContext context,
+    String? message,
+  }) {
+    return GlassLoadingDialog.show(context: context, message: message);
+  }
+
+  /// Shows a confirmation dialog returning true when confirmed
+  static Future<bool?> showConfirmation({
+    required BuildContext context,
+    required String title,
+    required String content,
+    String confirmText = 'Confirm',
+    String cancelText = 'Cancel',
+    Color? confirmColor,
+  }) {
+    return showGlassDialog<bool>(
+      context: context,
+      title: Text(title),
+      content: Text(
+        content,
+        style: TextStyle(
+          color: Colors.white.withOpacity(0.9),
+          fontSize: 16,
+          height: 1.5,
+        ),
+      ),
+      actions: [
+        GlassButton(
+          text: cancelText,
+          onPressed: () => Navigator.of(context).pop(false),
+          variant: GlassButtonVariant.text,
+        ),
+        GlassButton(
+          text: confirmText,
+          onPressed: () => Navigator.of(context).pop(true),
+          variant: GlassButtonVariant.elevated,
+          gradientColors: confirmColor != null
+              ? [confirmColor.withOpacity(0.8), confirmColor.withOpacity(0.6)]
+              : null,
+        ),
+      ],
+      size: GlassDialogSize.small,
+    );
+  }
 }
 
 class _GlassDialogState extends State<GlassDialog>
@@ -161,10 +208,10 @@ class _GlassDialogState extends State<GlassDialog>
     // Calculate dialog size
     final dialogWidth = widget.size == GlassDialogSize.fullscreen
         ? screenSize.width
-        : widget.size.width.clamp(0, screenSize.width * 0.9);
+        : widget.size.width.clamp(0.0, screenSize.width * 0.9).toDouble();
     final dialogHeight = widget.size == GlassDialogSize.fullscreen
         ? screenSize.height
-        : widget.size.height.clamp(0, screenSize.height * 0.9);
+        : widget.size.height.clamp(0.0, screenSize.height * 0.9).toDouble();
 
     return GestureDetector(
       onTap: _handleDismiss,

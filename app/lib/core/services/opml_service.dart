@@ -154,8 +154,10 @@ class OpmlService {
           
           // Wait for at least one task to complete
           if (activeTasks.isNotEmpty) {
-            await Future.any(activeTasks);
-            activeTasks.removeWhere((task) => task.isCompleted);
+            final completedHash = await Future.any(
+              activeTasks.map((task) => task.then((_) => task.hashCode)),
+            );
+            activeTasks.removeWhere((task) => task.hashCode == completedHash);
           }
         }
       }

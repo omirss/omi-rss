@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../features/analytics/analytics_service.dart';
+import '../features/analytics/analytics_provider.dart' show ChartDataPoint;
 
 // Analytics service provider
 final analyticsServiceProvider = Provider((ref) => AnalyticsService());
@@ -150,11 +151,4 @@ class RecommendationQuery {
 
   @override
   int get hashCode => type.hashCode ^ limit.hashCode;
-}
-
-class ChartDataPoint {
-  final String label;
-  final double value;
-
-  ChartDataPoint(this.label, this.value);
 }

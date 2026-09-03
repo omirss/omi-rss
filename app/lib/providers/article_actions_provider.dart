@@ -21,7 +21,7 @@ class ArticleActions {
       final updatedArticle = article.copyWith(
         isStarred: !article.isStarred,
       );
-      await database.articleDao.updateArticle(updatedArticle);
+      await database.articleDao.insertOrUpdateArticle(updatedArticle);
     }
   }
   
@@ -33,7 +33,7 @@ class ArticleActions {
       final updatedArticle = article.copyWith(
         isRead: true,
       );
-      await database.articleDao.updateArticle(updatedArticle);
+      await database.articleDao.insertOrUpdateArticle(updatedArticle);
     }
   }
   
@@ -45,7 +45,7 @@ class ArticleActions {
       final updatedArticle = article.copyWith(
         isRead: false,
       );
-      await database.articleDao.updateArticle(updatedArticle);
+      await database.articleDao.insertOrUpdateArticle(updatedArticle);
     }
   }
   
@@ -57,7 +57,7 @@ class ArticleActions {
       final updatedArticle = article.copyWith(
         isRead: !article.isRead,
       );
-      await database.articleDao.updateArticle(updatedArticle);
+      await database.articleDao.insertOrUpdateArticle(updatedArticle);
     }
   }
   
@@ -69,7 +69,7 @@ class ArticleActions {
       final updatedArticle = article.copyWith(
         isArchived: true,
       );
-      await database.articleDao.updateArticle(updatedArticle);
+      await database.articleDao.insertOrUpdateArticle(updatedArticle);
     }
   }
   
@@ -81,7 +81,7 @@ class ArticleActions {
       final updatedArticle = article.copyWith(
         isArchived: false,
       );
-      await database.articleDao.updateArticle(updatedArticle);
+      await database.articleDao.insertOrUpdateArticle(updatedArticle);
     }
   }
   

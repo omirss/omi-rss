@@ -40,7 +40,7 @@ class OfflineArticlesScreen extends ConsumerWidget {
             children: [
               // App Bar
               GlassAppBar(
-                title: 'Offline Articles',
+                title: const Text('Offline Articles'),
                 leading: GlassButton(
                   icon: Icons.arrow_back,
                   onPressed: () => Navigator.of(context).pop(),
@@ -108,7 +108,7 @@ class OfflineArticlesScreen extends ConsumerWidget {
                   },
                   loading: () => const Center(
                     child: CircularProgressIndicator(
-                      color: GlassTheme.primaryColor,
+                      color: GlassColors.primary,
                     ),
                   ),
                   error: (error, _) => ErrorState(

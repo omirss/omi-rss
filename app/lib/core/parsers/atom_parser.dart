@@ -166,7 +166,7 @@ class AtomParser {
     final enclosures = _parseEnclosures(entry);
     
     // Extract image from content
-    final imageUrl = _extractImageUrl(content);
+    final imageUrl = _extractImageUrl(content?.text);
     
     return Article(
       feedId: feedId,

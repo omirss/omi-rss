@@ -67,26 +67,29 @@ class _GlassContainerState extends State<GlassContainer>
   @override
   void initState() {
     super.initState();
-    
+
     // Scale animation controller
     _scaleController = AnimationController(
       duration: const Duration(milliseconds: 350),
       vsync: this,
     );
-    
+
     // Elevation animation controller
     _elevationController = AnimationController(
       duration: const Duration(milliseconds: 200),
       vsync: this,
     );
-    
+
     // Ripple animation controller
     _rippleController = AnimationController(
       duration: const Duration(milliseconds: 600),
       vsync: this,
     );
-    
-    // Setup animations
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
     _setupAnimations();
   }
   

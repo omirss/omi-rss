@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../../core/models/article.dart';
@@ -137,7 +138,7 @@ class _ArticleReaderScreenState extends ConsumerState<ArticleReaderScreen> {
         final currentScrollDepth = _scrollController.offset / 
             _scrollController.position.maxScrollExtent;
         if (currentScrollDepth > _maxScrollDepth) {
-          _maxScrollDepth = currentScrollDepth.clamp(0, 1);
+          _maxScrollDepth = currentScrollDepth.clamp(0.0, 1.0).toDouble();
         }
       }
       
@@ -161,7 +162,7 @@ class _ArticleReaderScreenState extends ConsumerState<ArticleReaderScreen> {
     
     // Track article read analytics
     final trackArticleRead = ref.read(trackArticleReadProvider);
-    final scrollDepthPercentage = (_maxScrollDepth * 100).clamp(0, 100);
+    final scrollDepthPercentage = (_maxScrollDepth * 100).clamp(0.0, 100.0).toDouble();
     final interactionTimeSeconds = _stopwatch.elapsed.inSeconds;
     final completed = _maxScrollDepth >= 0.9; // Consider 90% scroll as completed
     
@@ -503,7 +504,7 @@ class _ArticleReaderScreenState extends ConsumerState<ArticleReaderScreen> {
     
     showGlassDialog(
       context: context,
-      title: 'Reader Settings',
+      title: const Text('Reader Settings'),
       content: StatefulBuilder(
         builder: (context, setState) {
           return Column(

@@ -270,7 +270,7 @@ class SearchNotifier extends StateNotifier<SearchState> {
 // Search provider
 final searchProvider = StateNotifierProvider<SearchNotifier, SearchState>((ref) {
   final searchService = ref.watch(searchServiceProvider);
-  final historyManager = ref.watch(searchHistoryProvider).state;
+  final historyManager = ref.watch(searchHistoryProvider);
   return SearchNotifier(searchService, historyManager);
 });
 
@@ -278,7 +278,7 @@ final searchProvider = StateNotifierProvider<SearchNotifier, SearchState>((ref) 
 final searchSuggestionsProvider = FutureProvider<List<String>>((ref) async {
   final searchState = ref.watch(searchProvider);
   final searchService = ref.watch(searchServiceProvider);
-  final historyManager = ref.watch(searchHistoryProvider).state;
+  final historyManager = ref.watch(searchHistoryProvider);
   
   if (searchState.query.isEmpty) {
     // Return recent searches

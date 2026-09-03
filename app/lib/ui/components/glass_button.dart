@@ -10,6 +10,8 @@ enum GlassButtonVariant {
   text,
   icon,
   fab,
+  primary,
+  secondary,
 }
 
 /// Glass button with multiple variants and loading states
@@ -27,6 +29,7 @@ class GlassButton extends StatefulWidget {
   final EdgeInsets? padding;
   final GlassThemeData? theme;
   final Widget? child;
+  final List<Color>? gradientColors;
   
   const GlassButton({
     super.key,
@@ -43,6 +46,7 @@ class GlassButton extends StatefulWidget {
     this.padding,
     this.theme,
     this.child,
+    this.gradientColors,
   }) : assert(text != null || icon != null || child != null, 
        'Either text, icon, or child must be provided');
 
@@ -136,6 +140,8 @@ class _GlassButtonState extends State<GlassButton>
   Widget _buildButton(GlassThemeData theme, bool isDisabled) {
     switch (widget.variant) {
       case GlassButtonVariant.elevated:
+      case GlassButtonVariant.primary:
+      case GlassButtonVariant.secondary:
         return _buildElevatedButton(theme, isDisabled);
       case GlassButtonVariant.outlined:
         return _buildOutlinedButton(theme, isDisabled);
@@ -148,7 +154,20 @@ class _GlassButtonState extends State<GlassButton>
     }
   }
   
+  List<Color> _effectiveGradient(GlassThemeData theme) {
+    if (widget.gradientColors != null) return widget.gradientColors!;
+    switch (widget.variant) {
+      case GlassButtonVariant.primary:
+        return const [Color(0xFF667EEA), Color(0xFF764BA2)];
+      case GlassButtonVariant.secondary:
+        return const [Color(0xFFF093FB), Color(0xFFF5576C)];
+      default:
+        return theme.gradientColors;
+    }
+  }
+
   Widget _buildElevatedButton(GlassThemeData theme, bool isDisabled) {
+    final gradient = _effectiveGradient(theme);
     return Container(
       width: widget.width,
       height: widget.height,
@@ -174,10 +193,10 @@ class _GlassButtonState extends State<GlassButton>
                           ]
                         : _isHovered
                             ? [
-                                theme.gradientColors[0].withOpacity(0.3),
-                                theme.gradientColors[1].withOpacity(0.2),
+                                gradient[0].withOpacity(0.3),
+                                gradient[1].withOpacity(0.2),
                               ]
-                            : theme.gradientColors,
+                            : gradient,
                   ),
                   borderRadius: theme.borderRadius,
                   border: Border.all(

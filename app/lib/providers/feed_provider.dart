@@ -237,7 +237,7 @@ class RefreshProgress {
 class FeedRefreshNotifier extends StateNotifier<AsyncValue<RefreshProgress>> {
   final Ref ref;
   
-  FeedRefreshNotifier(this.ref) : super(const AsyncValue.data(RefreshProgress(
+  FeedRefreshNotifier(this.ref) : super(AsyncValue.data(RefreshProgress(
     current: 0,
     total: 0,
     isComplete: true,

@@ -1,19 +1,19 @@
-import 'dart:io';
 import 'package:drift/drift.dart';
-import 'package:drift/native.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:path/path.dart' as p;
 import 'tables/feeds_table.dart';
 import 'tables/articles_table.dart';
 import 'tables/categories_table.dart';
 import 'tables/settings_table.dart';
 import 'tables/sync_metadata_table.dart';
 import '../models/folder.dart';
+import '../models/feed.dart';
+import '../models/article.dart';
+import '../models/category.dart';
 import 'daos/feed_dao.dart';
 import 'daos/article_dao.dart';
 import 'daos/category_dao.dart';
 import 'daos/settings_dao.dart';
 import 'daos/folder_dao.dart';
+import 'connection/connection.dart';
 
 part 'database.g.dart';
 
@@ -27,8 +27,6 @@ part 'database.g.dart';
     SyncMetadataTable,
     FoldersTable,
     FolderFeedsTable,
-    FolderMembersTable,
-    FolderActivitiesTable,
   ],
   daos: [
     FeedDao,
@@ -39,10 +37,10 @@ part 'database.g.dart';
   ],
 )
 class AppDatabase extends _$AppDatabase {
-  AppDatabase() : super(_openConnection());
+  AppDatabase() : super(openAppConnection());
   
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
   
   @override
   MigrationStrategy get migration {
@@ -51,44 +49,49 @@ class AppDatabase extends _$AppDatabase {
         await m.createAll();
         
         // Insert default categories
-        await into(categoriesTable).insertAll([
-          CategoriesTableCompanion.insert(
-            id: const Value('uncategorized'),
-            name: 'Uncategorized',
-            icon: const Value('folder'),
-            sortOrder: const Value(0),
-          ),
-          CategoriesTableCompanion.insert(
-            id: const Value('favorites'),
-            name: 'Favorites',
-            icon: const Value('star'),
-            sortOrder: const Value(1),
-          ),
-        ]);
-        
+        await batch((batch) {
+          batch.insertAll(categoriesTable, [
+            CategoriesTableCompanion.insert(
+              id: 'uncategorized',
+              name: 'Uncategorized',
+              icon: const Value('folder'),
+              sortOrder: const Value(0),
+            ),
+            CategoriesTableCompanion.insert(
+              id: 'favorites',
+              name: 'Favorites',
+              icon: const Value('star'),
+              sortOrder: const Value(1),
+            ),
+          ]);
+        });
+
         // Insert default settings
-        await into(settingsTable).insertAll([
-          SettingsTableCompanion.insert(
-            key: 'theme',
-            value: 'default',
-          ),
-          SettingsTableCompanion.insert(
-            key: 'updateFrequency',
-            value: '3600',
-          ),
-          SettingsTableCompanion.insert(
-            key: 'articlesPerPage',
-            value: '20',
-          ),
-        ]);
+        await batch((batch) {
+          batch.insertAll(settingsTable, [
+            SettingsTableCompanion.insert(
+              key: 'theme',
+              value: 'default',
+            ),
+            SettingsTableCompanion.insert(
+              key: 'updateFrequency',
+              value: '3600',
+            ),
+            SettingsTableCompanion.insert(
+              key: 'articlesPerPage',
+              value: '20',
+            ),
+          ]);
+        });
       },
       onUpgrade: (Migrator m, int from, int to) async {
-        // Migration from version 1 to 2: Add folder tables
         if (from < 2) {
           await m.createTable(foldersTable);
           await m.createTable(folderFeedsTable);
-          await m.createTable(folderMembersTable);
-          await m.createTable(folderActivitiesTable);
+        }
+        if (from < 3) {
+          await m.createTable(foldersTable);
+          await m.createTable(folderFeedsTable);
         }
       },
     );
@@ -123,12 +126,13 @@ class AppDatabase extends _$AppDatabase {
   /// Import database from JSON
   Future<void> importFromJson(Map<String, dynamic> data) async {
     await transaction(() async {
-      // Clear existing data
       await deleteEverything();
       
-      // Import categories first (referenced by feeds)
       final categories = (data['categories'] as List<dynamic>?)
-          ?.map((c) => CategoriesTableCompanion.fromJson(c as Map<String, dynamic>))
+          ?.map((c) => CategoriesTableCompanion.insert(
+                id: (c as Map<String, dynamic>)['id'] as String,
+                name: c['name'] as String,
+              ))
           .toList();
       if (categories != null && categories.isNotEmpty) {
         await batch((batch) {
@@ -136,9 +140,15 @@ class AppDatabase extends _$AppDatabase {
         });
       }
       
-      // Import feeds
       final feeds = (data['feeds'] as List<dynamic>?)
-          ?.map((f) => FeedsTableCompanion.fromJson(f as Map<String, dynamic>))
+          ?.map((f) {
+            final json = f as Map<String, dynamic>;
+            return FeedsTableCompanion.insert(
+              id: json['id'] as String,
+              url: json['url'] as String,
+              title: json['title'] as String,
+            );
+          })
           .toList();
       if (feeds != null && feeds.isNotEmpty) {
         await batch((batch) {
@@ -146,9 +156,17 @@ class AppDatabase extends _$AppDatabase {
         });
       }
       
-      // Import articles
       final articles = (data['articles'] as List<dynamic>?)
-          ?.map((a) => ArticlesTableCompanion.fromJson(a as Map<String, dynamic>))
+          ?.map((a) {
+            final json = a as Map<String, dynamic>;
+            return ArticlesTableCompanion.insert(
+              id: json['id'] as String,
+              feedId: json['feedId'] as String,
+              guid: json['guid'] as String,
+              title: json['title'] as String,
+              url: json['url'] as String,
+            );
+          })
           .toList();
       if (articles != null && articles.isNotEmpty) {
         await batch((batch) {
@@ -156,9 +174,14 @@ class AppDatabase extends _$AppDatabase {
         });
       }
       
-      // Import settings
       final settings = (data['settings'] as List<dynamic>?)
-          ?.map((s) => SettingsTableCompanion.fromJson(s as Map<String, dynamic>))
+          ?.map((s) {
+            final json = s as Map<String, dynamic>;
+            return SettingsTableCompanion.insert(
+              key: json['key'] as String,
+              value: json['value'] as String,
+            );
+          })
           .toList();
       if (settings != null && settings.isNotEmpty) {
         await batch((batch) {
@@ -167,13 +190,36 @@ class AppDatabase extends _$AppDatabase {
       }
     });
   }
-}
-
-LazyDatabase _openConnection() {
-  return LazyDatabase(() async {
-    final dbFolder = await getApplicationDocumentsDirectory();
-    final file = File(p.join(dbFolder.path, 'rss_reader.db'));
-    
-    return NativeDatabase.createInBackground(file);
-  });
+  
+  /// Convenience accessors used by services
+  
+  Future<List<Feed>> getAllFeeds() => feedDao.getAllFeeds();
+  
+  Future<void> insertFeed(Feed feed) => feedDao.insertOrUpdateFeed(feed);
+  
+  Future<Category> createCategory(Category category) async {
+    await into(categoriesTable).insert(
+      CategoriesTableCompanion.insert(
+        id: category.id,
+        name: category.name,
+        color: Value(category.color),
+        icon: Value(category.icon),
+        sortOrder: Value(category.sortOrder),
+      ),
+      mode: InsertMode.insertOrIgnore,
+    );
+    return category;
+  }
+  
+  Future<List<Article>> getArticlesByFeed(String feedId) =>
+      articleDao.getArticlesByFeed(feedId);
+  
+  Future<void> markFeedAsRead(String feedId) =>
+      articleDao.markFeedAsRead(feedId);
+  
+  Future<void> markFeedsAsRead(List<String> feedIds) =>
+      articleDao.markFeedsAsRead(feedIds);
+  
+  Future<void> deleteArticles(List<String> articleIds) =>
+      articleDao.deleteArticles(articleIds);
 }

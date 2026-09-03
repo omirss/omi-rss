@@ -46,6 +46,57 @@ class GlassSnackBar extends StatefulWidget {
 
   @override
   State<GlassSnackBar> createState() => _GlassSnackBarState();
+
+  static void showInfo({
+    required BuildContext context,
+    required String message,
+  }) {
+    GlassSnackBarManager.of(context)?.showSnackBar(
+      message: message,
+      type: GlassSnackBarType.info,
+    );
+  }
+
+  static void showSuccess({
+    required BuildContext context,
+    required String message,
+  }) {
+    GlassSnackBarManager.of(context)?.showSnackBar(
+      message: message,
+      type: GlassSnackBarType.success,
+    );
+  }
+
+  static void showError({
+    required BuildContext context,
+    required String message,
+  }) {
+    GlassSnackBarManager.of(context)?.showSnackBar(
+      message: message,
+      type: GlassSnackBarType.error,
+    );
+  }
+
+  static void showWarning({
+    required BuildContext context,
+    required String message,
+  }) {
+    GlassSnackBarManager.of(context)?.showSnackBar(
+      message: message,
+      type: GlassSnackBarType.warning,
+    );
+  }
+
+  static void show(
+    BuildContext context,
+    String message, {
+    GlassSnackBarType type = GlassSnackBarType.info,
+  }) {
+    GlassSnackBarManager.of(context)?.showSnackBar(
+      message: message,
+      type: type,
+    );
+  }
 }
 
 class _GlassSnackBarState extends State<GlassSnackBar>

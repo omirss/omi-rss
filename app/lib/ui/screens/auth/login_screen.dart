@@ -31,7 +31,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     
-    final authNotifier = ref.read(authStateProvider.notifier);
+    final authNotifier = ref.read(authProvider.notifier);
     
     try {
       if (_isLogin) {
@@ -59,7 +59,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   
   @override
   Widget build(BuildContext context) {
-    final authState = ref.watch(authStateProvider);
+    final authState = ref.watch(authProvider);
     final size = MediaQuery.of(context).size;
     
     return Scaffold(
@@ -77,7 +77,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           ),
           
           // Particle animation
-          const ParticleBackground(),
+          const ParticleBackground(
+            child: SizedBox.expand(),
+          ),
           
           // Content
           Center(

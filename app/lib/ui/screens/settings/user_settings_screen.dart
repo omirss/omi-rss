@@ -26,7 +26,7 @@ class _UserSettingsScreenState extends ConsumerState<UserSettingsScreen> {
   @override
   void initState() {
     super.initState();
-    final user = ref.read(authStateProvider).user;
+    final user = ref.read(authProvider).user;
     _usernameController = TextEditingController(text: user?.username ?? '');
     _fullNameController = TextEditingController(text: user?.fullName ?? '');
     _emailController = TextEditingController(text: user?.email ?? '');
@@ -60,7 +60,7 @@ class _UserSettingsScreenState extends ConsumerState<UserSettingsScreen> {
   
   @override
   Widget build(BuildContext context) {
-    final authState = ref.watch(authStateProvider);
+    final authState = ref.watch(authProvider);
     final user = authState.user;
     final size = MediaQuery.of(context).size;
     
@@ -79,7 +79,10 @@ class _UserSettingsScreenState extends ConsumerState<UserSettingsScreen> {
           ),
           
           // Particle animation
-          const ParticleBackground(particleCount: 40),
+          const ParticleBackground(
+            particleCount: 40,
+            child: SizedBox.expand(),
+          ),
           
           // Content
           SafeArea(
@@ -482,7 +485,7 @@ class _UserSettingsScreenState extends ConsumerState<UserSettingsScreen> {
     
     if (confirm == true) {
       // TODO: Implement account deletion
-      await ref.read(authStateProvider.notifier).logout();
+      await ref.read(authProvider.notifier).logout();
       if (mounted) {
         Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
       }

@@ -111,17 +111,17 @@ class _ArticleListState extends ConsumerState<ArticleList> {
       if (!widget.filter.showUnread && !article.isRead) return false;
       if (widget.filter.showStarred && !article.isStarred) return false;
       if (widget.filter.feedId != null && article.feedId != widget.filter.feedId) return false;
-      if (widget.filter.startDate != null && article.publishedAt.isBefore(widget.filter.startDate!)) return false;
-      if (widget.filter.endDate != null && article.publishedAt.isAfter(widget.filter.endDate!)) return false;
+      if (widget.filter.startDate != null && (article.publishedAt ?? article.createdAt).isBefore(widget.filter.startDate!)) return false;
+      if (widget.filter.endDate != null && (article.publishedAt ?? article.createdAt).isAfter(widget.filter.endDate!)) return false;
       return true;
     }).toList();
     
     // Apply sorting
     switch (widget.sortOption) {
       case ArticleSortOption.date:
-        filtered.sort((a, b) => widget.ascending 
-            ? a.publishedAt.compareTo(b.publishedAt)
-            : b.publishedAt.compareTo(a.publishedAt));
+        filtered.sort((a, b) => widget.ascending
+            ? (a.publishedAt ?? a.createdAt).compareTo(b.publishedAt ?? b.createdAt)
+            : (b.publishedAt ?? b.createdAt).compareTo(a.publishedAt ?? a.createdAt));
         break;
       case ArticleSortOption.title:
         filtered.sort((a, b) => widget.ascending
@@ -130,8 +130,8 @@ class _ArticleListState extends ConsumerState<ArticleList> {
         break;
       case ArticleSortOption.source:
         filtered.sort((a, b) {
-          final feedA = widget.feeds[a.feedId]?.name ?? '';
-          final feedB = widget.feeds[b.feedId]?.name ?? '';
+          final feedA = widget.feeds[a.feedId]?.title ?? '';
+          final feedB = widget.feeds[b.feedId]?.title ?? '';
           return widget.ascending
               ? feedA.compareTo(feedB)
               : feedB.compareTo(feedA);
@@ -256,7 +256,7 @@ class _ArticleListState extends ConsumerState<ArticleList> {
                             borderRadius: BorderRadius.circular(4),
                           ),
                           child: Text(
-                            feed.name,
+                            feed.title,
                             style: TextStyle(
                               fontSize: 12,
                               color: Colors.white.withOpacity(0.8),
@@ -266,7 +266,7 @@ class _ArticleListState extends ConsumerState<ArticleList> {
                         const SizedBox(width: 8),
                       ],
                       Text(
-                        _formatDate(article.publishedAt),
+                        _formatDate(article.publishedAt ?? article.createdAt),
                         style: TextStyle(
                           fontSize: 12,
                           color: Colors.white.withOpacity(0.6),
@@ -297,10 +297,10 @@ class _ArticleListState extends ConsumerState<ArticleList> {
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  if (article.description != null) ...[
+                  if (article.description.isNotEmpty) ...[
                     const SizedBox(height: 8),
                     Text(
-                      article.description!,
+                      article.description,
                       style: TextStyle(
                         fontSize: 14,
                         color: Colors.white.withOpacity(0.7),
@@ -372,7 +372,7 @@ class _ArticleListState extends ConsumerState<ArticleList> {
                     children: [
                       if (feed != null)
                         Text(
-                          feed.name,
+                          feed.title,
                           style: TextStyle(
                             fontSize: 12,
                             color: Theme.of(context).primaryColor,
@@ -380,7 +380,7 @@ class _ArticleListState extends ConsumerState<ArticleList> {
                         ),
                       const Spacer(),
                       Text(
-                        _formatDate(article.publishedAt),
+                        _formatDate(article.publishedAt ?? article.createdAt),
                         style: TextStyle(
                           fontSize: 12,
                           color: Colors.white.withOpacity(0.6),
@@ -401,10 +401,10 @@ class _ArticleListState extends ConsumerState<ArticleList> {
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  if (article.description != null) ...[
+                  if (article.description.isNotEmpty) ...[
                     const SizedBox(height: 4),
                     Text(
-                      article.description!,
+                      article.description,
                       style: TextStyle(
                         fontSize: 13,
                         color: Colors.white.withOpacity(0.6),
@@ -490,7 +490,7 @@ class _ArticleListState extends ConsumerState<ArticleList> {
             children: [
               if (feed != null)
                 Text(
-                  feed.name.toUpperCase(),
+                  feed.title.toUpperCase(),
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
@@ -522,7 +522,7 @@ class _ArticleListState extends ConsumerState<ArticleList> {
                     const SizedBox(width: 16),
                   ],
                   Text(
-                    _formatDate(article.publishedAt),
+                    _formatDate(article.publishedAt ?? article.createdAt),
                     style: TextStyle(
                       fontSize: 14,
                       color: Colors.white.withOpacity(0.6),
@@ -530,10 +530,10 @@ class _ArticleListState extends ConsumerState<ArticleList> {
                   ),
                 ],
               ),
-              if (article.description != null) ...[
+              if (article.description.isNotEmpty) ...[
                 const SizedBox(height: 16),
                 Text(
-                  article.description!,
+                  article.description,
                   style: TextStyle(
                     fontSize: 16,
                     color: Colors.white.withOpacity(0.8),
@@ -580,7 +580,7 @@ class _ArticleListState extends ConsumerState<ArticleList> {
               children: [
                 if (feed != null)
                   Text(
-                    feed.name.toUpperCase(),
+                    feed.title.toUpperCase(),
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.bold,
@@ -601,7 +601,7 @@ class _ArticleListState extends ConsumerState<ArticleList> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  _formatDate(article.publishedAt),
+                  _formatDate(article.publishedAt ?? article.createdAt),
                   style: TextStyle(
                     fontSize: 12,
                     color: Colors.white.withOpacity(0.6),
@@ -665,7 +665,7 @@ class _ArticleListState extends ConsumerState<ArticleList> {
                     children: [
                       if (feed != null) ...[
                         Text(
-                          feed.name,
+                          feed.title,
                           style: TextStyle(
                             fontSize: 12,
                             color: Colors.white.withOpacity(0.5),
@@ -682,7 +682,7 @@ class _ArticleListState extends ConsumerState<ArticleList> {
                         const SizedBox(width: 8),
                       ],
                       Text(
-                        _formatDate(article.publishedAt),
+                        _formatDate(article.publishedAt ?? article.createdAt),
                         style: TextStyle(
                           fontSize: 12,
                           color: Colors.white.withOpacity(0.5),

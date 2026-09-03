@@ -75,8 +75,8 @@ class OfflineStorage {
       // Download and save images
       if (article.enclosures != null) {
         for (final enclosure in article.enclosures!) {
-          if (enclosure['type']?.startsWith('image/') == true) {
-            await _downloadImage(enclosure['url'], article.id);
+          if (enclosure.type?.startsWith('image/') == true) {
+            await _downloadImage(enclosure.url, article.id);
           }
         }
       }
@@ -102,34 +102,29 @@ class OfflineStorage {
       
       return Article(
         id: articleData['id'],
+        guid: articleData['guid'] ?? articleData['id'],
         title: articleData['title'],
         content: articleData['content'],
         fullContent: articleData['fullContent'],
         summary: articleData['summary'],
         url: articleData['url'],
         author: articleData['author'],
-        publishedAt: articleData['publishedAt'] != null 
-          ? DateTime.parse(articleData['publishedAt']) 
+        publishedAt: articleData['publishedAt'] != null
+          ? DateTime.parse(articleData['publishedAt'])
           : null,
-        updatedAt: articleData['updatedAt'] != null 
-          ? DateTime.parse(articleData['updatedAt']) 
+        updatedAt: articleData['updatedAt'] != null
+          ? DateTime.parse(articleData['updatedAt'])
           : null,
         feedId: articleData['feedId'],
         feedTitle: articleData['feedTitle'],
         isRead: articleData['isRead'] ?? false,
         isStarred: articleData['isStarred'] ?? false,
-        readAt: articleData['readAt'] != null 
-          ? DateTime.parse(articleData['readAt']) 
+        readTimeSeconds: articleData['estimatedReadTime'] != null
+          ? (articleData['estimatedReadTime'] as num).toInt() * 60
           : null,
-        starredAt: articleData['starredAt'] != null 
-          ? DateTime.parse(articleData['starredAt']) 
-          : null,
-        estimatedReadTime: articleData['estimatedReadTime'] ?? 5,
-        wordCount: articleData['wordCount'] ?? 0,
         language: articleData['language'],
         categories: List<String>.from(articleData['categories'] ?? []),
-        enclosures: articleData['enclosures'],
-        metadata: articleData['metadata'],
+        customFields: articleData['metadata'],
       );
     } catch (e) {
       throw Exception('Failed to load offline article: $e');

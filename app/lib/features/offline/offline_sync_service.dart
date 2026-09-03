@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/models/article.dart';
 import '../../providers/feed_provider.dart';
+import '../../providers/database_provider.dart';
 import '../../providers/offline_provider.dart';
 import 'offline_storage.dart';
 
@@ -89,10 +90,10 @@ class OfflineSyncService {
     try {
       // Get all articles from feeds
       final articles = <Article>[];
-      final feeds = await ref.read(feedsProvider.future);
-      
-      for (final feed in feeds) {
-        final feedArticles = await ref.read(articlesProvider(feed.id).future);
+      final database = ref.read(databaseProvider);
+
+      for (final feed in await database.feedDao.getAllFeeds()) {
+        final feedArticles = await database.articleDao.getArticlesByFeed(feed.id);
         articles.addAll(feedArticles.where((article) => article.isStarred));
       }
       
@@ -106,10 +107,10 @@ class OfflineSyncService {
     try {
       // Get all articles from feeds
       final articles = <Article>[];
-      final feeds = await ref.read(feedsProvider.future);
-      
-      for (final feed in feeds) {
-        final feedArticles = await ref.read(articlesProvider(feed.id).future);
+      final database = ref.read(databaseProvider);
+
+      for (final feed in await database.feedDao.getAllFeeds()) {
+        final feedArticles = await database.articleDao.getArticlesByFeed(feed.id);
         articles.addAll(feedArticles.where((article) => !article.isRead));
       }
       

@@ -63,7 +63,7 @@ final apiArticlesProvider = FutureProvider.family<List<Article>, ArticleQuery>((
   } catch (e) {
     // Fall back to local data if API fails
     if (query.feedId != null) {
-      return await database.articleDao.getArticlesByFeed(query.feedId!);
+      return await database.articleDao.getArticlesByFeed(query.feedId.toString());
     } else if (query.unreadOnly == true) {
       return await database.articleDao.getUnreadArticles();
     } else {
@@ -223,7 +223,7 @@ final apiFoldersProvider = FutureProvider<List<Folder>>((ref) async {
     
     // Sync with local database
     for (final folder in folders) {
-      await database.folderDao.insertOrUpdateFolder(folder);
+      await database.folderDao.insertFolder(folder);
     }
     
     return folders;
@@ -242,7 +242,7 @@ final createFolderProvider = FutureProvider.family<Folder, String>((ref, name) a
   final folder = await apiService.createFolder(name);
   
   // Save to local database
-  await database.folderDao.insertOrUpdateFolder(folder);
+  await database.folderDao.insertFolder(folder);
   
   // Trigger refresh
   ref.invalidate(apiFoldersProvider);

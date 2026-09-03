@@ -676,7 +676,7 @@ class SettingsScreen extends ConsumerWidget {
   void _clearCache(BuildContext context) {
     showGlassDialog(
       context: context,
-      title: 'Clear Cache',
+      title: const Text('Clear Cache'),
       content: const Text('Are you sure you want to clear all cached data? This action cannot be undone.'),
       actions: [
         GlassButton(
@@ -699,7 +699,7 @@ class SettingsScreen extends ConsumerWidget {
   
   void _exportData(BuildContext context, WidgetRef ref) async {
     try {
-      await ref.read(opmlExportProvider.future);
+      await ref.read(exportOPMLProvider.future);
       context.showSuccessSnackBar('Data exported successfully');
     } catch (e) {
       context.showErrorSnackBar('Failed to export data');
@@ -709,7 +709,7 @@ class SettingsScreen extends ConsumerWidget {
   void _resetSettings(BuildContext context, WidgetRef ref) {
     showGlassDialog(
       context: context,
-      title: 'Reset Settings',
+      title: const Text('Reset Settings'),
       content: const Text('Are you sure you want to reset all settings to their default values?'),
       actions: [
         GlassButton(

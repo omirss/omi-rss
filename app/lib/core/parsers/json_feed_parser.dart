@@ -24,7 +24,6 @@ class JsonFeedParser {
       // Optional fields
       final description = json['description'] as String?;
       final homePageUrl = json['home_page_url'] as String?;
-      final feedUrl = json['feed_url'] as String?;
       final icon = json['icon'] as String?;
       final favicon = json['favicon'] as String?;
       final language = json['language'] as String?;
@@ -40,7 +39,7 @@ class JsonFeedParser {
       final hubs = json['hubs'] as List<dynamic>?;
       
       return Feed(
-        url: feedUrl ?? feedUrl,
+        url: feedUrl,
         title: title,
         description: description,
         link: homePageUrl,

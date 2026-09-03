@@ -393,12 +393,12 @@ class _FeedHealthScreenState extends State<FeedHealthScreen> {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: event.success
+        color: event.isSuccess
             ? Colors.green.withOpacity(0.1)
             : Colors.red.withOpacity(0.1),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: event.success
+          color: event.isSuccess
               ? Colors.green.withOpacity(0.3)
               : Colors.red.withOpacity(0.3),
         ),
@@ -406,8 +406,8 @@ class _FeedHealthScreenState extends State<FeedHealthScreen> {
       child: Row(
         children: [
           Icon(
-            event.success ? Icons.check_circle : Icons.error,
-            color: event.success ? Colors.green : Colors.red,
+            event.isSuccess ? Icons.check_circle : Icons.error,
+            color: event.isSuccess ? Colors.green : Colors.red,
             size: 20,
           ),
           const SizedBox(width: 8),
@@ -416,7 +416,7 @@ class _FeedHealthScreenState extends State<FeedHealthScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  event.success ? 'Successful fetch' : 'Failed fetch',
+                  event.isSuccess ? 'Successful fetch' : 'Failed fetch',
                   style: theme.bodyMedium,
                 ),
                 if (event.error != null)

@@ -74,7 +74,7 @@ ThemeData _buildLightTheme() {
       foregroundColor: Colors.black87,
       elevation: 0,
     ),
-    cardTheme: CardTheme(
+    cardTheme: CardThemeData(
       color: Colors.white.withOpacity(0.9),
       elevation: 2,
       shape: RoundedRectangleBorder(
@@ -104,7 +104,7 @@ ThemeData _buildDarkTheme() {
       foregroundColor: Colors.white,
       elevation: 0,
     ),
-    cardTheme: CardTheme(
+    cardTheme: CardThemeData(
       color: Colors.black.withOpacity(0.3),
       elevation: 2,
       shape: RoundedRectangleBorder(

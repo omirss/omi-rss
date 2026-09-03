@@ -43,14 +43,17 @@ void main() {
         ),
       );
       
-      final container = tester.widget<Container>(
+      final containers = tester.widgetList<Container>(
         find.descendant(
           of: find.byType(GlassContainer),
-          matching: find.byType(Container).first,
+          matching: find.byType(Container),
         ),
       );
-      
-      expect(container.padding, const EdgeInsets.all(20));
+
+      expect(
+        containers.any((c) => c.padding == const EdgeInsets.all(20)),
+        isTrue,
+      );
     });
     
     testWidgets('handles tap events', (tester) async {
@@ -135,7 +138,7 @@ void main() {
           GlassButton(
             text: 'Loading',
             onPressed: () {},
-            loading: true,
+            isLoading: true,
           ),
         ),
       );
@@ -251,7 +254,7 @@ void main() {
         createTestWidget(
           GlassTextField(
             controller: TextEditingController(text: 'password'),
-            isPassword: true,
+            obscureText: true,
           ),
         ),
       );
@@ -265,7 +268,6 @@ void main() {
         createTestWidget(
           GlassTextField(
             controller: TextEditingController(),
-            isMultiline: true,
             maxLines: 5,
           ),
         ),

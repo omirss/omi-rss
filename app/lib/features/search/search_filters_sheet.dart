@@ -173,15 +173,11 @@ class _SearchFiltersSheetState extends ConsumerState<SearchFiltersSheet> {
                     _buildSectionTitle('Feeds'),
                     feeds.when(
                       data: (feedList) => Column(
-                        children: feedList.map((feed) => 
+                        children: feedList.map((feed) =>
                           CheckboxListTile(
                             title: Text(
                               feed.title,
                               style: TextStyle(color: Colors.white.withOpacity(0.9)),
-                            ),
-                            subtitle: Text(
-                              '${feed.itemCount} articles',
-                              style: TextStyle(color: Colors.white.withOpacity(0.6)),
                             ),
                             value: _selectedFeedIds.contains(feed.id),
                             onChanged: (value) {

@@ -64,7 +64,7 @@ class StatisticsService {
   }
   
   /// Get reading statistics for the user
-  Future<ReadingStatistics> getReadingStatistics() async {
+  Future<DetailedReadingStatistics> getReadingStatistics() async {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final weekStart = today.subtract(Duration(days: today.weekday - 1));
@@ -123,7 +123,7 @@ class StatisticsService {
     // Calculate streaks
     final streaks = _calculateReadingStreaks(readArticles);
     
-    return ReadingStatistics(
+    return DetailedReadingStatistics(
       articlesReadToday: articlesReadToday,
       articlesReadThisWeek: articlesReadThisWeek,
       articlesReadThisMonth: articlesReadThisMonth,
@@ -309,7 +309,7 @@ class StatisticsService {
   
   /// Calculate average reading speed
   double _calculateAverageReadingSpeed(List<Article> articles) {
-    final readArticles = articles.where((a) => a.isRead && a.readingTimeSeconds != null);
+    final readArticles = articles.where((a) => a.isRead && a.readTimeSeconds != null);
     if (readArticles.isEmpty) return 200.0; // Default WPM
     
     var totalWords = 0;
@@ -318,7 +318,7 @@ class StatisticsService {
     for (final article in readArticles) {
       final content = article.content ?? '';
       totalWords += content.split(RegExp(r'\s+')).length;
-      totalSeconds += article.readingTimeSeconds!;
+      totalSeconds += article.readTimeSeconds!;
     }
     
     if (totalSeconds == 0) return 200.0;
@@ -367,8 +367,8 @@ class StatisticsService {
   
   /// Calculate reading time for a single article
   int _calculateArticleReadingTime(Article article) {
-    if (article.readingTimeSeconds != null) {
-      return article.readingTimeSeconds! ~/ 60; // Convert to minutes
+    if (article.readTimeSeconds != null) {
+      return article.readTimeSeconds! ~/ 60; // Convert to minutes
     }
     
     const averageReadingSpeed = 200; // words per minute

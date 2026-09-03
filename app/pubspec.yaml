@@ -27,7 +27,6 @@ dependencies:
   # Parsing
   xml: ^6.5.0
   html: ^0.15.4
-  webfeed: ^0.7.0
 
   # UI
   flutter_animate: ^4.3.0

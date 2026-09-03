@@ -187,9 +187,9 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold>
         ],
       ),
       bottomNavigationBar: config.showBottomNav
-          ? GlassBottomNav(
+          ? GlassBottomNavigationBar(
               items: widget.navItems
-                  .map((item) => GlassBottomNavItem(
+                  .map((item) => GlassBottomNavigationBarItem(
                         icon: item.icon,
                         activeIcon: item.activeIcon,
                         label: item.label,
@@ -197,7 +197,6 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold>
                   .toList(),
               currentIndex: widget.currentIndex,
               onTap: widget.onNavItemTap,
-              theme: theme,
             )
           : null,
       floatingActionButton: widget.floatingActionButton,

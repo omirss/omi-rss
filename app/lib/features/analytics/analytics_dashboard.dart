@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../../providers/analytics_provider.dart';
+import 'analytics_service.dart';
 import 'widgets/reading_stats_card.dart';
 import 'widgets/streak_indicator.dart';
 import 'widgets/category_chart.dart';

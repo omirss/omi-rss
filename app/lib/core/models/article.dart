@@ -37,7 +37,10 @@ class Article {
   final String? fullContent;
   final DateTime? fullContentFetchedAt;
   final bool? fullContentAvailable;
-  
+
+  // Transient: title of the parent feed, set when joined for display
+  final String? feedTitle;
+
   Article({
     String? id,
     required this.feedId,
@@ -68,17 +71,34 @@ class Article {
     this.fullContent,
     this.fullContentFetchedAt,
     this.fullContentAvailable,
+    this.feedTitle,
   })  : id = id ?? const Uuid().v4(),
         createdAt = createdAt ?? DateTime.now(),
         updatedAt = updatedAt ?? DateTime.now();
-  
+
+  /// Short description for list views
+  String get description => summary ?? '';
+
   /// Get display content (prefers full content over summary)
   String? get displayContent => fullContent ?? content ?? summary;
-  
+
+  /// Approximate word count of the display content
+  int get wordCount =>
+      (displayContent ?? '').split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
+
+  /// When the article was marked read (approximated by updatedAt)
+  DateTime? get readAt => isRead ? updatedAt : null;
+
+  /// When the article was starred (approximated by updatedAt)
+  DateTime? get starredAt => isStarred ? updatedAt : null;
+
+  /// Extra metadata bag
+  Map<String, dynamic>? get metadata => customFields;
+
   /// Calculate estimated read time
   int get estimatedReadTime {
     if (readTimeSeconds != null) return readTimeSeconds!;
-    
+
     final text = displayContent ?? '';
     const wordsPerMinute = 200;
     final wordCount = text.split(RegExp(r'\s+')).length;
@@ -115,6 +135,7 @@ class Article {
     String? fullContent,
     DateTime? fullContentFetchedAt,
     bool? fullContentAvailable,
+    String? feedTitle,
   }) {
     return Article(
       id: id ?? this.id,
@@ -146,6 +167,7 @@ class Article {
       fullContent: fullContent ?? this.fullContent,
       fullContentFetchedAt: fullContentFetchedAt ?? this.fullContentFetchedAt,
       fullContentAvailable: fullContentAvailable ?? this.fullContentAvailable,
+      feedTitle: feedTitle ?? this.feedTitle,
     );
   }
   
@@ -180,6 +202,7 @@ class Article {
       'fullContent': fullContent,
       'fullContentFetchedAt': fullContentFetchedAt?.toIso8601String(),
       'fullContentAvailable': fullContentAvailable,
+      'feedTitle': feedTitle,
     };
   }
   
@@ -220,6 +243,7 @@ class Article {
           ? DateTime.parse(json['fullContentFetchedAt'] as String)
           : null,
       fullContentAvailable: json['fullContentAvailable'] as bool?,
+      feedTitle: json['feedTitle'] as String?,
     );
   }
 }

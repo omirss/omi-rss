@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'config/api_config.dart';
+import 'core/models/article.dart';
 import 'ui/glass_theme.dart';
 import 'ui/animations/particle_background.dart';
 import 'ui/layouts/three_column_layout.dart';
@@ -620,7 +621,8 @@ class _HomePageState extends ConsumerState<HomePage> {
                           ],
                         ),
                       ],
-                    ),
+                      ),
+                      ),
                     ),
                   ),
                 );
@@ -734,7 +736,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                         showDialog(
                           context: context,
                           builder: (context) => GlassDialog(
-                            title: 'About Omi RSS Reader',
+                            title: const Text('About Omi RSS Reader'),
                             content: Column(
                               mainAxisSize: MainAxisSize.min,
                               crossAxisAlignment: CrossAxisAlignment.start,

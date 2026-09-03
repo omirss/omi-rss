@@ -234,7 +234,7 @@ class _FocusableListItemState extends State<FocusableListItem> {
   Widget build(BuildContext context) {
     return Shortcuts(
       shortcuts: {
-        CommonShortcuts.select: const CallbackIntent(_handleSelect),
+        CommonShortcuts.select: CallbackIntent(_handleSelect),
       },
       child: Actions(
         actions: {

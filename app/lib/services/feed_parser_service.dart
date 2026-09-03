@@ -1,9 +1,12 @@
 import 'dart:convert';
+import 'package:collection/collection.dart';
 import 'package:dio/dio.dart';
-import 'package:webfeed/webfeed.dart';
 import 'package:xml/xml.dart' as xml;
 import 'package:html/parser.dart' as html_parser;
 import 'package:logger/logger.dart';
+
+final RegExp _imgSrcRegex =
+    RegExp(r"""<img[^>]+src=["'](https?://[^"']+)["']""");
 
 class FeedParserService {
   final Dio _dio;
@@ -117,50 +120,48 @@ class FeedParserService {
 
   // Parse XML feeds (RSS/Atom)
   Future<ParsedFeed> _parseXMLFeed(String xmlText, String feedUrl) async {
-    try {
-      // Try RSS 2.0 first
-      final rssFeed = RssFeed.parse(xmlText);
-      if (rssFeed.title != null || rssFeed.items.isNotEmpty) {
-        return _convertRssFeed(rssFeed, feedUrl);
-      }
-    } catch (e) {
-      _logger.d('Not an RSS feed, trying Atom');
+    final document = xml.XmlDocument.parse(xmlText);
+
+    final channel = document.findAllElements('channel').firstOrNull;
+    if (channel != null) {
+      return _convertRssFeed(document, channel, feedUrl);
     }
 
-    try {
-      // Try Atom
-      final atomFeed = AtomFeed.parse(xmlText);
-      if (atomFeed.title != null || atomFeed.items.isNotEmpty) {
-        return _convertAtomFeed(atomFeed, feedUrl);
-      }
-    } catch (e) {
-      _logger.d('Not an Atom feed either');
+    final feed = document.findAllElements('feed').firstOrNull;
+    if (feed != null) {
+      return _convertAtomFeed(feed, feedUrl);
     }
 
     throw Exception('Unknown XML feed format');
   }
 
   // Convert RSS feed to ParsedFeed
-  ParsedFeed _convertRssFeed(RssFeed rssFeed, String feedUrl) {
+  ParsedFeed _convertRssFeed(xml.XmlDocument document, xml.XmlElement channel, String feedUrl) {
+    String? image;
+    final imageEl = channel.findElements('image').firstOrNull;
+    if (imageEl != null) {
+      image = _text(imageEl, 'url');
+    }
+
     return ParsedFeed(
       type: FeedType.rss,
-      title: rssFeed.title ?? 'Untitled Feed',
-      description: rssFeed.description ?? '',
+      title: _text(channel, 'title') ?? 'Untitled Feed',
+      description: _text(channel, 'description') ?? '',
       url: feedUrl,
-      siteUrl: rssFeed.link ?? feedUrl,
-      language: rssFeed.language ?? 'en',
-      lastUpdated: rssFeed.lastBuildDate ?? DateTime.now(),
-      imageUrl: rssFeed.image?.url,
-      items: rssFeed.items.map((item) => ParsedArticle(
-        guid: item.guid ?? item.link ?? '',
-        title: item.title ?? 'Untitled',
-        link: item.link ?? '',
-        description: _stripHtml(item.description ?? ''),
-        content: item.content?.value ?? item.description ?? '',
-        publishedAt: item.pubDate ?? DateTime.now(),
-        author: item.author ?? item.dc?.creator ?? '',
+      siteUrl: _text(channel, 'link') ?? feedUrl,
+      language: _text(channel, 'language') ?? 'en',
+      lastUpdated: _parseDate(_text(channel, 'lastBuildDate') ?? _text(channel, 'pubDate')) ?? DateTime.now(),
+      imageUrl: image,
+      items: channel.findAllElements('item').map((item) => ParsedArticle(
+        guid: _text(item, 'guid') ?? _text(item, 'link') ?? '',
+        title: _text(item, 'title') ?? 'Untitled',
+        link: _text(item, 'link') ?? '',
+        description: _stripHtml(_text(item, 'description') ?? ''),
+        content: _text(item, 'content:encoded') ?? _text(item, 'description') ?? '',
+        publishedAt: _parseDate(_text(item, 'pubDate')) ?? DateTime.now(),
+        author: _text(item, 'author') ?? _text(item, 'dc:creator') ?? '',
         categories: [
-          ...?item.categories?.map((cat) => cat.value ?? ''),
+          ...item.findElements('category').map((cat) => cat.innerText.trim()),
         ].where((cat) => cat.isNotEmpty).toList(),
         thumbnail: _extractThumbnail(item),
       )).toList(),
@@ -168,33 +169,52 @@ class FeedParserService {
   }
 
   // Convert Atom feed to ParsedFeed
-  ParsedFeed _convertAtomFeed(AtomFeed atomFeed, String feedUrl) {
+  ParsedFeed _convertAtomFeed(xml.XmlElement feed, String feedUrl) {
+    String siteUrl = feedUrl;
+    for (final link in feed.findElements('link')) {
+      if (link.getAttribute('rel') == 'alternate' || link.getAttribute('rel') == null) {
+        final href = link.getAttribute('href');
+        if (href != null && href.isNotEmpty) {
+          siteUrl = href;
+          break;
+        }
+      }
+    }
+
     return ParsedFeed(
       type: FeedType.atom,
-      title: atomFeed.title ?? 'Untitled Feed',
-      description: atomFeed.subtitle ?? '',
+      title: _text(feed, 'title') ?? 'Untitled Feed',
+      description: _text(feed, 'subtitle') ?? '',
       url: feedUrl,
-      siteUrl: atomFeed.links.firstWhere(
-        (link) => link.rel == 'alternate',
-        orElse: () => AtomLink(href: feedUrl),
-      ).href ?? feedUrl,
-      language: 'en', // Atom doesn't have language field
-      lastUpdated: atomFeed.updated ?? DateTime.now(),
-      imageUrl: atomFeed.logo,
-      items: atomFeed.items.map((item) => ParsedArticle(
-        guid: item.id ?? '',
-        title: item.title ?? 'Untitled',
-        link: item.links.firstWhere(
-          (link) => link.rel == 'alternate',
-          orElse: () => AtomLink(href: ''),
-        ).href ?? '',
-        description: _stripHtml(item.summary ?? ''),
-        content: item.content ?? item.summary ?? '',
-        publishedAt: item.published ?? item.updated ?? DateTime.now(),
-        author: item.authors.isNotEmpty ? item.authors.first.name ?? '' : '',
-        categories: item.categories.map((cat) => cat.term ?? '').where((cat) => cat.isNotEmpty).toList(),
-        thumbnail: _extractAtomThumbnail(item),
-      )).toList(),
+      siteUrl: siteUrl,
+      language: _text(feed, 'language') ?? 'en',
+      lastUpdated: _parseDate(_text(feed, 'updated')) ?? DateTime.now(),
+      imageUrl: _text(feed, 'logo'),
+      items: feed.findElements('entry').map((entry) {
+        String entryLink = '';
+        for (final link in entry.findElements('link')) {
+          if (link.getAttribute('rel') == 'alternate' || link.getAttribute('rel') == null) {
+            final href = link.getAttribute('href');
+            if (href != null && href.isNotEmpty) {
+              entryLink = href;
+              break;
+            }
+          }
+        }
+        return ParsedArticle(
+          guid: _text(entry, 'id') ?? '',
+          title: _text(entry, 'title') ?? 'Untitled',
+          link: entryLink,
+          description: _stripHtml(_text(entry, 'summary') ?? ''),
+          content: _text(entry, 'content') ?? _text(entry, 'summary') ?? '',
+          publishedAt: _parseDate(_text(entry, 'published')) ?? _parseDate(_text(entry, 'updated')) ?? DateTime.now(),
+          author: _text(entry, 'author') != null ? _text(entry, 'author')! : '',
+          categories: [
+            ...entry.findElements('category').map((cat) => cat.getAttribute('term') ?? ''),
+          ].where((cat) => cat.isNotEmpty).toList(),
+          thumbnail: _extractAtomThumbnail(entry),
+        );
+      }).toList(),
     );
   }
 
@@ -277,7 +297,7 @@ class FeedParserService {
       
       // Extract first image if no thumbnail
       if (item.thumbnail == null && item.content.isNotEmpty) {
-        final imgMatch = RegExp(r'<img[^>]+src=["\'](https?://[^"\']+)["\']').firstMatch(item.content);
+        final imgMatch = _imgSrcRegex.firstMatch(item.content);
         if (imgMatch != null) {
           item.thumbnail = imgMatch.group(1);
         }
@@ -300,54 +320,85 @@ class FeedParserService {
   }
 
   // Extract thumbnail from RSS item
-  String? _extractThumbnail(RssItem item) {
+  String? _extractThumbnail(xml.XmlElement item) {
     // Check media:thumbnail
-    if (item.media?.thumbnails.isNotEmpty ?? false) {
-      return item.media!.thumbnails.first.url;
+    final mediaThumb = item.findAllElements('media:thumbnail').firstOrNull;
+    if (mediaThumb != null) {
+      return mediaThumb.getAttribute('url');
     }
-    
+
     // Check enclosure
-    if (item.enclosure?.url != null && 
-        item.enclosure!.type?.startsWith('image/') == true) {
-      return item.enclosure!.url;
+    final enclosure = item.findElements('enclosure').firstOrNull;
+    if (enclosure != null && (enclosure.getAttribute('type') ?? '').startsWith('image/')) {
+      return enclosure.getAttribute('url');
     }
-    
+
     // Extract from content
-    if (item.content?.value != null) {
-      final imgMatch = RegExp(r'<img[^>]+src=["\'](https?://[^"\']+)["\']')
-          .firstMatch(item.content!.value);
+    final content = _text(item, 'content:encoded') ?? _text(item, 'description');
+    if (content != null) {
+      final imgMatch = _imgSrcRegex.firstMatch(content);
       if (imgMatch != null) {
         return imgMatch.group(1);
       }
     }
-    
+
     return null;
   }
 
   // Extract thumbnail from Atom entry
-  String? _extractAtomThumbnail(AtomItem item) {
+  String? _extractAtomThumbnail(xml.XmlElement entry) {
     // Check media elements
-    if (item.media?.thumbnails.isNotEmpty ?? false) {
-      return item.media!.thumbnails.first.url;
+    final mediaThumb = entry.findAllElements('media:thumbnail').firstOrNull;
+    if (mediaThumb != null) {
+      return mediaThumb.getAttribute('url');
     }
-    
+
     // Check links for images
-    for (final link in item.links) {
-      if (link.type?.startsWith('image/') == true) {
-        return link.href;
+    for (final link in entry.findElements('link')) {
+      if ((link.getAttribute('type') ?? '').startsWith('image/')) {
+        return link.getAttribute('href');
       }
     }
-    
+
     // Extract from content
-    if (item.content != null) {
-      final imgMatch = RegExp(r'<img[^>]+src=["\'](https?://[^"\']+)["\']')
-          .firstMatch(item.content!);
+    final content = _text(entry, 'content');
+    if (content != null) {
+      final imgMatch = _imgSrcRegex.firstMatch(content);
       if (imgMatch != null) {
         return imgMatch.group(1);
       }
     }
-    
+
     return null;
+  }
+
+  // XML helpers
+  String? _text(xml.XmlElement element, String tag) {
+    final el = element.findElements(tag).firstOrNull;
+    return el?.innerText.trim();
+  }
+
+  static const _months = {
+    'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'may': 5, 'jun': 6,
+    'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12,
+  };
+
+  DateTime? _parseDate(String? raw) {
+    if (raw == null || raw.isEmpty) return null;
+    final iso = DateTime.tryParse(raw);
+    if (iso != null) return iso;
+    final match = RegExp(r'(\d{1,2})\s+([A-Za-z]{3})\w*\s+(\d{4})[\s,T]+(\d{1,2}):(\d{2})(?::(\d{2}))?').firstMatch(raw);
+    if (match == null) return null;
+    final month = _months[match.group(2)!.toLowerCase()];
+    if (month == null) return null;
+    return DateTime(
+      int.parse(match.group(3)!),
+      month,
+      int.parse(match.group(1)!),
+      int.parse(match.group(4)!),
+      int.parse(match.group(5)!),
+      match.group(6) != null ? int.parse(match.group(6)!) : 0,
+    );
   }
 
   // Test feed URL without fully parsing

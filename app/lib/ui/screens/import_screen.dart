@@ -61,7 +61,7 @@ class _ImportScreenState extends ConsumerState<ImportScreen> {
             children: [
               // App Bar
               GlassAppBar(
-                title: 'Import Articles',
+                title: const Text('Import Articles'),
                 leading: GlassButton(
                   icon: Icons.arrow_back,
                   onPressed: () => Navigator.of(context).pop(),

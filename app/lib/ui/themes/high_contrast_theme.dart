@@ -30,7 +30,7 @@ class HighContrastThemes {
           fontWeight: FontWeight.bold,
         ),
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: Colors.white,
         elevation: 0,
         shape: RoundedRectangleBorder(
@@ -231,7 +231,7 @@ class HighContrastThemes {
           fontWeight: FontWeight.bold,
         ),
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: Colors.black,
         elevation: 0,
         shape: RoundedRectangleBorder(
@@ -459,7 +459,7 @@ class HighContrastThemes {
           ),
         ),
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: Colors.black,
         elevation: 0,
         shape: RoundedRectangleBorder(

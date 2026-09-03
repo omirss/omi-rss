@@ -314,7 +314,7 @@ class _FeedStatisticsScreenState extends ConsumerState<FeedStatisticsScreen>
                 const SizedBox(height: 16),
                 SizedBox(
                   height: 200,
-                  child: _buildPieChart(stats.articlesByCategory, theme),
+                  child: _buildPieChart(stats.articlesByCategory.map((k, v) => MapEntry(k, v.toDouble())), theme),
                 ),
               ],
             ),
@@ -522,7 +522,7 @@ class _FeedStatisticsScreenState extends ConsumerState<FeedStatisticsScreen>
   }
   
   Widget _buildReadingTab(GlassThemeData theme) {
-    final readingStatsAsync = ref.watch(readingStatisticsProvider);
+    final readingStatsAsync = ref.watch(detailedReadingStatisticsProvider);
     
     return readingStatsAsync.when(
       data: (stats) => ListView(

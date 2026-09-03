@@ -8,8 +8,16 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <meta name="apple-mobile-web-app-title" content="Omi RSS">
-  <title>rss_glassmorphism_reader</title>
+  <title>omi-rss</title>
   <link rel="manifest" href="manifest.json">
+  <script src="https://cdn.jsdelivr.net/npm/sql.js@1.8.0/dist/sql-wasm.js"
+          onload="(function (raw) {
+                    window.initSqlJs = function () {
+                      return raw({ locateFile: function (file) {
+                        return 'https://cdn.jsdelivr.net/npm/sql.js@1.8.0/dist/' + file;
+                      }});
+                    };
+                  })(window.initSqlJs);"></script>
 </head>
 <body>
   <script src="flutter_bootstrap.js" async></script>

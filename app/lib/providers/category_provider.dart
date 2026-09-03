@@ -38,7 +38,7 @@ class CategoryNotifier extends StateNotifier<List<Category>> {
     final database = ref.read(databaseProvider);
     await database.into(database.categoriesTable).insert(
           CategoriesTableCompanion.insert(
-            id: Value(category.id),
+            id: category.id,
             name: category.name,
             parentId: Value(category.parentId),
             color: Value(category.color),

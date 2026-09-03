@@ -114,8 +114,8 @@ class FeedPerformance {
   });
 }
 
-/// Reading statistics
-class ReadingStatistics {
+/// Detailed reading statistics
+class DetailedReadingStatistics {
   final int articlesReadToday;
   final int articlesReadThisWeek;
   final int articlesReadThisMonth;
@@ -128,7 +128,7 @@ class ReadingStatistics {
   final List<ReadingStreak> streaks;
   final DateTime lastUpdated;
 
-  const ReadingStatistics({
+  const DetailedReadingStatistics({
     required this.articlesReadToday,
     required this.articlesReadThisWeek,
     required this.articlesReadThisMonth,

@@ -7,6 +7,7 @@ import '../../core/services/feed_service.dart';
 import '../../core/services/opml_service.dart';
 import '../../providers/feed_provider.dart';
 import '../../providers/category_provider.dart';
+import '../../providers/database_provider.dart';
 import '../glass_theme.dart';
 import '../components/glass_card.dart';
 import '../components/glass_dialog.dart';
@@ -47,7 +48,7 @@ class _FeedManagementScreenState extends ConsumerState<FeedManagementScreen>
   @override
   Widget build(BuildContext context) {
     final theme = GlassTheme.of(context);
-    final feeds = ref.watch(feedsProvider);
+    final feeds = ref.watch(feedsProvider).value ?? const <Feed>[];
     final categories = ref.watch(categoriesProvider);
     
     return Scaffold(
@@ -263,7 +264,7 @@ class _FeedManagementScreenState extends ConsumerState<FeedManagementScreen>
         );
       },
       onDismissed: (direction) {
-        ref.read(feedsProvider.notifier).deleteFeed(feed.id);
+        ref.read(databaseProvider).feedDao.deleteFeed(feed.id);
         GlassSnackBar.showSuccess(
           context: context,
           message: 'Feed deleted',
@@ -439,8 +440,9 @@ class _FeedManagementScreenState extends ConsumerState<FeedManagementScreen>
         .where((c) => c.parentId == category.id)
         .toList();
     final feedCount = ref.watch(feedsProvider)
-        .where((f) => f.categoryId == category.id)
-        .length;
+        .value
+        ?.where((f) => f.categoryId == category.id)
+        .length ?? 0;
     
     return Column(
       children: [
@@ -725,7 +727,7 @@ class _FeedManagementScreenState extends ConsumerState<FeedManagementScreen>
   }
 
   Future<void> _refreshAllFeeds() async {
-    final feeds = ref.read(feedsProvider);
+    final feeds = await ref.read(feedsProvider.future);
     GlassDialog.showLoading(
       context: context,
       message: 'Refreshing all feeds...',
@@ -827,7 +829,7 @@ class _FeedManagementScreenState extends ConsumerState<FeedManagementScreen>
         );
         break;
       case 'toggle':
-        ref.read(feedsProvider.notifier).updateFeed(
+        ref.read(databaseProvider).feedDao.updateFeed(
           feed.copyWith(isActive: !feed.isActive),
         );
         break;
@@ -894,7 +896,7 @@ class _FeedManagementScreenState extends ConsumerState<FeedManagementScreen>
   }
 
   Future<void> _deleteCategory(Category category) async {
-    final hasFeeds = ref.read(feedsProvider)
+    final hasFeeds = (await ref.read(feedsProvider.future))
         .any((f) => f.categoryId == category.id);
     
     if (hasFeeds) {
@@ -954,10 +956,10 @@ class _FeedManagementScreenState extends ConsumerState<FeedManagementScreen>
 
   Future<void> _exportOpml() async {
     try {
-      final feeds = ref.read(feedsProvider);
+      final feeds = await ref.read(feedsProvider.future);
       final categories = ref.read(categoriesProvider);
-      final opmlService = ref.read(opmlServiceProvider);
-      
+      final opmlService = OpmlService();
+
       final opml = await opmlService.exportOpml(
         feeds: feeds,
         categories: categories,

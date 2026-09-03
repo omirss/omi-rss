@@ -176,7 +176,7 @@ class FeedService {
   }
   
   /// Convert ParsedArticle to Article model
-  Article _convertParsedArticleToArticle(ParsedArticle parsedArticle, String feedId) {
+  Article _convertParsedArticleToArticle(parser.ParsedArticle parsedArticle, String feedId) {
     return Article(
       feedId: feedId,
       guid: parsedArticle.guid,
@@ -477,8 +477,10 @@ class FeedService {
       
       // Wait for at least one task to complete
       if (active.isNotEmpty) {
-        await Future.any(active);
-        active.removeWhere((task) => task.isCompleted);
+        final completedHash = await Future.any(
+          active.map((task) => task.then((_) => task.hashCode)),
+        );
+        active.removeWhere((task) => task.hashCode == completedHash);
       }
     }
     
@@ -534,7 +536,7 @@ class FeedService {
     // Add new event
     events.add(FeedHealthEvent(
       timestamp: DateTime.now(),
-      success: success,
+      isSuccess: success,
       responseTime: responseTime,
       error: error,
     ));
@@ -608,23 +610,29 @@ class FeedService {
   
   double _calculateArticlesPerDay(List<Article> articles) {
     if (articles.isEmpty) return 0;
-    
-    final sortedArticles = articles.toList()
-      ..sort((a, b) => a.publishedAt.compareTo(b.publishedAt));
-    
-    final firstArticle = sortedArticles.first;
-    final lastArticle = sortedArticles.last;
-    final daysDiff = lastArticle.publishedAt.difference(firstArticle.publishedAt).inDays;
-    
+
+    final datedArticles = articles
+        .where((a) => a.publishedAt != null)
+        .toList()
+      ..sort((a, b) => a.publishedAt!.compareTo(b.publishedAt!));
+    if (datedArticles.isEmpty) return articles.length.toDouble();
+
+    final firstArticle = datedArticles.first;
+    final lastArticle = datedArticles.last;
+    final daysDiff =
+        lastArticle.publishedAt!.difference(firstArticle.publishedAt!).inDays;
+
     if (daysDiff == 0) return articles.length.toDouble();
     return articles.length / daysDiff;
   }
-  
+
   List<int> _calculateMostActiveHours(List<Article> articles) {
     final hourCounts = List<int>.filled(24, 0);
-    
+
     for (final article in articles) {
-      hourCounts[article.publishedAt.hour]++;
+      if (article.publishedAt != null) {
+        hourCounts[article.publishedAt!.hour]++;
+      }
     }
     
     // Get top 3 most active hours
@@ -652,37 +660,41 @@ class FeedService {
     for (final feed in feeds) {
       final articles = await _database!.getArticlesByFeed(feed.id);
       final toDelete = <String>[];
-      
+
       for (final article in articles) {
+        final ageReference = article.publishedAt ?? article.createdAt;
+
         // Skip starred articles if they have special retention
         if (article.isStarred && keepStarredFor != null) {
-          if (now.difference(article.publishedAt) > keepStarredFor) {
+          if (now.difference(ageReference) > keepStarredFor) {
             toDelete.add(article.id);
           }
           continue;
         }
-        
+
         // Check read articles
         if (article.isRead && keepReadFor != null) {
-          if (now.difference(article.publishedAt) > keepReadFor) {
+          if (now.difference(ageReference) > keepReadFor) {
             toDelete.add(article.id);
           }
           continue;
         }
-        
+
         // Check unread articles
         if (!article.isRead && keepUnreadFor != null) {
-          if (now.difference(article.publishedAt) > keepUnreadFor) {
+          if (now.difference(ageReference) > keepUnreadFor) {
             toDelete.add(article.id);
           }
         }
       }
-      
+
       // Apply max articles per feed limit
       if (maxArticlesPerFeed != null && articles.length > maxArticlesPerFeed) {
-        final sortedArticles = articles.toList()
-          ..sort((a, b) => b.publishedAt.compareTo(a.publishedAt));
-        
+        final sortedArticles = articles
+            .where((a) => a.publishedAt != null)
+            .toList()
+          ..sort((a, b) => b.publishedAt!.compareTo(a.publishedAt!));
+
         for (int i = maxArticlesPerFeed; i < sortedArticles.length; i++) {
           if (!sortedArticles[i].isStarred) {
             toDelete.add(sortedArticles[i].id);
@@ -833,57 +845,11 @@ class FeedHealthEvent {
   final bool isSuccess;
   final String? error;
   final Duration responseTime;
-  
+
   FeedHealthEvent({
     required this.timestamp,
     required this.isSuccess,
     this.error,
     required this.responseTime,
   });
-}
-
-extension FeedServiceBatchOperations on FeedService {
-  /// Batch refresh multiple feeds
-  Future<void> batchRefresh(
-    List<Feed> feeds, {
-    Function(int current, int total)? onProgress,
-  }) async {
-    for (int i = 0; i < feeds.length; i++) {
-      onProgress?.call(i + 1, feeds.length);
-      
-      try {
-        await refreshFeed(feeds[i]);
-      } catch (e) {
-        onFeedLog?.call(feeds[i].id, 'Failed to refresh: $e');
-      }
-    }
-  }
-  
-  /// Mark all articles in feeds as read
-  Future<void> markFeedsAsRead(List<String> feedIds) async {
-    if (_database == null) return;
-    
-    for (final feedId in feedIds) {
-      await _database!.articleDao.markAllAsRead(feedId);
-    }
-  }
-  
-  /// Mark single feed as read
-  Future<void> markFeedAsRead(String feedId) async {
-    await markFeedsAsRead([feedId]);
-  }
-  
-  /// Clean up old articles
-  Future<void> cleanupOldArticles({
-    required List<String> feedIds,
-    required int olderThanDays,
-  }) async {
-    if (_database == null) return;
-    
-    final cutoffDate = DateTime.now().subtract(Duration(days: olderThanDays));
-    
-    for (final feedId in feedIds) {
-      await _database!.articleDao.deleteOldArticles(feedId, cutoffDate);
-    }
-  }
 }

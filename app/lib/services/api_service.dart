@@ -37,6 +37,10 @@ class ApiService {
     _dio.options.baseUrl = url;
   }
 
+  String get baseUrl => _dio.options.baseUrl;
+
+  Dio get dio => _dio;
+
   // Authentication endpoints
   Future<Map<String, dynamic>> login(String email, String password) async {
     try {

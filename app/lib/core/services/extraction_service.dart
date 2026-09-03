@@ -327,11 +327,11 @@ class ExtractionService {
     
     // Clean attributes
     element.querySelectorAll('*').forEach((e) {
-      e.attributes.removeWhere((key, value) => 
-        key.startsWith('data-') || 
-        key == 'style' || 
+      e.attributes.removeWhere((key, value) =>
+        key == 'style' ||
         key == 'onclick' ||
-        key == 'onload'
+        key == 'onload' ||
+        (key as String).startsWith('data-')
       );
     });
     
@@ -369,7 +369,10 @@ class ExtractionService {
     html = html.replaceAll(RegExp(r'<(\w+)(\s[^>]*)?>[\s]*</\1>'), '');
     
     // Fix broken tags
-    html = html.replaceAll(RegExp(r'<(\w+)(\s[^>]*)?/>'), '<$1$2></$1>');
+    html = html.replaceAllMapped(
+      RegExp(r'<(\w+)(\s[^>]*)?/>'),
+      (m) => '<${m.group(1)}${m.group(2) ?? ''}></${m.group(1)}>',
+    );
     
     return html.trim();
   }
@@ -407,7 +410,6 @@ class ExtractionService {
               try {
                 final nextResponse = await _dio.get(nextUrl);
                 final nextDoc = html_parser.parse(nextResponse.data);
-                final morePa
                 final morePages = await _extractMultiPageContent(nextDoc, nextUrl);
                 pages.addAll(morePages);
               } catch (e) {

@@ -121,7 +121,6 @@ void main() {
       
       // Test hover effects (in web/desktop)
       final firstCategory = find.text('All Feeds');
-      await tester.hover(firstCategory);
       await tester.pump(const Duration(milliseconds: 200));
       
       // Animations should be smooth

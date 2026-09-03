@@ -6,6 +6,7 @@ import '../components/glass_card.dart';
 import '../components/glass_button.dart';
 import '../animations/particle_background.dart';
 import '../../providers/feed_provider.dart';
+import '../../providers/database_provider.dart';
 import '../../core/models/feed.dart';
 
 class DiscoverScreen extends ConsumerStatefulWidget {
@@ -203,8 +204,7 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> with SingleTick
           // Particle background
           const ParticleBackground(
             particleCount: 100,
-            connectDistance: 150,
-            particleSpeed: 0.3,
+            child: SizedBox.expand(),
           ),
           
           // Main content
@@ -429,17 +429,20 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> with SingleTick
             ),
             trailing: Consumer(
               builder: (context, ref, child) {
-                final feeds = ref.watch(feedProvider);
+                final feeds = ref.watch(feedsProvider).value ?? const <Feed>[];
                 final isSubscribed = feeds.any((f) => f.url == feed.url);
                 
                 return GlassButton(
                   onPressed: () async {
                     if (!isSubscribed) {
-                      await ref.read(feedProvider.notifier).addFeed(
-                        name: feed.title,
-                        url: feed.url,
-                        categoryId: null,
-                      );
+                      final feedService = ref.read(feedServiceProvider);
+                      final database = ref.read(databaseProvider);
+                      final newFeed = await feedService.subscribeFeed(feed.url);
+                      await database.feedDao.insertFeed(newFeed);
+                      final refreshResult = await feedService.refreshFeed(newFeed);
+                      if (refreshResult.newArticles.isNotEmpty) {
+                        await database.articleDao.insertArticles(refreshResult.newArticles);
+                      }
                       
                       if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(

@@ -34,7 +34,7 @@ class ExportScreen extends ConsumerWidget {
             children: [
               // App Bar
               GlassAppBar(
-                title: 'Export Articles',
+                title: const Text('Export Articles'),
                 leading: GlassButton(
                   icon: Icons.arrow_back,
                   onPressed: () => Navigator.of(context).pop(),
@@ -319,8 +319,8 @@ class ExportScreen extends ConsumerWidget {
   
   Future<void> _exportAllToNotion(BuildContext context, WidgetRef ref) async {
     try {
-      final file = await ref.read(exportManagerProvider).exportAllArticlesToNotion();
-      if (file != null && context.mounted) {
+      await ref.read(exportManagerProvider).exportAllArticlesToNotion();
+      if (context.mounted) {
         context.showSuccessSnackBar('Articles exported to Notion CSV');
       }
     } catch (e) {
@@ -332,8 +332,8 @@ class ExportScreen extends ConsumerWidget {
   
   Future<void> _exportStarredToNotion(BuildContext context, WidgetRef ref) async {
     try {
-      final file = await ref.read(exportManagerProvider).exportStarredArticlesToNotion();
-      if (file != null && context.mounted) {
+      await ref.read(exportManagerProvider).exportStarredArticlesToNotion();
+      if (context.mounted) {
         context.showSuccessSnackBar('Starred articles exported to Notion CSV');
       }
     } catch (e) {
@@ -358,8 +358,8 @@ class ExportScreen extends ConsumerWidget {
   
   Future<void> _exportStarredToObsidian(BuildContext context, WidgetRef ref) async {
     try {
-      final file = await ref.read(exportManagerProvider).exportStarredArticlesToObsidian();
-      if (file != null && context.mounted) {
+      await ref.read(exportManagerProvider).exportStarredArticlesToObsidian();
+      if (context.mounted) {
         context.showSuccessSnackBar('Starred articles exported to Obsidian vault');
       }
     } catch (e) {

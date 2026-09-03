@@ -31,7 +31,7 @@ class NotionExporter implements ArticleExporter {
         _escapeCsvField(article.url),
         _escapeCsvField(article.author ?? ''),
         _formatDate(article.publishedAt),
-        _escapeCsvField(article.categories.join('; ')),
+        _escapeCsvField((article.categories ?? []).join('; ')),
         _escapeCsvField(_stripHtml(article.fullContent ?? article.content ?? '')),
         _escapeCsvField(article.summary ?? ''),
         article.isRead ? 'Read' : 'Unread',
@@ -128,7 +128,7 @@ class ObsidianExporter implements ArticleExporter {
     if (article.publishedAt != null) {
       buffer.writeln('published: ${article.publishedAt!.toIso8601String()}');
     }
-    buffer.writeln('tags: [${article.categories.map((c) => '"$c"').join(', ')}]');
+    buffer.writeln('tags: [${(article.categories ?? []).map((c) => '"$c"').join(', ')}]');
     buffer.writeln('read: ${article.isRead}');
     buffer.writeln('starred: ${article.isStarred}');
     buffer.writeln('feed: ${article.feedTitle ?? 'Unknown'}');
@@ -149,10 +149,10 @@ class ObsidianExporter implements ArticleExporter {
     buffer.writeln('');
     
     // Tags
-    if (article.categories.isNotEmpty) {
+    if (article.categories != null && article.categories!.isNotEmpty) {
       buffer.writeln('## Tags');
       buffer.writeln('');
-      for (final tag in article.categories) {
+      for (final tag in article.categories!) {
         buffer.writeln('#$tag ');
       }
       buffer.writeln('');

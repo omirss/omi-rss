@@ -120,7 +120,6 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                 icon: Icons.filter_list,
                 onPressed: () => _showFilterSheet(context),
                 variant: GlassButtonVariant.icon,
-                isSelected: state.hasActiveFilters,
               ),
             ],
           ),

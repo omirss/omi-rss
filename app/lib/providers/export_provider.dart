@@ -6,7 +6,7 @@ import 'package:share_plus/share_plus.dart';
 import '../features/export/notion_obsidian_export.dart';
 import '../core/models/article.dart';
 import '../core/models/feed.dart';
-import 'feed_provider.dart';
+import 'database_provider.dart';
 
 // Export service provider
 final exportServiceProvider = Provider<ExportService>((ref) {
@@ -218,15 +218,8 @@ class ExportManager {
   }
   
   Future<List<Article>> _getAllArticles() async {
-    final feeds = await ref.read(feedsProvider.future);
-    final articles = <Article>[];
-    
-    for (final feed in feeds) {
-      final feedArticles = await ref.read(articlesProvider(feed.id).future);
-      articles.addAll(feedArticles);
-    }
-    
-    return articles;
+    final database = ref.read(databaseProvider);
+    return database.articleDao.getAllArticles();
   }
   
   Future<List<Article>> _getStarredArticles() async {
@@ -235,11 +228,12 @@ class ExportManager {
   }
   
   Future<Map<Feed, List<Article>>> _getFeedsWithArticles() async {
-    final feeds = await ref.read(feedsProvider.future);
+    final database = ref.read(databaseProvider);
+    final feeds = await database.feedDao.getAllFeeds();
     final feedsWithArticles = <Feed, List<Article>>{};
     
     for (final feed in feeds) {
-      final articles = await ref.read(articlesProvider(feed.id).future);
+      final articles = await database.articleDao.getArticlesByFeed(feed.id);
       feedsWithArticles[feed] = articles;
     }
     

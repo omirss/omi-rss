@@ -3,6 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/models/feed.dart';
 import '../../core/models/category.dart';
 import '../../core/services/feed_service.dart';
+import '../../providers/feed_provider.dart';
+import '../../providers/category_provider.dart';
+import '../../providers/database_provider.dart';
 import '../glass_theme.dart';
 import 'glass_container.dart';
 import 'glass_button.dart';
@@ -447,7 +450,7 @@ class _BatchOperationsPanelState extends ConsumerState<BatchOperationsPanel>
     
     try {
       for (final feed in widget.selectedFeeds) {
-        await ref.read(feedsProvider.notifier).updateFeed(
+        await ref.read(databaseProvider).feedDao.updateFeed(
           feed.copyWith(categoryId: selectedCategory.id),
         );
       }
@@ -480,7 +483,7 @@ class _BatchOperationsPanelState extends ConsumerState<BatchOperationsPanel>
     
     try {
       for (final feed in widget.selectedFeeds) {
-        await ref.read(feedsProvider.notifier).updateFeed(
+        await ref.read(databaseProvider).feedDao.updateFeed(
           feed.copyWith(isActive: !anyActive),
         );
       }
@@ -520,7 +523,7 @@ class _BatchOperationsPanelState extends ConsumerState<BatchOperationsPanel>
     
     try {
       for (final feed in widget.selectedFeeds) {
-        await ref.read(feedsProvider.notifier).deleteFeed(feed.id);
+        await ref.read(databaseProvider).feedDao.deleteFeed(feed.id);
       }
       
       if (mounted) {
@@ -575,7 +578,7 @@ class _BatchOperationsPanelState extends ConsumerState<BatchOperationsPanel>
     
     try {
       for (final feed in widget.selectedFeeds) {
-        await ref.read(feedsProvider.notifier).updateFeed(
+        await ref.read(databaseProvider).feedDao.updateFeed(
           feed.copyWith(updateFrequency: minutes * 60),
         );
       }
@@ -637,11 +640,18 @@ class _BatchOperationsPanelState extends ConsumerState<BatchOperationsPanel>
     });
     
     try {
-      final feedService = ref.read(feedServiceProvider);
-      await feedService.cleanupOldArticles(
-        feedIds: widget.selectedFeeds.map((f) => f.id).toList(),
-        olderThanDays: days,
-      );
+      final database = ref.read(databaseProvider);
+      final cutoff = DateTime.now().subtract(Duration(days: days));
+      for (final feed in widget.selectedFeeds) {
+        final articles = await database.articleDao.getArticlesByFeed(feed.id);
+        await database.articleDao.deleteArticles(
+          articles
+              .where((a) => !a.isStarred &&
+                  (a.publishedAt ?? a.createdAt).isBefore(cutoff))
+              .map((a) => a.id)
+              .toList(),
+        );
+      }
       
       if (mounted) {
         context.showSuccessSnackBar('Old articles removed');

@@ -4,6 +4,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import '../glass_theme.dart';
 import '../components/glass_container.dart';
 import '../components/glass_button.dart';
+import '../components/glass_tooltip.dart';
 import '../components/glass_app_bar.dart';
 import '../components/glass_snack_bar.dart';
 import '../components/glass_dialog.dart';
@@ -34,7 +35,7 @@ class _SavedArticlesScreenState extends ConsumerState<SavedArticlesScreen> {
   @override
   Widget build(BuildContext context) {
     // Get starred articles by setting the filter
-    ref.read(articleFilterProvider.notifier).starred();
+    ref.read(articleFilterProvider.notifier).showStarred();
     final articlesAsync = ref.watch(articlesProvider);
     
     return Scaffold(
@@ -55,7 +56,7 @@ class _SavedArticlesScreenState extends ConsumerState<SavedArticlesScreen> {
             children: [
               // App Bar
               GlassAppBar(
-                title: 'Saved Articles',
+                title: const Text('Saved Articles'),
                 leading: GlassButton(
                   icon: Icons.arrow_back,
                   onPressed: () => Navigator.of(context).pop(),
@@ -537,7 +538,7 @@ class _SavedArticlesScreenState extends ConsumerState<SavedArticlesScreen> {
           onPressed: () async {
             Navigator.pop(context);
             // Get all starred articles and unstar them
-            ref.read(articleFilterProvider.notifier).starred();
+            ref.read(articleFilterProvider.notifier).showStarred();
             final articles = await ref.read(articlesProvider.future);
             
             for (final article in articles) {
@@ -549,7 +550,10 @@ class _SavedArticlesScreenState extends ConsumerState<SavedArticlesScreen> {
             }
           },
           variant: GlassButtonVariant.elevated,
-          color: Colors.red,
+          gradientColors: [
+            Colors.red.withOpacity(0.8),
+            Colors.red.withOpacity(0.6),
+          ],
         ),
       ],
     );
