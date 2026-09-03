@@ -78,6 +78,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           
           // Particle animation
           const ParticleBackground(
+            particleCount: 16,
+            enableMouseInteraction: false,
+            enableParallax: false,
             child: SizedBox.expand(),
           ),
           

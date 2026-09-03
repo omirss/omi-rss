@@ -28,10 +28,10 @@ class Particle {
     x = random.nextDouble();
     y = random.nextDouble() * 1.2 - 0.1; // Start slightly off screen
     size = random.nextDouble() * 6 + 2;
-    speed = random.nextDouble() * 0.3 + 0.1;
-    opacity = random.nextDouble() * 0.5 + 0.3;
+    speed = random.nextDouble() * 0.1 + 0.03;
+    opacity = random.nextDouble() * 0.25 + 0.1;
     wobbleOffset = random.nextDouble() * math.pi * 2;
-    wobbleSpeed = random.nextDouble() * 0.02 + 0.01;
+    wobbleSpeed = random.nextDouble() * 0.008 + 0.004;
     glowIntensity = random.nextDouble() * 0.5 + 0.5;
     
     // Random color from gradient
@@ -55,7 +55,7 @@ class Particle {
     y += vy * deltaTime;
     
     // Horizontal wobble
-    final wobble = math.sin(time * wobbleSpeed + wobbleOffset) * 0.02;
+    final wobble = math.sin(time * wobbleSpeed + wobbleOffset) * 0.008;
     x += vx * deltaTime + wobble;
     
     // Mouse interaction
@@ -103,14 +103,16 @@ class ParticleBackground extends StatefulWidget {
   final int particleCount;
   final bool enableMouseInteraction;
   final bool enableParallax;
+  final bool showConnections;
   final List<Color>? backgroundGradient;
   
   const ParticleBackground({
     super.key,
     required this.child,
-    this.particleCount = 50,
+    this.particleCount = 20,
     this.enableMouseInteraction = true,
     this.enableParallax = true,
+    this.showConnections = false,
     this.backgroundGradient,
   });
 
@@ -173,6 +175,7 @@ class _ParticleBackgroundState extends State<ParticleBackground>
                   animationValue: _animationController.value,
                   mousePosition: _mousePosition,
                   parallaxOffset: Offset(_parallaxOffsetX, _parallaxOffsetY),
+                  showConnections: widget.showConnections,
                   onUpdate: _updateParticles,
                 ),
                 child: Container(),
@@ -236,13 +239,15 @@ class ParticlePainter extends CustomPainter {
   final double animationValue;
   final Offset? mousePosition;
   final Offset parallaxOffset;
+  final bool showConnections;
   final Function(Size) onUpdate;
-  
+
   ParticlePainter({
     required this.particles,
     required this.animationValue,
     this.mousePosition,
     required this.parallaxOffset,
+    this.showConnections = false,
     required this.onUpdate,
   });
 
@@ -250,9 +255,11 @@ class ParticlePainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     // Update particles
     onUpdate(size);
-    
+
     // Draw connections between nearby particles
-    _drawConnections(canvas, size);
+    if (showConnections) {
+      _drawConnections(canvas, size);
+    }
     
     // Draw particles
     for (final particle in particles) {
@@ -261,12 +268,12 @@ class ParticlePainter extends CustomPainter {
       
       // Glow effect
       final glowPaint = Paint()
-        ..color = particle.color.withOpacity(particle.opacity * 0.3 * particle.glowIntensity)
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, particle.size * 3);
-      
+        ..color = particle.color.withOpacity(particle.opacity * 0.15 * particle.glowIntensity)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, particle.size * 2);
+
       canvas.drawCircle(
         Offset(x, y),
-        particle.size * 2,
+        particle.size * 1.4,
         glowPaint,
       );
       
@@ -283,7 +290,7 @@ class ParticlePainter extends CustomPainter {
       
       // Inner highlight
       final highlightPaint = Paint()
-        ..color = Colors.white.withOpacity(particle.opacity * 0.5)
+        ..color = Colors.white.withOpacity(particle.opacity * 0.25)
         ..style = PaintingStyle.fill;
       
       canvas.drawCircle(
