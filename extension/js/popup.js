@@ -128,16 +128,9 @@ function initializeEventListeners() {
   });
   
   // Sync buttons
-  document.getElementById('webrtc-sync-btn')?.addEventListener('click', handleWebRTCSync);
   document.getElementById('export-sync-btn')?.addEventListener('click', handleExportSync);
   document.getElementById('import-sync-btn')?.addEventListener('click', handleImportSync);
-  
-  // Sync modal buttons
-  document.getElementById('create-sync-btn')?.addEventListener('click', handleCreateSync);
-  document.getElementById('join-sync-btn')?.addEventListener('click', handleJoinSync);
-  document.getElementById('connect-btn')?.addEventListener('click', handleConnect);
-  document.getElementById('copy-connection-btn')?.addEventListener('click', handleCopyConnection);
-  
+
   // Load more
   document.getElementById('load-more-btn').addEventListener('click', loadMoreArticles);
   
@@ -1047,11 +1040,6 @@ function showNotification(message, type = 'info') {
 
 // Sync Handler Functions
 
-// Handle WebRTC sync button click
-async function handleWebRTCSync() {
-  openSyncModal();
-}
-
 // Handle export sync
 async function handleExportSync() {
   try {
@@ -1079,7 +1067,7 @@ async function handleImportSync() {
   
   input.onchange = async (e) => {
     const file = e.target.files[0];
-    if (\!file) return;
+    if (!file) return;
     
     try {
       showLoading(true);
@@ -1106,131 +1094,6 @@ async function handleImportSync() {
   };
   
   input.click();
-}
-
-// Sync Modal Functions
-function openSyncModal() {
-  document.getElementById("sync-modal").style.display = "flex";
-  resetSyncModal();
-}
-
-function closeSyncModal() {
-  document.getElementById("sync-modal").style.display = "none";
-  resetSyncModal();
-}
-
-function resetSyncModal() {
-  // Hide all sections
-  document.getElementById("sync-choice").style.display = "block";
-  document.getElementById("sync-qr").style.display = "none";
-  document.getElementById("sync-join").style.display = "none";
-  document.getElementById("sync-progress").style.display = "none";
-}
-
-// Handle create sync connection
-async function handleCreateSync() {
-  try {
-    showSyncProgress("Creating connection...");
-    
-    const result = await chrome.runtime.sendMessage({ action: "start-webrtc-sync" });
-    
-    if (result.error) {
-      throw new Error(result.error);
-    }
-    
-    // Show QR code
-    document.getElementById("sync-choice").style.display = "none";
-    document.getElementById("sync-qr").style.display = "block";
-    document.getElementById("sync-progress").style.display = "none";
-    
-    // Set QR code image
-    document.getElementById("qr-code").src = result.qrCode;
-    document.getElementById("connection-data").value = result.connectionData;
-    
-    // Start countdown timer
-    startSyncTimer(result.expiresIn);
-    
-  } catch (error) {
-    showError("Failed to create connection: " + error.message);
-    resetSyncModal();
-  }
-}
-
-// Handle join sync
-function handleJoinSync() {
-  document.getElementById("sync-choice").style.display = "none";
-  document.getElementById("sync-join").style.display = "block";
-}
-
-// Handle connect
-async function handleConnect() {
-  const connectionData = document.getElementById("join-data").value.trim();
-  
-  if (\!connectionData) {
-    showError("Please enter connection data");
-    return;
-  }
-  
-  try {
-    showSyncProgress("Connecting...");
-    
-    const result = await chrome.runtime.sendMessage({ 
-      action: "connect-webrtc",
-      data: connectionData
-    });
-    
-    if (result.error) {
-      throw new Error(result.error);
-    }
-    
-    showSyncProgress("Syncing data...");
-    
-    // Wait for sync to complete
-    setTimeout(() => {
-      showNotification("Sync completed successfully\!", "success");
-      closeSyncModal();
-      loadData(); // Reload data
-    }, 2000);
-    
-  } catch (error) {
-    showError("Connection failed: " + error.message);
-    document.getElementById("sync-join").style.display = "block";
-    document.getElementById("sync-progress").style.display = "none";
-  }
-}
-
-// Handle copy connection data
-function handleCopyConnection() {
-  const connectionData = document.getElementById("connection-data");
-  connectionData.select();
-  document.execCommand("copy");
-  showNotification("Connection data copied\!", "success");
-}
-
-// Show sync progress
-function showSyncProgress(message) {
-  document.getElementById("sync-choice").style.display = "none";
-  document.getElementById("sync-qr").style.display = "none";
-  document.getElementById("sync-join").style.display = "none";
-  document.getElementById("sync-progress").style.display = "block";
-  document.getElementById("sync-message").textContent = message;
-}
-
-// Start sync timer
-function startSyncTimer(seconds) {
-  const timerElement = document.getElementById("sync-timer");
-  let remaining = seconds;
-  
-  const interval = setInterval(() => {
-    remaining--;
-    timerElement.textContent = remaining;
-    
-    if (remaining <= 0) {
-      clearInterval(interval);
-      showError("Connection expired");
-      resetSyncModal();
-    }
-  }, 1000);
 }
 
 // Update sync status display

@@ -69,7 +69,7 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://omi_rss:${DB_PASSWORD:-password}@postgres:5432/omi_rss_db
-    command: npm run migrate
+    command: npm run db:migrate
     
   # pgAdmin for database management
   pgadmin:

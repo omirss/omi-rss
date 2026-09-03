@@ -287,12 +287,6 @@
             </div>
             
             <div class="sync-actions">
-              <button id="webrtc-sync-btn" class="btn btn-primary">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                  <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l0 4.5m0-4.5l-4.5 0"/>
-                </svg>
-                <span>P2P Sync</span>
-              </button>
               
               <button id="export-sync-btn" class="btn btn-secondary">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -369,61 +363,6 @@
       </div>
     </div>
     
-    <!-- P2P Sync modal -->
-    <div id="sync-modal" class="glass-modal" style="display: none;">
-      <div class="glass-modal-backdrop" onclick="closeSyncModal()"></div>
-      <div class="glass-modal-content">
-        <div class="modal-header">
-          <h2>P2P Sync</h2>
-          <button class="glass-btn close-btn" onclick="closeSyncModal()">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <line x1="18" y1="6" x2="6" y2="18"/>
-              <line x1="6" y1="6" x2="18" y2="18"/>
-            </svg>
-          </button>
-        </div>
-        <div class="modal-body">
-          <div id="sync-content">
-            <!-- Initial state -->
-            <div id="sync-choice" class="sync-choice">
-              <h3>Choose sync method:</h3>
-              <button id="create-sync-btn" class="btn btn-primary">
-                <span>Create Sync Connection</span>
-              </button>
-              <button id="join-sync-btn" class="btn btn-secondary">
-                <span>Join Existing Sync</span>
-              </button>
-            </div>
-            
-            <!-- QR Code display -->
-            <div id="sync-qr" class="sync-qr" style="display: none;">
-              <h3>Scan with your mobile app:</h3>
-              <img id="qr-code" src="" alt="QR Code" />
-              <p class="sync-timer">Connection expires in <span id="sync-timer">30</span> seconds</p>
-              <textarea id="connection-data" class="connection-data" readonly placeholder="Connection data will appear here"></textarea>
-              <button id="copy-connection-btn" class="btn btn-secondary">
-                <span>Copy Connection Data</span>
-              </button>
-            </div>
-            
-            <!-- Join sync -->
-            <div id="sync-join" class="sync-join" style="display: none;">
-              <h3>Enter connection data:</h3>
-              <textarea id="join-data" class="connection-data" placeholder="Paste connection data from other device"></textarea>
-              <button id="connect-btn" class="btn btn-primary">
-                <span>Connect</span>
-              </button>
-            </div>
-            
-            <!-- Sync status -->
-            <div id="sync-progress" class="sync-progress" style="display: none;">
-              <div class="spinner"></div>
-              <p id="sync-message">Connecting...</p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
   </div>
 
   <script src="js/popup.js"></script>

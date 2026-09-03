@@ -12,7 +12,6 @@ process.env.REDIS_URL = 'redis://localhost:6379/1';
 
 // Mock external services
 jest.mock('../src/services/email.service');
-jest.mock('../src/services/push');
 jest.mock('../src/workers');
 
 // Global test utilities

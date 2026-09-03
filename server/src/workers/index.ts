@@ -2,21 +2,15 @@ import Queue from 'bull';
 import { getRedisClient } from '../services/redis.service';
 import { logger } from '../utils/logger';
 import { feedUpdateWorker } from './feedUpdate.worker';
-import { emailWorker } from './email.worker';
 import { notificationWorker } from './notification.worker';
 import { analyticsWorker } from './analytics.worker';
 import { cleanupWorker } from './cleanup.worker';
-import { priceAlertWorker } from './priceAlert.worker';
-import { contentWorker, scheduleContentJobs } from './content.worker';
 
 // Queue instances
 export let feedUpdateQueue: Queue.Queue;
-export let emailQueue: Queue.Queue;
 export let notificationQueue: Queue.Queue;
 export let analyticsQueue: Queue.Queue;
 export let cleanupQueue: Queue.Queue;
-export let priceAlertQueue: Queue.Queue;
-export let contentQueue: Queue.Queue;
 
 export async function initializeWorkers() {
   try {
@@ -31,21 +25,15 @@ export async function initializeWorkers() {
 
     // Initialize queues
     feedUpdateQueue = new Queue('feed-updates', redisConfig);
-    emailQueue = new Queue('emails', redisConfig);
     notificationQueue = new Queue('notifications', redisConfig);
     analyticsQueue = new Queue('analytics', redisConfig);
     cleanupQueue = new Queue('cleanup', redisConfig);
-    priceAlertQueue = new Queue('price-alerts', redisConfig);
-    contentQueue = new Queue('content', redisConfig);
 
     // Register workers
     feedUpdateWorker(feedUpdateQueue);
-    emailWorker(emailQueue);
     notificationWorker(notificationQueue);
     analyticsWorker(analyticsQueue);
     cleanupWorker(cleanupQueue);
-    priceAlertWorker(priceAlertQueue);
-    contentWorker(contentQueue);
 
     // Schedule recurring jobs
     await scheduleRecurringJobs();
@@ -91,9 +79,6 @@ async function scheduleRecurringJobs() {
     }
   );
 
-  // Schedule content generation jobs
-  await scheduleContentJobs(contentQueue);
-
   logger.info('Recurring jobs scheduled');
 }
 
@@ -101,12 +86,9 @@ async function scheduleRecurringJobs() {
 export async function closeWorkers() {
   const queues = [
     feedUpdateQueue,
-    emailQueue,
     notificationQueue,
     analyticsQueue,
     cleanupQueue,
-    priceAlertQueue,
-    contentQueue,
   ];
 
   await Promise.all(

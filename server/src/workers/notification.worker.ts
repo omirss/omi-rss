@@ -1,43 +1,10 @@
 import Queue from 'bull';
-import { pushService } from '../services/push';
 import { logger } from '../utils/logger';
 import { getDb } from '../database';
 import { notifications } from '../database/schema';
 import { eq } from 'drizzle-orm';
 
 export function notificationWorker(queue: Queue.Queue) {
-  queue.process('send-push', async (job) => {
-    const { userId, userIds, topic, notification } = job.data;
-
-    try {
-      logger.info(`Processing push notification job ${job.id}`);
-
-      // Initialize push service if needed
-      await pushService.initialize();
-
-      let result;
-
-      if (userId) {
-        // Send to single user
-        result = await pushService.sendToUser(userId, notification);
-      } else if (userIds) {
-        // Send to multiple users
-        result = await pushService.sendToUsers(userIds, notification);
-      } else if (topic) {
-        // Send to topic
-        result = await pushService.sendToTopic(topic, notification);
-      } else {
-        throw new Error('No recipient specified');
-      }
-
-      logger.info(`Push notification sent: ${result.sent} success, ${result.failed} failed`);
-      return result;
-    } catch (error) {
-      logger.error('Push notification job failed:', error);
-      throw error;
-    }
-  });
-
   queue.process('send-email', async (job) => {
     const { userId, email, subject, body, template, data } = job.data;
 
@@ -65,22 +32,6 @@ export function notificationWorker(queue: Queue.Queue) {
       return { success: true };
     } catch (error) {
       logger.error('Email job failed:', error);
-      throw error;
-    }
-  });
-
-  queue.process('send-sms', async (job) => {
-    const { userId, phone, message } = job.data;
-
-    try {
-      logger.info(`Processing SMS job ${job.id}`);
-
-      // TODO: Implement SMS sending (Twilio, etc.)
-      // For now, just log
-      logger.info(`SMS queued for ${phone}: ${message}`);
-      return { success: true };
-    } catch (error) {
-      logger.error('SMS job failed:', error);
       throw error;
     }
   });

@@ -68,7 +68,6 @@ dependencies:
   tflite_flutter: ^0.10.4
   ml_algo: ^16.17.7
   ml_dataframe: ^1.5.0
-  fl_chart: ^0.65.0
   
   # Web Support
   js: ^0.6.7

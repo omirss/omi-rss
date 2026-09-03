@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Omi RSS Reader",
   "version": "1.0.0",
-  "description": "Save articles, generate RSS feeds, and read your feeds from anywhere",
+  "description": "Save articles and read your feeds from anywhere",
   "permissions": [
     "activeTab",
     "storage",
@@ -39,12 +39,6 @@
       "js": ["js/content.js"],
       "css": ["css/content.css"],
       "run_at": "document_idle"
-    }
-  ],
-  "web_accessible_resources": [
-    {
-      "resources": ["css/inject.css", "js/inject.js"],
-      "matches": ["<all_urls>"]
     }
   ],
   "commands": {

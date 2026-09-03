@@ -23,25 +23,14 @@ import userRouter from './routes/user.routes';
 import feedRouter from './routes/feed.routes';
 import articleRouter from './routes/article.routes';
 import folderRouter from './routes/folder.routes';
-import syncRouter from './routes/sync.routes';
 import statsRouter from './routes/stats.routes';
-import aiRouter from './routes/ai.routes';
-import marketRouter from './routes/market.routes';
-import notificationRouter from './routes/notification.routes';
-import teamRouter from './routes/team.routes';
-import collaborationRouter from './routes/collaboration';
 import discoveryRouter from './routes/discovery';
-import pushRouter from './routes/push.routes';
-import contentRouter from './routes/content.routes';
 import analyticsRouter from './routes/analytics';
-import paywallRouter from './routes/paywall';
-import searchRouter from './routes/search';
 
 // Import services
 import { initializeDatabase } from './database/index';
 import { initializeRedis } from './services/redis.service';
 import { initializeSocketIO } from './services/socket.service';
-import { initializeCollaboration } from './services/collaboration';
 import { initializeWorkers } from './workers/index';
 
 class Server {
@@ -75,10 +64,6 @@ class Server {
       // Initialize Socket.IO
       initializeSocketIO(this.io);
       logger.info('Socket.IO initialized successfully');
-
-      // Initialize collaboration service
-      initializeCollaboration(this.io);
-      logger.info('Collaboration service initialized successfully');
 
       // Initialize background workers
       await initializeWorkers();
@@ -155,19 +140,9 @@ class Server {
     this.app.use('/api/feeds', authentication, feedRouter);
     this.app.use('/api/articles', authentication, articleRouter);
     this.app.use('/api/folders', authentication, folderRouter);
-    this.app.use('/api/sync', authentication, syncRouter);
     this.app.use('/api/stats', authentication, statsRouter);
-    this.app.use('/api/ai', authentication, aiRouter);
-    this.app.use('/api/market', authentication, marketRouter);
-    this.app.use('/api/notifications', authentication, notificationRouter);
-    this.app.use('/api/teams', authentication, teamRouter);
-    this.app.use('/api/collaboration', authentication, collaborationRouter);
     this.app.use('/api/discovery', authentication, discoveryRouter);
-    this.app.use('/api/push', authentication, pushRouter);
-    this.app.use('/api/content', authentication, contentRouter);
     this.app.use('/api/analytics', authentication, analyticsRouter);
-    this.app.use('/api/paywall', authentication, paywallRouter);
-    this.app.use('/api/search', authentication, searchRouter);
 
     // 404 handler
     this.app.use((req: Request, res: Response) => {
@@ -240,12 +215,11 @@ class Server {
       // Start server
       this.httpServer.listen(this.port, () => {
         logger.info(`
-🚀 Omi RSS Server is running!
-📍 Environment: ${process.env.NODE_ENV}
-🌐 Server: http://localhost:${this.port}
-🔌 WebSocket: ws://localhost:${this.port}
-📊 Health: http://localhost:${this.port}/health
-📚 API Docs: http://localhost:${this.port}/api-docs
+Omi RSS Server is running!
+  Environment: ${process.env.NODE_ENV}
+  Server: http://localhost:${this.port}
+  WebSocket: ws://localhost:${this.port}
+  Health: http://localhost:${this.port}/health
         `);
       });
     } catch (error) {

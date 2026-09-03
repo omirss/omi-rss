@@ -1,7 +1,6 @@
 // Ultra-thin sync manager for Omi RSS browser extension
 class SyncManager {
   constructor() {
-    this.webrtcSync = null;
     this.fileSync = null;
     this.syncInProgress = false;
     this.lastSyncTime = null;
@@ -123,23 +122,6 @@ class SyncManager {
     return merged;
   }
 
-  // WebRTC sync methods
-  async startWebRTCSync() {
-    if (!this.webrtcSync) {
-      const { WebRTCSync } = await import('./webrtc-sync.js');
-      this.webrtcSync = new WebRTCSync(this);
-    }
-    return this.webrtcSync.createConnection();
-  }
-
-  async connectWebRTC(connectionData) {
-    if (!this.webrtcSync) {
-      const { WebRTCSync } = await import('./webrtc-sync.js');
-      this.webrtcSync = new WebRTCSync(this);
-    }
-    return this.webrtcSync.connectToPeer(connectionData);
-  }
-
   // File sync methods
   async exportToFile() {
     if (!this.fileSync) {
@@ -195,7 +177,7 @@ class SyncManager {
     return {
       inProgress: this.syncInProgress,
       lastSync: this.lastSyncTime,
-      method: this.webrtcSync?.isConnected ? 'webrtc' : 'none'
+      method: 'none'
     };
   }
 }
@@ -206,18 +188,6 @@ const syncManager = new SyncManager();
 // Handle messages from popup/content scripts
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   switch (request.action) {
-    case 'start-webrtc-sync':
-      syncManager.startWebRTCSync()
-        .then(sendResponse)
-        .catch(err => sendResponse({ error: err.message }));
-      return true;
-
-    case 'connect-webrtc':
-      syncManager.connectWebRTC(request.data)
-        .then(sendResponse)
-        .catch(err => sendResponse({ error: err.message }));
-      return true;
-
     case 'export-sync':
       syncManager.exportToFile()
         .then(sendResponse)
