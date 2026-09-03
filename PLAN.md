@@ -39,21 +39,25 @@ here so its existence is deliberate, not forgotten.
 
 ## Current state (post-restructure)
 
-Honest baseline: the three pieces were generated in isolation and have never
-run, individually or together. The 2026-09 restructure removed dead scope and
-debris; what remains is the reader core plus known repair work.
+Honest baseline: the three pieces were generated in isolation and had never
+run. The 2026-09 restructure removed dead scope and debris; the Phase 1-3
+code work below is done. Remaining verification is environmental, not code:
+server live-boot needs Docker/Redis, extension live E2E needs the running
+server, app needs a Flutter toolchain session.
 
-- **Server** — compiles? No. Route surface trimmed to 8 routers (~50 routes).
-  Known blockers: three middleware files missing (`validation`,
-  `asyncHandler`, `auth`), two workers missing (`cleanup.worker`,
-  `analytics.worker`), `discovery` + `analytics` services still import the
-  deleted `aiService`, `package-lock.json` stale after dependency cuts.
-- **Extension** — all JS parses clean (fixed pre-existing syntax errors);
-  manifests valid MV3. Known blockers: `background.js` uses undeclared
-  `API_BASE`/`authToken` (crashes on install); server pairing untested.
-- **App** — code untouched in restructure (cuts deferred to Phase 3, they need
-  Flutter compile checks). Compiles web-only today: unconditional `dart:html`
-  breaks desktop/mobile. Server URL is compile-time only.
+- **Server** — Phase 1 complete: compiles clean (`tsc --noEmit` zero errors),
+  unit tests 11/11, fresh drizzle baseline, jest tree consolidated.
+  Blockers to live boot: compose dev still runs `npm run dev`; migrate
+  service untested against live DB; no compose healthcheck yet.
+- **Extension** — Phase 2 wiring complete: unified config (js/config.js,
+  `settings.apiUrl` + `access_token` storage keys), all endpoints mapped to
+  the real API, service-worker crash fixed, 14/14 files parse. Live E2E
+  checklist in session history; run when server is up.
+- **App** — Phase 3 surgery complete: 218 → 106 dart files, runtime server
+  URL in settings (SharedPreferences, `serverUrl` key), dart:html removed,
+  web/ re-scaffolded, zero dangling references by grep. Needs
+  `flutter pub get && build_runner && flutter analyze` verification session
+  (no Flutter toolchain on the build machine at time of surgery).
 
 ## Scope
 
@@ -92,43 +96,33 @@ the canonical file set (one manifest per target, one popup, one sidepanel),
 server scope cut (137 routes to ~50, 25 tables to 9, dependencies halved),
 Dart/Serverpod leftovers removed, READMEs rewritten to match reality.
 
-### Phase 1 — Server boots
+### Phase 1 — Server boots (code complete; live boot pending)
 
-- `npm install` (refresh lockfile after dep cuts)
-- Write `src/middleware/validation.ts`, `asyncHandler.ts`, `auth.ts`
-- Write `src/workers/cleanup.worker.ts`, `analytics.worker.ts`
-- Remove `aiService` imports from `services/discovery` + `services/analytics`
-  (drop or trim AI-dependent endpoints; OPML and reading analytics must survive)
-- Recreate `.env.test` (was removed; `tests/setup.ts` expects it)
-- `npm run typecheck` and `npm run test` pass; jest trees consolidated
+- DONE: middleware (validation/asyncHandler/auth), workers (cleanup/analytics),
+  aiService removal, ~150 type errors fixed, .env.test recreated, jest trees
+  consolidated, fresh drizzle baseline, 11/11 unit tests
+- TODO when Docker is up: compose dev service runs `npm run dev` → build+start;
+  add compose healthcheck; verify migrate service against live DB
 
-Exit criterion: `docker compose up` healthy; `GET /health` 200; register,
-login, subscribe to a real feed, force refresh, list articles — all via curl.
+### Phase 2 — Extension goes real (code complete; live test pending)
 
-### Phase 2 — Extension goes real
+- DONE: config unified in js/config.js (`settings.apiUrl`, `access_token`),
+  background service-worker crash fixed (no undeclared globals, no dead
+  WebSocket loop), endpoints mapped to real API (OPML via discovery, state
+  via PUT /articles/:id), MV3 fixes (DOMParser fallback, scripting/downloads
+  permissions, Firefox classic background), sidepanel crash fixed
+- TODO when server is up: live checklist — load unpacked, login, subscribe
+  from a real blog, mark-read, OPML round-trip, offline path
 
-- Declare/load `API_BASE` + `authToken` properly in `background.js`
-- Verify popup auth + subscribe path against the running server
-- Side panel works local-first without a server
-- Confirm content-script feed detection on real sites
+### Phase 3 — App connects and shrinks (surgery complete; compile pending)
 
-Exit criterion: load unpacked in Chrome; click extension on a blog with a
-feed; feed appears in server DB; article save works.
-
-### Phase 3 — App connects and shrinks
-
-- Runtime-configurable server URL in settings (today: compile-time only)
-- App login + feed list + article read against the server
-- Cut app scope to match server: remove market/portfolio/AI/paywall/
-  collaboration/P2P screens and their dependencies (tflite, ml_algo, webrtc,
-  nearby_connections, qr_flutter, workmanager, flutter_tts)
-- Fix unconditional `dart:html` (conditional imports) to restore desktop and
-  mobile builds; scaffold a proper `web/` entry (current web dir held only the
-  old embedded extension, now deleted)
-
-Exit criterion: subscribe via extension on desktop browser; article appears
-in the app on another device/target; `flutter build` succeeds for web and at
-least one desktop platform.
+- DONE: 218 → 106 dart files (scope Gone list removed), runtime server URL
+  setting (SharedPreferences key `serverUrl`, ApiConfig.setServerUrl),
+  dart:html removed with the features that used it, web/ re-scaffolded,
+  23 deps dropped, grep-clean for dangling references
+- TODO when Flutter toolchain available: `flutter pub get`,
+  `dart run build_runner build --delete-conflicting-outputs` (drift parts),
+  `flutter analyze`, `flutter build web` + one desktop platform, tests
 
 ### Phase 4 — v0.2 release
 
