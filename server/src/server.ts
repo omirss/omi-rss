@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express, { Express, Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -5,11 +6,7 @@ import compression from 'compression';
 import morgan from 'morgan';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
-import dotenv from 'dotenv';
 import path from 'path';
-
-// Load environment variables
-dotenv.config();
 
 // Import middleware
 import { errorHandler } from './middleware/errorHandler';

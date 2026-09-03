@@ -45,19 +45,16 @@ code work below is done. Remaining verification is environmental, not code:
 server live-boot needs Docker/Redis, extension live E2E needs the running
 server, app needs a Flutter toolchain session.
 
-- **Server** — Phase 1 complete: compiles clean (`tsc --noEmit` zero errors),
-  unit tests 11/11, fresh drizzle baseline, jest tree consolidated.
-  Blockers to live boot: compose dev still runs `npm run dev`; migrate
-  service untested against live DB; no compose healthcheck yet.
+- **Server** — Phase 1 VERIFIED: boots clean (podman pg+redis, native tsx),
+  full auth/subscribe/refresh/read loop proven via curl against a real feed.
+  Exit criterion met 2026-09-03.
 - **Extension** — Phase 2 wiring complete: unified config (js/config.js,
   `settings.apiUrl` + `access_token` storage keys), all endpoints mapped to
   the real API, service-worker crash fixed, 14/14 files parse. Live E2E
   checklist in session history; run when server is up.
-- **App** — Phase 3 surgery complete: 218 → 106 dart files, runtime server
-  URL in settings (SharedPreferences, `serverUrl` key), dart:html removed,
-  web/ re-scaffolded, zero dangling references by grep. Needs
-  `flutter pub get && build_runner && flutter analyze` verification session
-  (no Flutter toolchain on the build machine at time of surgery).
+- **App** — Phase 3 VERIFIED: `flutter analyze` zero errors,
+  `flutter build web` succeeds, 19/19 widget tests. Local-first core works
+  on web; native/desktop builds untested.
 
 ## Scope
 
@@ -96,13 +93,20 @@ the canonical file set (one manifest per target, one popup, one sidepanel),
 server scope cut (137 routes to ~50, 25 tables to 9, dependencies halved),
 Dart/Serverpod leftovers removed, READMEs rewritten to match reality.
 
-### Phase 1 — Server boots (code complete; live boot pending)
+### Phase 1 — Server boots (VERIFIED)
 
 - DONE: middleware (validation/asyncHandler/auth), workers (cleanup/analytics),
-  aiService removal, ~150 type errors fixed, .env.test recreated, jest trees
-  consolidated, fresh drizzle baseline, 11/11 unit tests
-- TODO when Docker is up: compose dev service runs `npm run dev` → build+start;
-  add compose healthcheck; verify migrate service against live DB
+  aiService removal, ~150 type errors fixed, fresh drizzle baseline, jest
+  consolidated, 11/11 unit tests
+- VERIFIED 2026-09 (podman postgres:16 + redis:7, native tsx): boot clean,
+  /health 200, register/login/subscribe/refresh/articles all pass via curl
+  against a real feed. Fixed during boot: dotenv import-hoisting bug
+  (`import 'dotenv/config'` now first in server.ts — eager rateLimiter Redis
+  clients were reading env before it loaded)
+- Remaining hardening for Phase 4: compose dev service runs `npm run dev`
+  instead of build+start; add compose healthcheck; rateLimiter init function
+  exists but is never called (skips gracefully); hnrss-style 429s suggest a
+  User-Agent/retry pass on rss-parser
 
 ### Phase 2 — Extension goes real (code complete; live test pending)
 
@@ -114,15 +118,18 @@ Dart/Serverpod leftovers removed, READMEs rewritten to match reality.
 - TODO when server is up: live checklist — load unpacked, login, subscribe
   from a real blog, mark-read, OPML round-trip, offline path
 
-### Phase 3 — App connects and shrinks (surgery complete; compile pending)
+### Phase 3 — App connects and shrinks (VERIFIED)
 
 - DONE: 218 → 106 dart files (scope Gone list removed), runtime server URL
   setting (SharedPreferences key `serverUrl`, ApiConfig.setServerUrl),
-  dart:html removed with the features that used it, web/ re-scaffolded,
-  23 deps dropped, grep-clean for dangling references
-- TODO when Flutter toolchain available: `flutter pub get`,
-  `dart run build_runner build --delete-conflicting-outputs` (drift parts),
-  `flutter analyze`, `flutter build web` + one desktop platform, tests
+  web/ re-scaffolded (sql.js loader for drift-on-web), 23 deps dropped,
+  webfeed replaced with direct package:xml parsing
+- VERIFIED 2026-09: `flutter analyze` 0 errors (was 531),
+  `flutter build web --no-wasm-dry-run` succeeds, 19/19 widget tests pass.
+  Desktop/native builds untested (wasm blocked by win32/ffi transitive deps)
+- Known debts: api_feed_provider assumes integer server IDs (bridged via
+  toString, reconcile in Phase 4); per-feed updateFrequency not honored in
+  local refresh scheduling
 
 ### Phase 4 — v0.2 release
 
