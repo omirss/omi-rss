@@ -141,6 +141,18 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         .catch(err => sendResponse({ error: err.message }));
       return true;
 
+    case 'import-opml':
+      apiService.importOPML(request.content)
+        .then(result => sendResponse(result || { success: true }))
+        .catch(err => sendResponse({ error: err.message }));
+      return true;
+
+    case 'export-opml':
+      apiService.exportOPML()
+        .then(opml => sendResponse({ opml }))
+        .catch(err => sendResponse({ error: err.message }));
+      return true;
+
     case 'open-sidepanel':
       chrome.sidePanel.open({ windowId: sender.tab.windowId });
       sendResponse({ success: true });

@@ -131,6 +131,10 @@ function initializeEventListeners() {
   document.getElementById('export-sync-btn')?.addEventListener('click', handleExportSync);
   document.getElementById('import-sync-btn')?.addEventListener('click', handleImportSync);
 
+  // OPML buttons
+  document.getElementById('opml-import-btn')?.addEventListener('click', handleImportOPML);
+  document.getElementById('opml-export-btn')?.addEventListener('click', handleExportOPML);
+
   // Load more
   document.getElementById('load-more-btn').addEventListener('click', loadMoreArticles);
   
@@ -1115,6 +1119,73 @@ async function handleImportSync() {
   };
   
   input.click();
+}
+
+// Handle OPML import
+async function handleImportOPML() {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = ".opml,.xml,text/xml,application/xml";
+
+  input.onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    try {
+      showLoading(true);
+      const content = await file.text();
+
+      const result = await chrome.runtime.sendMessage({
+        action: "import-opml",
+        content
+      });
+
+      if (result.error) {
+        throw new Error(result.error);
+      }
+
+      showNotification("OPML import complete", "success");
+
+      // Reload data
+      await loadData();
+    } catch (error) {
+      showError("OPML import failed: " + error.message);
+    } finally {
+      showLoading(false);
+    }
+  };
+
+  input.click();
+}
+
+// Handle OPML export
+async function handleExportOPML() {
+  try {
+    showLoading(true);
+    const result = await chrome.runtime.sendMessage({ action: "export-opml" });
+
+    if (result.error) {
+      throw new Error(result.error);
+    }
+
+    // Download file - let user choose location
+    const blob = new Blob([result.opml], { type: "text/xml" });
+    const url = URL.createObjectURL(blob);
+    const timestamp = new Date().toISOString().slice(0, 10);
+    const filename = `omi-rss-feeds-${timestamp}.opml`;
+
+    await chrome.downloads.download({
+      url: url,
+      filename: filename,
+      saveAs: true
+    });
+
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (error) {
+    showError("OPML export failed: " + error.message);
+  } finally {
+    showLoading(false);
+  }
 }
 
 // Update sync status display
