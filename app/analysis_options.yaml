@@ -186,7 +186,6 @@ analyzer:
     - "**/*.g.dart"
     - "**/*.freezed.dart"
     - "build/**"
-    - "reference_code/**"
     - android/**
     - ios/**
     - web/**
