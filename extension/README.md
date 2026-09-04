@@ -12,9 +12,11 @@ self-hosted Omi RSS server for sync.
 - Chrome side panel for persistent reading
 - Save articles from any page (button, context menu, or Ctrl/Cmd+Shift+S)
 - Reader mode (Ctrl/Cmd+Shift+R) with per-site extraction rules
-- Feed detection and one-click subscribe
+- Feed detection (Find Feeds) and one-click subscribe
+- OPML import/export against the server
+- JSON backup export/import (also works as a file-based sync load)
 - Offline storage (IndexedDB) with a sync queue
-- Export/import backup as JSON file
+- Server URL configurable in settings
 
 ## Install (development)
 
@@ -35,8 +37,20 @@ self-hosted Omi RSS server for sync.
 ./build.sh
 ```
 
-Produces `build/chrome/` and `build/firefox/` plus store-ready zip archives.
-The Chrome build also works in Brave and Edge as-is.
+Produces `build/chrome/` and `build/firefox/` plus store-ready zip archives
+(`build/omi-rss-chrome.zip`, `build/omi-rss-firefox.zip`). The Chrome build
+also works in Brave and Edge as-is. The Firefox manifest carries the permanent
+gecko id `{41a6adaa-f9f6-429c-b579-48e0f0697dfe}` for signed releases.
+
+## Permissions
+
+- `activeTab`, `scripting`, `contextMenus` — save/extract the page you are on
+- `storage` — settings, credentials, local data
+- `notifications` — save/subscribe feedback
+- `sidePanel` (Chrome) — persistent reader panel
+- `downloads` — OPML and JSON backup export
+- Host permissions (`http://*/*`, `https://*/*`) — feed detection and parsing
+  on arbitrary pages, and API calls to a user-configured server URL
 
 ## Files
 
@@ -45,6 +59,7 @@ The Chrome build also works in Brave and Edge as-is.
 - `popup.html` + `js/popup.js` — toolbar popup
 - `sidepanel.html` + `js/sidepanel-local.js` — side panel reader
 - `js/background.js` — service worker: context menus, commands, message router
+- `js/config.js` — shared config and storage keys
 - `js/api.js` — server API client
 - `js/feed-parser.js`, `js/feed-scheduler.js` — feed parsing and refresh timers
 - `js/storage-service.js`, `js/offline-db.js` — local data layer
@@ -53,5 +68,6 @@ The Chrome build also works in Brave and Edge as-is.
 
 ## Status
 
-Alpha. Server pairing (login, subscribe-to-server) is being repaired; see the
-repository PLAN.md for current phase.
+v0.2.0 alpha. Server pairing works and is verified end to end: login,
+subscribe from a real page, mark-read sync, OPML round-trip, JSON backup,
+offline fallback. See the repository PLAN.md for phase history.

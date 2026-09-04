@@ -37,24 +37,26 @@ discovery provider drops in later without touching the reader core.
 **Nothing in Webroll adds requirements to omi-rss v0.2.** It is referenced
 here so its existence is deliberate, not forgotten.
 
-## Current state (post-restructure)
+## Current state (v0.2.0, pre-tag)
 
-Honest baseline: the three pieces were generated in isolation and had never
-run. The 2026-09 restructure removed dead scope and debris; the Phase 1-3
-code work below is done. Remaining verification is environmental, not code:
-server live-boot needs Docker/Redis, extension live E2E needs the running
-server, app needs a Flutter toolchain session.
+All phase code work through Phase 4 is done and live-verified. What remains
+for the v0.2.0 release is mechanical: tag, publish the Docker image, ship.
 
-- **Server** — Phase 1 VERIFIED: boots clean (podman pg+redis, native tsx),
-  full auth/subscribe/refresh/read loop proven via curl against a real feed.
-  Exit criterion met 2026-09-03.
-- **Extension** — Phase 2 wiring complete: unified config (js/config.js,
-  `settings.apiUrl` + `access_token` storage keys), all endpoints mapped to
-  the real API, service-worker crash fixed, 14/14 files parse. Live E2E
-  checklist in session history; run when server is up.
-- **App** — Phase 3 VERIFIED: `flutter analyze` zero errors,
-  `flutter build web` succeeds, 19/19 widget tests. Local-first core works
-  on web; native/desktop builds untested.
+- **Server** — auth issues refresh tokens (`POST /auth/refresh`, rotating;
+  `POST /auth/logout`), OPML export uses folder names, feed fetching has
+  User-Agent/timeout/retry, Redis env unified (`REDIS_URL` or
+  HOST/PORT). Compose files rewritten: dev builds+runs with healthchecks and
+  no host DB ports (API at host :3998); prod is nginx/server/postgres/redis
+  only, HTTP-only nginx with TLS at the edge, optional web UI via bind-mount
+  `./web-ui`. The ops add-on stacks (metrics dashboards, DB admin, backup
+  runners) were removed.
+- **Extension** — Phase 2 VERIFIED 2026-09-04 (live E2E 4/4). Server pairing
+  works: login, subscribe from a real page, state sync, OPML round-trip, JSON
+  backup, offline fallback. Store-ready zips via `build.sh`; real gecko id.
+- **App** — aligned to the server contract: UUID ids, state sync, search via
+  `/articles?search=`; web build defaults the server URL to its own origin.
+  `flutter analyze` clean, 19/19 widget tests, web build verified.
+  Native/desktop builds untested for release.
 
 ## Scope
 
@@ -103,27 +105,23 @@ Dart/Serverpod leftovers removed, READMEs rewritten to match reality.
   against a real feed. Fixed during boot: dotenv import-hoisting bug
   (`import 'dotenv/config'` now first in server.ts — eager rateLimiter Redis
   clients were reading env before it loaded)
-- Remaining hardening for Phase 4: compose dev service runs `npm run dev`
-  instead of build+start; add compose healthcheck; rateLimiter init function
-  exists but is never called (skips gracefully); hnrss-style 429s suggest a
-  User-Agent/retry pass on rss-parser
+- Phase 4 hardening DONE 2026-09: refresh/logout endpoints (rotating
+  refresh), UA/timeout/retry on rss-parser, compose dev builds+starts with
+  healthchecks (no host DB ports), Redis env unified, rateLimiter init
+  graceful
 
-### Phase 2 — Extension goes real (code complete; live test pending)
+### Phase 2 — Extension goes real (VERIFIED)
 
 - DONE: config unified in js/config.js (`settings.apiUrl`, `access_token`),
   background service-worker crash fixed (no undeclared globals, no dead
   WebSocket loop), endpoints mapped to real API (OPML via discovery, state
   via PUT /articles/:id), MV3 fixes (DOMParser fallback, scripting/downloads
   permissions, Firefox classic background), sidepanel crash fixed
-- TODO when server is up: live checklist — load unpacked, login, subscribe
-  from a real blog, mark-read, OPML round-trip, offline path
-- Live-test checklist (run with server on :3999): load unpacked with no
-  service-worker errors; popup settings → server URL → login; Find Feeds on
-  a blog → subscribe → verify POST /api/feeds row + feed in popup; article
-  click → PUT state isRead; context-menu subscribe; logout/login token
-  survives; side panel local-first add/read/star without server; export +
-  import JSON backup; OPML import (multipart) + export; offline fallback
-  when server unreachable
+- VERIFIED 2026-09-04 against the running server (live checklist 4/4):
+  load unpacked clean, settings + login, Find Feeds → subscribe → row in
+  POST /api/feeds, article state sync, OPML import/export, JSON backup,
+  offline fallback. The harness found and fixed 5 bugs on the way (parser,
+  Find Feeds, sidepanel, OPML UI, server-URL settings field).
 
 ### Phase 3 — App connects and shrinks (VERIFIED)
 
@@ -138,17 +136,20 @@ Dart/Serverpod leftovers removed, READMEs rewritten to match reality.
   toString, reconcile in Phase 4); per-feed updateFrequency not honored in
   local refresh scheduling
 
-### Phase 4 — v0.2 release
+### Phase 4 — v0.2 release (all done except release mechanics)
 
-- Full E2E: extension subscribe → server cron fetch → app read
-- OPML import/export verified against real data (both app and server paths)
-- Extension store-ready zips via `./build.sh` (replace placeholder Firefox
-  gecko id with a real one)
-- Serve the Flutter web build from the server as an optional web UI (mount
-  into nginx / serve statically alongside the API; absent build = API-only).
-  On web, the app's server-URL setting defaults to its own origin
-- READMEs and this plan updated to match shipped reality
-- Tag `v0.2.0`; publish Docker image; self-host deployment guide
+- DONE: full E2E (extension subscribe → server cron fetch → app read)
+- DONE: OPML import/export verified against real data (app, extension, and
+  server paths; export uses folder names)
+- DONE: store-ready zips via `extension/build.sh`; real Firefox gecko id
+  (`{41a6adaa-f9f6-429c-b579-48e0f0697dfe}`)
+- DONE: optional web UI — `build-web.sh` at repo root builds the Flutter web
+  bundle into `server/web-ui`; prod compose bind-mounts it into nginx
+  (absent = API-only). On web, the app's server-URL setting defaults to its
+  own origin
+- DONE: READMEs, docs/self-hosting.md, and this plan updated to match
+  shipped reality
+- TODO: tag `v0.2.0`; publish Docker image
 
 ### Post-v0.2 axis: aggregation parity and feed generation
 
