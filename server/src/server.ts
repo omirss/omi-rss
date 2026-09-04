@@ -10,7 +10,7 @@ import path from 'path';
 
 // Import middleware
 import { errorHandler } from './middleware/errorHandler';
-import { rateLimiter } from './middleware/rateLimiter';
+import { initializeRateLimiter, rateLimiter } from './middleware/rateLimiter';
 import { authentication } from './middleware/authentication';
 import { logger } from './utils/logger';
 
@@ -55,8 +55,12 @@ class Server {
       logger.info('Database initialized successfully');
 
       // Initialize Redis
-      await initializeRedis();
+      const { redisClient } = await initializeRedis();
       logger.info('Redis initialized successfully');
+
+      // Initialize rate limiter
+      initializeRateLimiter(redisClient);
+      logger.info('Rate limiter initialized successfully');
 
       // Initialize Socket.IO
       initializeSocketIO(this.io);

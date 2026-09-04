@@ -53,20 +53,6 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
       CORS_ORIGIN: ${CORS_ORIGIN}
-      # AI Services
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-      GOOGLE_AI_API_KEY: ${GOOGLE_AI_API_KEY}
-      # Market Data
-      ALPHA_VANTAGE_API_KEY: ${ALPHA_VANTAGE_API_KEY}
-      FINNHUB_API_KEY: ${FINNHUB_API_KEY}
-      # Push Notifications
-      FCM_PROJECT_ID: ${FCM_PROJECT_ID}
-      FCM_PRIVATE_KEY: ${FCM_PRIVATE_KEY}
-      FCM_CLIENT_EMAIL: ${FCM_CLIENT_EMAIL}
-      WEB_PUSH_PUBLIC_KEY: ${WEB_PUSH_PUBLIC_KEY}
-      WEB_PUSH_PRIVATE_KEY: ${WEB_PUSH_PRIVATE_KEY}
-      WEB_PUSH_EMAIL: ${WEB_PUSH_EMAIL}
     volumes:
       - ./uploads:/app/uploads
       - ./logs:/app/logs

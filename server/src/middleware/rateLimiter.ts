@@ -1,9 +1,11 @@
 import type { Request, Response, NextFunction } from 'express';
 import { RateLimiterRedis, RateLimiterRes } from 'rate-limiter-flexible';
 import Redis from 'ioredis';
+import { AppError } from './errorHandler';
 import { logger } from '../utils/logger';
+import { resolveRedisUrl } from '../utils/redisUrl';
 
-let apiLimiter: RateLimiterRedis;
+let apiLimiter: RateLimiterRedis | null = null;
 
 export function initializeRateLimiter(redisClient: Redis) {
   apiLimiter = new RateLimiterRedis({
@@ -38,26 +40,69 @@ export async function rateLimitMiddleware(req: Request, res: Response, next: Nex
   }
 }
 
-export const authRateLimiter = new RateLimiterRedis({
-  storeClient: new Redis(process.env.REDIS_URL!),
-  keyPrefix: 'auth_limit',
-  points: 5,
-  duration: 900,
-  blockDuration: 900,
-});
+let limiterRedisClient: Redis | null = null;
 
-export const apiRateLimiter = new RateLimiterRedis({
-  storeClient: new Redis(process.env.REDIS_URL!),
-  keyPrefix: 'api_limit',
-  points: 1000,
-  duration: 3600,
-});
+function getLimiterRedisClient(): Redis {
+  if (!limiterRedisClient) {
+    limiterRedisClient = new Redis(resolveRedisUrl(), {
+      maxRetriesPerRequest: 1,
+      enableOfflineQueue: false,
+    });
+    limiterRedisClient.on('error', (err) => logger.warn('Rate limiter Redis error:', err.message));
+  }
+  return limiterRedisClient;
+}
 
-export const uploadRateLimiter = new RateLimiterRedis({
-  storeClient: new Redis(process.env.REDIS_URL!),
-  keyPrefix: 'upload_limit',
-  points: 10,
-  duration: 3600,
-});
+let authLimiter: RateLimiterRedis | null = null;
+let apiLimiterInstance: RateLimiterRedis | null = null;
+let uploadLimiter: RateLimiterRedis | null = null;
+
+export function getAuthRateLimiter(): RateLimiterRedis {
+  if (!authLimiter) {
+    authLimiter = new RateLimiterRedis({
+      storeClient: getLimiterRedisClient(),
+      keyPrefix: 'auth_limit',
+      points: 5,
+      duration: 900,
+      blockDuration: 900,
+    });
+  }
+  return authLimiter;
+}
+
+export function getApiRateLimiter(): RateLimiterRedis {
+  if (!apiLimiterInstance) {
+    apiLimiterInstance = new RateLimiterRedis({
+      storeClient: getLimiterRedisClient(),
+      keyPrefix: 'api_limit',
+      points: 1000,
+      duration: 3600,
+    });
+  }
+  return apiLimiterInstance;
+}
+
+export function getUploadRateLimiter(): RateLimiterRedis {
+  if (!uploadLimiter) {
+    uploadLimiter = new RateLimiterRedis({
+      storeClient: getLimiterRedisClient(),
+      keyPrefix: 'upload_limit',
+      points: 10,
+      duration: 3600,
+    });
+  }
+  return uploadLimiter;
+}
+
+export async function consumeAuthRateLimit(key: string): Promise<void> {
+  try {
+    await getAuthRateLimiter().consume(key);
+  } catch (error) {
+    if (error instanceof RateLimiterRes) {
+      throw new AppError('Too many requests, please try again later', 429);
+    }
+    logger.warn('Auth rate limiter unavailable, skipping rate limiting');
+  }
+}
 
 export const rateLimiter = rateLimitMiddleware;

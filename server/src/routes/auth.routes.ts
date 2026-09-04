@@ -1,13 +1,13 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import bcrypt from 'bcrypt';
-import jwt from 'jsonwebtoken';
 import { getDb } from '../database';
 import { users } from '../database/schema';
 import { eq, or } from 'drizzle-orm';
 import { AppError } from '../middleware/errorHandler';
-import { authRateLimiter } from '../middleware/rateLimiter';
+import { consumeAuthRateLimit } from '../middleware/rateLimiter';
 import { sendEmail } from '../services/email.service';
+import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../services/auth.service';
 import { generateToken } from '../utils/tokens';
 import { logger } from '../utils/logger';
 
@@ -27,6 +27,10 @@ const loginSchema = z.object({
   password: z.string(),
 });
 
+const refreshSchema = z.object({
+  refreshToken: z.string(),
+});
+
 const forgotPasswordSchema = z.object({
   email: z.string().email(),
 });
@@ -40,7 +44,7 @@ const resetPasswordSchema = z.object({
 router.post('/register', async (req, res, next) => {
   try {
     // Apply rate limiting
-    await authRateLimiter.consume(req.ip || 'unknown');
+    await consumeAuthRateLimit(req.ip || 'unknown');
 
     // Validate request body
     const data = registerSchema.parse(req.body);
@@ -92,23 +96,15 @@ router.post('/register', async (req, res, next) => {
       },
     });
 
-    // Generate JWT
-    const token = jwt.sign(
-      {
-        userId: newUser.id,
-        email: newUser.email,
-        username: newUser.username,
-        role: 'user',
-      },
-      process.env.JWT_SECRET!,
-      { expiresIn: (process.env.JWT_EXPIRES_IN || '7d') as jwt.SignOptions['expiresIn'] },
-    );
+    // Generate tokens
+    const token = signAccessToken(newUser.id, newUser.email, newUser.username, 'user');
+    const refreshToken = signRefreshToken(newUser.id);
 
     logger.info(`New user registered: ${newUser.email}`);
 
     res.status(201).json({
-      message: 'Registration successful. Please check your email to verify your account.',
       token,
+      refreshToken,
       user: newUser,
     });
   } catch (error) {
@@ -120,7 +116,7 @@ router.post('/register', async (req, res, next) => {
 router.post('/login', async (req, res, next) => {
   try {
     // Apply rate limiting
-    await authRateLimiter.consume(req.ip || 'unknown');
+    await consumeAuthRateLimit(req.ip || 'unknown');
 
     // Validate request body
     const data = loginSchema.parse(req.body);
@@ -160,22 +156,15 @@ router.post('/login', async (req, res, next) => {
       .set({ lastLoginAt: new Date() })
       .where(eq(users.id, user.id));
 
-    // Generate JWT
-    const token = jwt.sign(
-      {
-        userId: user.id,
-        email: user.email,
-        username: user.username,
-        role: user.role,
-      },
-      process.env.JWT_SECRET!,
-      { expiresIn: (process.env.JWT_EXPIRES_IN || '7d') as jwt.SignOptions['expiresIn'] },
-    );
+    // Generate tokens
+    const token = signAccessToken(user.id, user.email, user.username, user.role);
+    const refreshToken = signRefreshToken(user.id);
 
     logger.info(`User logged in: ${user.email}`);
 
     res.json({
       token,
+      refreshToken,
       user: {
         id: user.id,
         email: user.email,
@@ -232,7 +221,7 @@ router.get('/verify-email/:token', async (req, res, next) => {
 router.post('/forgot-password', async (req, res, next) => {
   try {
     // Apply rate limiting
-    await authRateLimiter.consume(req.ip || 'unknown');
+    await consumeAuthRateLimit(req.ip || 'unknown');
 
     // Validate request body
     const data = forgotPasswordSchema.parse(req.body);
@@ -327,14 +316,14 @@ router.post('/reset-password', async (req, res, next) => {
 // Refresh token endpoint
 router.post('/refresh', async (req, res, next) => {
   try {
-    const { refreshToken } = req.body;
+    const data = refreshSchema.parse(req.body);
 
-    if (!refreshToken) {
-      throw new AppError('Refresh token required', 400);
+    // Verify refresh token and its type claim
+    const decoded = verifyRefreshToken(data.refreshToken);
+
+    if (!decoded) {
+      throw new AppError('Invalid refresh token', 401);
     }
-
-    // Verify refresh token
-    const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET!) as any;
 
     const db = getDb();
 
@@ -349,22 +338,19 @@ router.post('/refresh', async (req, res, next) => {
       throw new AppError('Invalid refresh token', 401);
     }
 
-    // Generate new access token
-    const token = jwt.sign(
-      {
-        userId: user.id,
-        email: user.email,
-        username: user.username,
-        role: user.role,
-      },
-      process.env.JWT_SECRET!,
-      { expiresIn: (process.env.JWT_EXPIRES_IN || '7d') as jwt.SignOptions['expiresIn'] },
-    );
+    // Generate new token pair
+    const token = signAccessToken(user.id, user.email, user.username, user.role);
+    const refreshToken = signRefreshToken(user.id);
 
-    res.json({ token });
+    res.json({ token, refreshToken });
   } catch (error) {
     next(error);
   }
+});
+
+// Logout endpoint
+router.post('/logout', (_req, res) => {
+  res.json({ message: 'Logged out successfully' });
 });
 
 // OAuth callback handler

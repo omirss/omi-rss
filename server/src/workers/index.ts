@@ -1,5 +1,6 @@
 import Queue from 'bull';
 import { logger } from '../utils/logger';
+import { resolveRedisUrl } from '../utils/redisUrl';
 import { feedUpdateWorker } from './feedUpdate.worker';
 import { notificationWorker } from './notification.worker';
 import { analyticsWorker } from './analytics.worker';
@@ -13,19 +14,13 @@ export let cleanupQueue: Queue.Queue;
 
 export async function initializeWorkers() {
   try {
-    const redisConfig = {
-      redis: {
-        host: process.env.REDIS_HOST || 'localhost',
-        port: parseInt(process.env.REDIS_PORT || '6379'),
-        password: process.env.REDIS_PASSWORD,
-      },
-    };
+    const redisUrl = resolveRedisUrl();
 
     // Initialize queues
-    feedUpdateQueue = new Queue('feed-updates', redisConfig);
-    notificationQueue = new Queue('notifications', redisConfig);
-    analyticsQueue = new Queue('analytics', redisConfig);
-    cleanupQueue = new Queue('cleanup', redisConfig);
+    feedUpdateQueue = new Queue('feed-updates', redisUrl);
+    notificationQueue = new Queue('notifications', redisUrl);
+    analyticsQueue = new Queue('analytics', redisUrl);
+    cleanupQueue = new Queue('cleanup', redisUrl);
 
     // Register workers
     feedUpdateWorker(feedUpdateQueue);

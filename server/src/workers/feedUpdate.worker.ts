@@ -4,6 +4,7 @@ import { feeds, articles } from '../database/schema';
 import { eq, and, sql } from 'drizzle-orm';
 import { logger } from '../utils/logger';
 import { broadcastFeedUpdate } from '../services/socket.service';
+import { fetchFeedXml } from '../services/feedFetch';
 import Parser from 'rss-parser';
 import crypto from 'crypto';
 
@@ -66,7 +67,8 @@ export function feedUpdateWorker(queue: Queue.Queue) {
       logger.info(`Updating feed: ${feed.title} (${feed.url})`);
 
       // Fetch and parse feed
-      const feedData = await parser.parseURL(feed.url);
+      const feedXml = await fetchFeedXml(feed.url);
+      const feedData = await parser.parseString(feedXml);
 
       // Update feed metadata
       await db

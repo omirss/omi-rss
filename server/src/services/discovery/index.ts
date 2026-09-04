@@ -2,12 +2,14 @@ import { getDb } from '../../database';
 import {
   feeds,
   articles,
+  folders,
   userArticleStates,
   readingStats,
 } from '../../database/schema';
 import { eq, and, desc } from 'drizzle-orm';
 import { logger } from '../../utils/logger';
 import { getRedis } from '../redis';
+import { fetchFeedXml } from '../feedFetch';
 import Parser from 'rss-parser';
 
 interface FeedSuggestion {
@@ -373,7 +375,8 @@ export class FeedDiscoveryService {
         return JSON.parse(cached) as Partial<FeedSuggestion>;
       }
 
-      const feed = (await this.parser.parseURL(url)) as {
+      const xml = await fetchFeedXml(url);
+      const feed = (await this.parser.parseString(xml)) as {
         title?: string;
         description?: string;
         language?: string;
@@ -539,6 +542,13 @@ export class FeedDiscoveryService {
         .from(feeds)
         .where(eq(feeds.userId, userId));
 
+      const userFolders = await this.db
+        .select({ id: folders.id, name: folders.name })
+        .from(folders)
+        .where(eq(folders.userId, userId));
+
+      const folderNamesById = new Map(userFolders.map((folder) => [folder.id, folder.name]));
+
       let opml = `<?xml version="1.0" encoding="UTF-8"?>
 <opml version="2.0">
   <head>
@@ -550,7 +560,7 @@ export class FeedDiscoveryService {
       const feedsByFolder = new Map<string, typeof userFeeds>();
 
       for (const feed of userFeeds) {
-        const folder = feed.folderId || 'Uncategorized';
+        const folder = (feed.folderId ? folderNamesById.get(feed.folderId) : undefined) || 'Uncategorized';
         if (!feedsByFolder.has(folder)) {
           feedsByFolder.set(folder, []);
         }

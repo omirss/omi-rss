@@ -21,8 +21,44 @@ export interface SafeUser {
   role: string;
 }
 
+export interface RefreshTokenPayload {
+  userId: string;
+}
+
+export const REFRESH_TOKEN_EXPIRES_IN = '30d';
+
+export function signAccessToken(userId: string, email: string, username: string, role: string): string {
+  return jwt.sign(
+    { userId, email, username, role },
+    process.env.JWT_SECRET!,
+    { expiresIn: (process.env.JWT_EXPIRES_IN || '7d') as jwt.SignOptions['expiresIn'] },
+  );
+}
+
+export function signRefreshToken(userId: string): string {
+  return jwt.sign(
+    { userId, type: 'refresh' },
+    process.env.JWT_SECRET!,
+    { expiresIn: REFRESH_TOKEN_EXPIRES_IN as jwt.SignOptions['expiresIn'] },
+  );
+}
+
+export function verifyRefreshToken(token: string): RefreshTokenPayload | null {
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as jwt.JwtPayload;
+
+    if (decoded.type !== 'refresh' || typeof decoded.userId !== 'string') {
+      return null;
+    }
+
+    return { userId: decoded.userId };
+  } catch {
+    return null;
+  }
+}
+
 export class AuthService {
-  async register(data: RegisterData): Promise<{ user: SafeUser; token: string }> {
+  async register(data: RegisterData): Promise<{ user: SafeUser; token: string; refreshToken: string }> {
     const db = getDb();
 
     const [existingByEmail] = await db
@@ -58,7 +94,8 @@ export class AuthService {
       })
       .returning();
 
-    const token = this.signToken(newUser.id, newUser.email, newUser.username, newUser.role);
+    const token = signAccessToken(newUser.id, newUser.email, newUser.username, newUser.role);
+    const refreshToken = signRefreshToken(newUser.id);
 
     logger.info(`User registered: ${newUser.email}`);
 
@@ -70,10 +107,11 @@ export class AuthService {
         role: newUser.role,
       },
       token,
+      refreshToken,
     };
   }
 
-  async login(email: string, password: string): Promise<{ user: SafeUser; token: string }> {
+  async login(email: string, password: string): Promise<{ user: SafeUser; token: string; refreshToken: string }> {
     const db = getDb();
 
     const [user] = await db
@@ -100,7 +138,8 @@ export class AuthService {
       .set({ lastLoginAt: new Date() })
       .where(eq(users.id, user.id));
 
-    const token = this.signToken(user.id, user.email, user.username, user.role);
+    const token = signAccessToken(user.id, user.email, user.username, user.role);
+    const refreshToken = signRefreshToken(user.id);
 
     return {
       user: {
@@ -110,6 +149,7 @@ export class AuthService {
         role: user.role,
       },
       token,
+      refreshToken,
     };
   }
 
@@ -145,14 +185,6 @@ export class AuthService {
       .update(users)
       .set({ passwordHash, updatedAt: new Date() })
       .where(eq(users.id, userId));
-  }
-
-  private signToken(userId: string, email: string, username: string, role: string): string {
-    return jwt.sign(
-      { userId, email, username, role },
-      process.env.JWT_SECRET!,
-      { expiresIn: (process.env.JWT_EXPIRES_IN || '7d') as jwt.SignOptions['expiresIn'] },
-    );
   }
 }
 

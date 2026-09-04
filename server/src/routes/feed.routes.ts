@@ -7,6 +7,7 @@ import { AppError } from '../middleware/errorHandler';
 import { feedUpdateQueue } from '../workers';
 import { logger } from '../utils/logger';
 import Parser from 'rss-parser';
+import { fetchFeedXml } from '../services/feedFetch';
 
 const router = Router();
 const parser = new Parser();
@@ -143,7 +144,7 @@ router.post('/', async (req, res, next) => {
     // Validate feed URL by parsing it
     let feedData;
     try {
-      feedData = await parser.parseURL(data.url);
+      feedData = await parser.parseString(await fetchFeedXml(data.url));
     } catch (parseError) {
       throw new AppError('Invalid feed URL or unable to parse feed', 400);
     }

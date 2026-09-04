@@ -1,5 +1,6 @@
 import Redis from 'ioredis';
 import { logger } from '../utils/logger';
+import { resolveRedisUrl } from '../utils/redisUrl';
 
 let redisClient: Redis;
 let redisSubscriber: Redis;
@@ -8,9 +9,10 @@ let redisPublisher: Redis;
 export async function initializeRedis() {
   try {
     // Create Redis connections
-    redisClient = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
-    redisSubscriber = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
-    redisPublisher = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
+    const redisUrl = resolveRedisUrl();
+    redisClient = new Redis(redisUrl);
+    redisSubscriber = new Redis(redisUrl);
+    redisPublisher = new Redis(redisUrl);
 
     // Test connection
     await redisClient.ping();
