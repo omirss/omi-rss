@@ -7,7 +7,7 @@ import {
 } from '../../database/schema';
 import { eq, and, gte, sql, desc } from 'drizzle-orm';
 import { logger } from '../../utils/logger';
-import { getRedis } from '../redis';
+import { getRedis } from '../redis.service';
 
 interface ReadingAnalytics {
   totalArticlesRead: number;
@@ -18,7 +18,6 @@ interface ReadingAnalytics {
   mostActiveDay: string;
   readingStreak: number;
   longestStreak: number;
-  completionRate: number;
 }
 
 interface ContentPreferences {
@@ -39,11 +38,8 @@ interface ReadingPatterns {
 }
 
 interface EngagementMetrics {
-  averageScrollDepth: number;
   averageTimePerParagraph: number;
-  shareRate: number;
   bookmarkRate: number;
-  annotationRate: number;
   interactionScore: number;
 }
 
@@ -101,14 +97,12 @@ export class AnalyticsService {
         isRead: data.completed,
         readAt: data.completed ? now : null,
         readingTime: data.interactionTime,
-        scrollPosition: Math.round(data.scrollDepth),
         updatedAt: now,
       })
       .onConflictDoUpdate({
         target: [userArticleStates.userId, userArticleStates.articleId],
         set: {
           readingTime: sql`COALESCE(${userArticleStates.readingTime}, 0) + ${data.interactionTime}`,
-          scrollPosition: Math.round(data.scrollDepth),
           updatedAt: now,
           ...(data.completed && {
             isRead: true,
@@ -241,7 +235,6 @@ export class AnalyticsService {
         articleId: userArticleStates.articleId,
         readAt: userArticleStates.readAt,
         readingTime: userArticleStates.readingTime,
-        scrollPosition: userArticleStates.scrollPosition,
       })
       .from(userArticleStates)
       .where(
@@ -294,21 +287,6 @@ export class AnalyticsService {
       stats.slice().sort((a, b) => a.date.getTime() - b.date.getTime()),
     );
 
-    const startedArticles = await this.db
-      .select({ count: sql<number>`count(*)` })
-      .from(userArticleStates)
-      .where(
-        and(
-          eq(userArticleStates.userId, userId),
-          gte(userArticleStates.createdAt, startDate),
-          sql`${userArticleStates.scrollPosition} > 0`,
-        ),
-      );
-
-    const completionRate = startedArticles[0]?.count
-      ? (totalArticlesRead / Number(startedArticles[0].count)) * 100
-      : 0;
-
     return {
       totalArticlesRead,
       totalReadingTime: Math.round(totalReadingTime),
@@ -318,7 +296,6 @@ export class AnalyticsService {
       mostActiveDay,
       readingStreak: currentStreak,
       longestStreak,
-      completionRate: Math.round(completionRate),
     };
   }
 
@@ -504,13 +481,6 @@ export class AnalyticsService {
         ),
       );
 
-    const scrollDepths = userStates
-      .filter(s => s.scrollPosition !== null)
-      .map(s => s.scrollPosition!);
-    const averageScrollDepth = scrollDepths.length > 0
-      ? scrollDepths.reduce((a, b) => a + b, 0) / scrollDepths.length
-      : 0;
-
     const readArticlesWithTime = userStates.filter(s => s.isRead && s.readingTime);
     const totalReadingTime = readArticlesWithTime.reduce((sum, s) => sum + s.readingTime!, 0);
     const estimatedParagraphs = readArticlesWithTime.length * 10;
@@ -520,25 +490,17 @@ export class AnalyticsService {
 
     const totalArticles = userStates.length;
     const starredCount = userStates.filter(s => s.isStarred).length;
-    const annotatedCount = userStates.filter(s => s.highlights && (s.highlights as unknown[]).length > 0).length;
 
     const bookmarkRate = totalArticles > 0 ? (starredCount / totalArticles) * 100 : 0;
-    const annotationRate = totalArticles > 0 ? (annotatedCount / totalArticles) * 100 : 0;
-    const shareRate = 0;
 
     const interactionScore = Math.min(100,
-      (averageScrollDepth * 0.3) +
-      (bookmarkRate * 0.2) +
-      (annotationRate * 0.3) +
-      (Math.min(averageTimePerParagraph * 10, 20)),
+      (bookmarkRate * 0.5) +
+      (Math.min(averageTimePerParagraph * 10, 50)),
     );
 
     return {
-      averageScrollDepth: Math.round(averageScrollDepth),
       averageTimePerParagraph: Math.round(averageTimePerParagraph * 10) / 10,
-      shareRate: Math.round(shareRate),
       bookmarkRate: Math.round(bookmarkRate),
-      annotationRate: Math.round(annotationRate),
       interactionScore: Math.round(interactionScore),
     };
   }

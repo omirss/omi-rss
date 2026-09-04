@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import { body, query } from 'express-validator';
-import { authentication } from '../middleware/authentication';
 import { validate } from '../middleware/validation';
 import { asyncHandler } from '../middleware/asyncHandler';
 import { feedDiscoveryService } from '../services/discovery';
@@ -15,7 +14,6 @@ const upload = multer({
 // Discover feeds based on user interests
 router.get(
   '/discover',
-  authentication,
   [
     query('categories').optional().isString(),
     query('limit').optional().isInt({ min: 1, max: 100 }).toInt(),
@@ -39,10 +37,9 @@ router.get(
   }),
 );
 
-// Search public feeds
+// Search curated public feeds
 router.get(
   '/search',
-  authentication,
   [
     query('q').isString().isLength({ min: 2 }).withMessage('Query must be at least 2 characters'),
     query('category').optional().isString(),
@@ -69,7 +66,6 @@ router.get(
 // Get related feeds
 router.get(
   '/related/:feedId',
-  authentication,
   [
     query('limit').optional().isInt({ min: 1, max: 20 }).toInt(),
   ],
@@ -93,7 +89,6 @@ router.get(
 // Import OPML
 router.post(
   '/import/opml',
-  authentication,
   upload.single('file'),
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
@@ -118,7 +113,6 @@ router.post(
 // Export OPML
 router.get(
   '/export/opml',
-  authentication,
   asyncHandler(async (req, res) => {
     const userId = req.user!.id;
 
@@ -130,10 +124,9 @@ router.get(
   }),
 );
 
-// Get feed categories
+// Get feed categories (only categories backed by curated feeds)
 router.get(
   '/categories',
-  authentication,
   asyncHandler((_req, res) => {
     const categories = [
       { id: 'technology', name: 'Technology', description: 'Latest tech news and developments' },
@@ -142,10 +135,6 @@ router.get(
       { id: 'programming', name: 'Programming & Development', description: 'Software development and programming' },
       { id: 'ai', name: 'AI & Machine Learning', description: 'Artificial Intelligence and ML news' },
       { id: 'news', name: 'World News', description: 'Global news and current events' },
-      { id: 'health', name: 'Health & Medicine', description: 'Health, wellness, and medical news' },
-      { id: 'entertainment', name: 'Entertainment', description: 'Movies, music, and pop culture' },
-      { id: 'sports', name: 'Sports', description: 'Sports news and updates' },
-      { id: 'politics', name: 'Politics', description: 'Political news and analysis' },
     ];
 
     res.json({
@@ -158,7 +147,6 @@ router.get(
 // Validate feed URL
 router.post(
   '/validate',
-  authentication,
   [
     body('url').isURL().withMessage('Invalid URL format'),
   ],

@@ -54,8 +54,6 @@ function getLimiterRedisClient(): Redis {
 }
 
 let authLimiter: RateLimiterRedis | null = null;
-let apiLimiterInstance: RateLimiterRedis | null = null;
-let uploadLimiter: RateLimiterRedis | null = null;
 
 export function getAuthRateLimiter(): RateLimiterRedis {
   if (!authLimiter) {
@@ -68,30 +66,6 @@ export function getAuthRateLimiter(): RateLimiterRedis {
     });
   }
   return authLimiter;
-}
-
-export function getApiRateLimiter(): RateLimiterRedis {
-  if (!apiLimiterInstance) {
-    apiLimiterInstance = new RateLimiterRedis({
-      storeClient: getLimiterRedisClient(),
-      keyPrefix: 'api_limit',
-      points: 1000,
-      duration: 3600,
-    });
-  }
-  return apiLimiterInstance;
-}
-
-export function getUploadRateLimiter(): RateLimiterRedis {
-  if (!uploadLimiter) {
-    uploadLimiter = new RateLimiterRedis({
-      storeClient: getLimiterRedisClient(),
-      keyPrefix: 'upload_limit',
-      points: 10,
-      duration: 3600,
-    });
-  }
-  return uploadLimiter;
 }
 
 export async function consumeAuthRateLimit(key: string): Promise<void> {

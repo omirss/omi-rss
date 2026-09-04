@@ -10,17 +10,13 @@ WORKDIR /app
 COPY package*.json ./
 COPY tsconfig.json ./
 
-# Install dependencies
-RUN npm ci --only=production && \
-    npm cache clean --force
-
 # Copy source code
 COPY src ./src
-COPY drizzle ./drizzle
 
-# Install dev dependencies for building
+# Install dependencies, build, then prune to production deps
 RUN npm ci && \
     npm run build && \
+    cp -r src/templates dist/templates && \
     npm prune --production
 
 # Production stage

@@ -8,7 +8,7 @@ import {
 } from '../../database/schema';
 import { eq, and, desc } from 'drizzle-orm';
 import { logger } from '../../utils/logger';
-import { getRedis } from '../redis';
+import { getRedis } from '../redis.service';
 import { fetchFeedXml } from '../feedFetch';
 import Parser from 'rss-parser';
 
@@ -205,9 +205,6 @@ export class FeedDiscoveryService {
         }
       }
 
-      const externalResults = this.searchExternalFeedDirectories(query, options);
-      results.push(...externalResults);
-
       const uniqueResults = Array.from(
         new Map(results.map(r => [r.url, r])).values(),
       );
@@ -402,13 +399,6 @@ export class FeedDiscoveryService {
       logger.error(`Failed to fetch metadata for ${url}:`, error);
       return {};
     }
-  }
-
-  private searchExternalFeedDirectories(
-    _query: string,
-    _options?: { category?: string; language?: string },
-  ): FeedSuggestion[] {
-    return [];
   }
 
   private calculateSearchRelevance(feed: FeedSuggestion, query: string): number {

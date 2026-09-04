@@ -9,8 +9,8 @@ const router = Router();
 
 // Validation schemas
 const paginationSchema = z.object({
-  page: z.string().transform(Number).default('1'),
-  limit: z.string().transform(Number).default('20'),
+  page: z.string().default('1').transform(Number).pipe(z.number().int().min(1)),
+  limit: z.string().default('20').transform(Number).pipe(z.number().int().min(1).max(200)),
   sortBy: z.enum(['publishedAt', 'title', 'feedTitle']).default('publishedAt'),
   sortOrder: z.enum(['asc', 'desc']).default('desc'),
 });
@@ -26,7 +26,10 @@ const filterSchema = z.object({
 const updateArticleStateSchema = z.object({
   isRead: z.boolean().optional(),
   isStarred: z.boolean().optional(),
-});
+}).refine(
+  (data) => data.isRead !== undefined || data.isStarred !== undefined,
+  { message: 'At least one of isRead or isStarred must be provided' },
+);
 
 const batchUpdateSchema = z.object({
   articleIds: z.array(z.string().uuid()),
@@ -117,12 +120,19 @@ router.get('/', async (req, res, next) => {
       .limit(pagination.limit)
       .offset(offset);
 
-    // Get total count
+    // Get total count with the same filters as the listing
     const [{ count }] = await db
       .select({ count: sql<number>`COUNT(*)` })
       .from(articles)
       .innerJoin(feeds, eq(articles.feedId, feeds.id))
-      .where(eq(feeds.userId, req.user!.id));
+      .leftJoin(
+        userArticleStates,
+        and(
+          eq(userArticleStates.articleId, articles.id),
+          eq(userArticleStates.userId, req.user!.id),
+        ),
+      )
+      .where(and(...conditions));
 
     res.json({
       articles: articleList.map(article => ({
@@ -187,30 +197,10 @@ router.get('/:articleId', async (req, res, next) => {
       throw new AppError('Article not found', 404);
     }
 
-    // Mark as read automatically when fetching
-    if (!article.isRead) {
-      await db
-        .insert(userArticleStates)
-        .values({
-          userId: req.user!.id,
-          articleId: article.id,
-          isRead: true,
-          readAt: new Date(),
-        })
-        .onConflictDoUpdate({
-          target: [userArticleStates.userId, userArticleStates.articleId],
-          set: {
-            isRead: true,
-            readAt: new Date(),
-            updatedAt: new Date(),
-          },
-        });
-    }
-
     res.json({
       article: {
         ...article,
-        isRead: true,
+        isRead: article.isRead || false,
         isStarred: article.isStarred || false,
       },
     });

@@ -4,10 +4,22 @@ import fs from 'fs/promises';
 import path from 'path';
 import handlebars from 'handlebars';
 
-let transporter: nodemailer.Transporter;
+let transporter: nodemailer.Transporter | undefined;
 
-// Initialize email transporter
+export function isEmailConfigured(): boolean {
+  return transporter !== undefined;
+}
+
+// Initialize email transporter. No-op (with warning) when SMTP is not
+// configured so self-hosted instances without SMTP still boot, register
+// and log in fine.
 export async function initializeEmailService() {
+  if (!process.env.SMTP_HOST) {
+    transporter = undefined;
+    logger.warn('SMTP_HOST not set, email delivery disabled (verification and password reset emails will be skipped)');
+    return;
+  }
+
   try {
     transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST,
@@ -19,12 +31,11 @@ export async function initializeEmailService() {
       },
     });
 
-    // Verify connection
     await transporter.verify();
     logger.info('Email service initialized successfully');
   } catch (error) {
+    transporter = undefined;
     logger.error('Failed to initialize email service:', error);
-    // Don't throw - email service is not critical for startup
   }
 }
 
@@ -38,17 +49,18 @@ interface EmailOptions {
   attachments?: any[];
 }
 
-export async function sendEmail(options: EmailOptions): Promise<void> {
+// Returns true when the email was delivered, false when it was skipped
+// (SMTP not configured) or the delivery failed. Never throws.
+export async function sendEmail(options: EmailOptions): Promise<boolean> {
   try {
     if (!transporter) {
       logger.warn('Email service not initialized, skipping email send');
-      return;
+      return false;
     }
 
     let { html } = options;
     const { text } = options;
 
-    // Load and compile template if specified
     if (options.template) {
       const templatePath = path.join(__dirname, `../templates/${options.template}.hbs`);
       const templateContent = await fs.readFile(templatePath, 'utf-8');
@@ -56,65 +68,19 @@ export async function sendEmail(options: EmailOptions): Promise<void> {
       html = template(options.data || {});
     }
 
-    // Send email
     const info = await transporter.sendMail({
       from: process.env.EMAIL_FROM || 'Omi RSS <noreply@omirss.com>',
       to: Array.isArray(options.to) ? options.to.join(', ') : options.to,
       subject: options.subject,
       html,
-      text: text || html?.replace(/<[^>]*>/g, ''), // Strip HTML for text version
+      text: text || html?.replace(/<[^>]*>/g, ''),
       attachments: options.attachments,
     });
 
     logger.info(`Email sent: ${info.messageId}`);
+    return true;
   } catch (error) {
     logger.error('Failed to send email:', error);
-    throw error;
+    return false;
   }
-}
-
-// Email templates
-export async function sendWelcomeEmail(email: string, username: string) {
-  await sendEmail({
-    to: email,
-    subject: 'Welcome to Omi RSS!',
-    template: 'welcome',
-    data: { username },
-  });
-}
-
-export async function sendPasswordResetEmail(email: string, username: string, resetUrl: string) {
-  await sendEmail({
-    to: email,
-    subject: 'Reset your Omi RSS password',
-    template: 'password-reset',
-    data: { username, resetUrl },
-  });
-}
-
-export async function sendEmailVerificationEmail(email: string, username: string, verificationUrl: string) {
-  await sendEmail({
-    to: email,
-    subject: 'Verify your Omi RSS email',
-    template: 'email-verification',
-    data: { username, verificationUrl },
-  });
-}
-
-export async function sendNewArticlesNotification(email: string, articles: any[]) {
-  await sendEmail({
-    to: email,
-    subject: `${articles.length} new articles in your RSS feeds`,
-    template: 'new-articles',
-    data: { articles },
-  });
-}
-
-export async function sendShareInvitation(email: string, sharedBy: string, folderName: string, acceptUrl: string) {
-  await sendEmail({
-    to: email,
-    subject: `${sharedBy} shared "${folderName}" with you`,
-    template: 'share-invitation',
-    data: { sharedBy, folderName, acceptUrl },
-  });
 }

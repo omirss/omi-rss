@@ -91,12 +91,26 @@ export function analyticsWorker(queue: Queue.Queue) {
         .onConflictDoUpdate({
           target: [readingStats.userId, readingStats.date],
           set: {
-            articlesRead: entry.articlesRead,
-            readingTime: entry.readingTime,
+            // Incremental writers (analytics service, stats routes) only ever
+            // add to these counters, so reconcile with GREATEST instead of
+            // overwriting the accumulated values.
+            articlesRead: sql`GREATEST(${readingStats.articlesRead}, ${entry.articlesRead})`,
+            readingTime: sql`GREATEST(${readingStats.readingTime}, ${entry.readingTime})`,
             wordsRead: entry.wordsRead,
             feedsVisited: Array.from(entry.feedsVisited),
             categories: entry.categories,
-            hourlyDistribution: entry.hourlyDistribution,
+            hourlyDistribution: sql`
+              (
+                SELECT COALESCE(jsonb_object_agg(key, to_jsonb(max_count)), '{}'::jsonb)
+                FROM (
+                  SELECT COALESCE(e.key, c.key) AS key,
+                         GREATEST(COALESCE(e.value::int, 0), COALESCE(c.value::int, 0)) AS max_count
+                  FROM jsonb_each(${JSON.stringify(entry.hourlyDistribution)}::jsonb) c
+                  FULL JOIN jsonb_each(COALESCE(${readingStats.hourlyDistribution}, '{}'::jsonb)) e
+                    ON e.key = c.key
+                ) merged
+              )
+            `,
             updatedAt: now,
           },
         });

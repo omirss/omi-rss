@@ -56,16 +56,3 @@ export const logger = winston.createLogger({
     }),
   ],
 });
-
-// Add request logging method
-export function logRequest(req: any, res: any, responseTime: number) {
-  logger.info({
-    method: req.method,
-    url: req.originalUrl,
-    status: res.statusCode,
-    responseTime: `${responseTime}ms`,
-    ip: req.ip,
-    userAgent: req.get('user-agent'),
-    userId: req.user?.id,
-  });
-}

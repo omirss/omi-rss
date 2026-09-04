@@ -27,26 +27,6 @@ export const users = pgTable('users', {
   };
 });
 
-// OAuth providers
-export const oauthProviders = pgTable('oauth_providers', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
-  provider: varchar('provider', { length: 50 }).notNull(), // google, github, etc.
-  providerId: varchar('provider_id', { length: 255 }).notNull(),
-  accessToken: text('access_token'),
-  refreshToken: text('refresh_token'),
-  expiresAt: timestamp('expires_at'),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
-}, (table) => {
-  return {
-    userProviderIdx: uniqueIndex('oauth_user_provider_idx').on(table.userId, table.provider),
-    providerIdIdx: uniqueIndex('oauth_provider_id_idx').on(table.provider, table.providerId),
-  };
-});
-
-// Devices for sync
-
 // Folders
 export const folders = pgTable('folders', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -128,9 +108,6 @@ export const userArticleStates = pgTable('user_article_states', {
   readAt: timestamp('read_at'),
   starredAt: timestamp('starred_at'),
   readingTime: integer('reading_time'), // seconds
-  scrollPosition: integer('scroll_position').default(0),
-  notes: text('notes'),
-  highlights: jsonb('highlights').default([]),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 }, (table) => {
@@ -142,8 +119,6 @@ export const userArticleStates = pgTable('user_article_states', {
     starredIdx: index('user_article_states_starred_idx').on(table.isStarred),
   };
 });
-
-// Shared folders for collaboration
 
 // Reading statistics
 export const readingStats = pgTable('reading_stats', {
@@ -163,8 +138,6 @@ export const readingStats = pgTable('reading_stats', {
     userDateIdx: uniqueIndex('reading_stats_user_date_idx').on(table.userId, table.date),
   };
 });
-
-// AI analysis results
 
 // Notifications
 export const notifications = pgTable('notifications', {
@@ -189,23 +162,8 @@ export const notifications = pgTable('notifications', {
   };
 });
 
-// AI article embeddings table for similarity search
-
-// Market watchlist
-
-// Price alerts
-
-// Market quote cache
-
-// Teams
-
-// Team members
-
-// Shared folders
-
 // Define relations
 export const usersRelations = relations(users, ({ many }) => ({
-  oauthProviders: many(oauthProviders),
   folders: many(folders),
   feeds: many(feeds),
   userArticleStates: many(userArticleStates),

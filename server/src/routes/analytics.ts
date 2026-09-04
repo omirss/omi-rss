@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { authenticateToken } from '../middleware/auth';
 import { validateRequest } from '../middleware/validation';
 import { analyticsService } from '../services/analytics';
 
@@ -15,7 +14,6 @@ const getUserAnalyticsSchema = z.object({
 
 router.get(
   '/',
-  authenticateToken,
   validateRequest(getUserAnalyticsSchema),
   async (req, res, next) => {
     try {
@@ -42,7 +40,6 @@ const trackArticleReadSchema = z.object({
 
 router.post(
   '/article-read',
-  authenticateToken,
   validateRequest(trackArticleReadSchema),
   async (req, res, next) => {
     try {
@@ -66,7 +63,6 @@ const trackFeedInteractionSchema = z.object({
 
 router.post(
   '/feed-interaction',
-  authenticateToken,
   validateRequest(trackFeedInteractionSchema),
   async (req, res, next) => {
     try {
@@ -83,7 +79,6 @@ router.post(
 // Export analytics data
 router.get(
   '/export',
-  authenticateToken,
   async (req, res, next) => {
     try {
       const userId = req.user!.id;
@@ -104,7 +99,6 @@ router.get(
 // Get reading streaks
 router.get(
   '/streaks',
-  authenticateToken,
   async (req, res, next) => {
     try {
       const userId = req.user!.id;

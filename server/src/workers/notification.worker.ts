@@ -3,17 +3,59 @@ import { logger } from '../utils/logger';
 import { getDb } from '../database';
 import { notifications } from '../database/schema';
 import { and, eq } from 'drizzle-orm';
+import { isEmailConfigured, sendEmail } from '../services/email.service';
 
 export function notificationWorker(queue: Queue.Queue) {
-  queue.process('send-email', async (job) => {
+  void queue.process('send-email', async (job) => {
     const { userId, email, subject, body, template, data } = job.data;
 
     try {
       logger.info(`Processing email job ${job.id}`);
 
-      // TODO: Implement email sending
-      // For now, just log and save to database
       const db = getDb();
+
+      if (!isEmailConfigured()) {
+        await db
+          .insert(notifications)
+          .values({
+            userId,
+            type: 'email',
+            title: subject,
+            body: body || 'Email notification',
+            data: { email, template, ...data },
+            channels: ['email'],
+            status: 'skipped',
+          });
+
+        logger.warn(`Email skipped (SMTP not configured) for ${email}: ${subject}`);
+        return { success: true, status: 'skipped' };
+      }
+
+      const sent = await sendEmail({
+        to: email,
+        subject,
+        text: body,
+        template,
+        data,
+      });
+
+      if (!sent) {
+        await db
+          .insert(notifications)
+          .values({
+            userId,
+            type: 'email',
+            title: subject,
+            body: body || 'Email notification',
+            data: { email, template, ...data },
+            channels: ['email'],
+            status: 'failed',
+            failedAt: new Date(),
+          });
+
+        logger.error(`Email delivery failed for ${email}: ${subject}`);
+        return { success: false, status: 'failed' };
+      }
 
       await db
         .insert(notifications)
@@ -28,15 +70,15 @@ export function notificationWorker(queue: Queue.Queue) {
           sentAt: new Date(),
         });
 
-      logger.info(`Email queued for ${email}: ${subject}`);
-      return { success: true };
+      logger.info(`Email sent to ${email}: ${subject}`);
+      return { success: true, status: 'sent' };
     } catch (error) {
       logger.error('Email job failed:', error);
       throw error;
     }
   });
 
-  queue.process('mark-read', async (job) => {
+  void queue.process('mark-read', async (job) => {
     const { notificationId, userId } = job.data;
 
     try {

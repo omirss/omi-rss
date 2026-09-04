@@ -3,7 +3,6 @@ import { getDb } from '../database';
 import { feeds, articles } from '../database/schema';
 import { eq, and, sql } from 'drizzle-orm';
 import { logger } from '../utils/logger';
-import { broadcastFeedUpdate } from '../services/socket.service';
 import { fetchFeedXml } from '../services/feedFetch';
 import Parser from 'rss-parser';
 import crypto from 'crypto';
@@ -16,7 +15,7 @@ const parser = new Parser({
 });
 
 export function feedUpdateWorker(queue: Queue.Queue) {
-  queue.process('update-all-feeds', async () => {
+  void queue.process('update-all-feeds', async () => {
     logger.info('Starting scheduled feed update');
     
     const db = getDb();
@@ -47,7 +46,7 @@ export function feedUpdateWorker(queue: Queue.Queue) {
     logger.info(`Feed update completed: ${successful} successful, ${failed} failed`);
   });
 
-  queue.process('update-single-feed', async (job) => {
+  void queue.process('update-single-feed', async (job) => {
     const { feedId } = job.data;
     
     try {
@@ -129,16 +128,6 @@ export function feedUpdateWorker(queue: Queue.Queue) {
 
       if (newArticles.length > 0) {
         logger.info(`Added ${newArticles.length} new articles for feed ${feed.title}`);
-        
-        // Broadcast updates to connected clients
-        await broadcastFeedUpdate(feedId, newArticles);
-        
-        // Queue notifications for users
-        await queue.add('send-new-article-notifications', {
-          feedId,
-          articleCount: newArticles.length,
-          articles: newArticles.slice(0, 5), // First 5 articles
-        });
       }
 
       return { feedId, newArticles: newArticles.length };
@@ -158,12 +147,6 @@ export function feedUpdateWorker(queue: Queue.Queue) {
 
       throw error;
     }
-  });
-
-  queue.process('send-new-article-notifications', async (job) => {
-    const { feedId, articleCount } = job.data;
-
-    logger.info(`Would send notifications for ${articleCount} new articles in feed ${feedId}`);
   });
 }
 

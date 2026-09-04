@@ -5,8 +5,8 @@ import helmet from 'helmet';
 import compression from 'compression';
 import morgan from 'morgan';
 import { createServer } from 'http';
-import { Server as SocketIOServer } from 'socket.io';
 import path from 'path';
+import fs from 'fs';
 
 // Import middleware
 import { errorHandler } from './middleware/errorHandler';
@@ -25,27 +25,20 @@ import discoveryRouter from './routes/discovery';
 import analyticsRouter from './routes/analytics';
 
 // Import services
-import { initializeDatabase, getDb } from './database/index';
+import { initializeDatabase, getDb, closeDatabase } from './database/index';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
-import { initializeRedis } from './services/redis.service';
-import { initializeSocketIO } from './services/socket.service';
-import { initializeWorkers } from './workers/index';
+import { initializeRedis, closeRedis } from './services/redis.service';
+import { initializeEmailService } from './services/email.service';
+import { initializeWorkers, closeWorkers } from './workers/index';
 
 class Server {
   private app: Express;
   private httpServer: any;
-  private io: SocketIOServer;
   private port: number;
 
   constructor() {
     this.app = express();
     this.httpServer = createServer(this.app);
-    this.io = new SocketIOServer(this.httpServer, {
-      cors: {
-        origin: process.env.CORS_ORIGIN?.split(',') || ['http://localhost:3001'],
-        credentials: true
-      }
-    });
     this.port = parseInt(process.env.PORT || '3000', 10);
   }
 
@@ -62,16 +55,19 @@ class Server {
       logger.info('Database migrations applied');
 
       // Initialize Redis
-      const { redisClient } = await initializeRedis();
+      const redisClient = await initializeRedis();
       logger.info('Redis initialized successfully');
 
       // Initialize rate limiter
       initializeRateLimiter(redisClient);
       logger.info('Rate limiter initialized successfully');
 
-      // Initialize Socket.IO
-      initializeSocketIO(this.io);
-      logger.info('Socket.IO initialized successfully');
+      // Initialize email (graceful no-op when SMTP is not configured)
+      await initializeEmailService();
+
+      // Ensure avatar upload directory exists
+      const uploadDir = process.env.UPLOAD_DIR || './uploads';
+      fs.mkdirSync(path.join(uploadDir, 'avatars'), { recursive: true });
 
       // Initialize background workers
       await initializeWorkers();
@@ -168,22 +164,24 @@ class Server {
   private setupGracefulShutdown(): void {
     const shutdown = async (signal: string) => {
       logger.info(`${signal} received, shutting down gracefully...`);
-      
+
       // Stop accepting new connections
       this.httpServer.close(() => {
         logger.info('HTTP server closed');
       });
 
-      // Close Socket.IO connections
-      this.io.close(() => {
-        logger.info('Socket.IO server closed');
-      });
+      try {
+        // Close workers
+        await closeWorkers();
 
-      // Close database connections
-      // await closeDatabase();
-      
-      // Close Redis connections
-      // await closeRedis();
+        // Close Redis connections
+        await closeRedis();
+
+        // Close database connections
+        await closeDatabase();
+      } catch (error) {
+        logger.error('Error during shutdown:', error);
+      }
 
       // Exit process
       process.exit(0);
@@ -226,7 +224,6 @@ class Server {
 Omi RSS Server is running!
   Environment: ${process.env.NODE_ENV}
   Server: http://localhost:${this.port}
-  WebSocket: ws://localhost:${this.port}
   Health: http://localhost:${this.port}/health
         `);
       });

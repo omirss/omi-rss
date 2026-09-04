@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import bcrypt from 'bcrypt';
+import crypto from 'crypto';
 import { getDb } from '../database';
 import { users } from '../database/schema';
 import { eq, or } from 'drizzle-orm';
@@ -8,7 +9,6 @@ import { AppError } from '../middleware/errorHandler';
 import { consumeAuthRateLimit } from '../middleware/rateLimiter';
 import { sendEmail } from '../services/email.service';
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../services/auth.service';
-import { generateToken } from '../utils/tokens';
 import { logger } from '../utils/logger';
 
 const router = Router();
@@ -66,7 +66,7 @@ router.post('/register', async (req, res, next) => {
     const passwordHash = await bcrypt.hash(data.password, parseInt(process.env.BCRYPT_ROUNDS || '10'));
 
     // Generate email verification token
-    const emailVerificationToken = generateToken();
+    const emailVerificationToken = crypto.randomBytes(32).toString('hex');
 
     // Create user
     const [newUser] = await db
@@ -242,7 +242,7 @@ router.post('/forgot-password', async (req, res, next) => {
     }
 
     // Generate reset token
-    const resetToken = generateToken();
+    const resetToken = crypto.randomBytes(32).toString('hex');
     const resetExpires = new Date(Date.now() + 3600000); // 1 hour
 
     // Update user
@@ -351,20 +351,6 @@ router.post('/refresh', async (req, res, next) => {
 // Logout endpoint
 router.post('/logout', (_req, res) => {
   res.json({ message: 'Logged out successfully' });
-});
-
-// OAuth callback handler
-router.get('/oauth/:provider/callback', async (req, res, next) => {
-  try {
-    const { provider } = req.params;
-
-    // Handle OAuth callback based on provider
-    // This would integrate with passport strategies
-
-    res.redirect(`${process.env.FRONTEND_URL}/auth/callback?provider=${provider}`);
-  } catch (error) {
-    next(error);
-  }
 });
 
 export default router;
