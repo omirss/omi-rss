@@ -43,6 +43,7 @@ _internal/
 
 # --- build artifacts ---
 extension/build/
+server/web-ui/
 *.tsbuildinfo
 _archive/
 

@@ -1,9 +1,6 @@
-version: '3.8'
-
 services:
-  # PostgreSQL Database
   postgres:
-    image: postgres:15-alpine
+    image: postgres:16-alpine
     container_name: omi_rss_postgres
     restart: unless-stopped
     environment:
@@ -21,38 +18,35 @@ services:
       timeout: 5s
       retries: 5
 
-  # Redis Cache
   redis:
     image: redis:7-alpine
     container_name: omi_rss_redis
     restart: unless-stopped
-    command: redis-server --requirepass ${REDIS_PASSWORD} --maxmemory 512mb --maxmemory-policy allkeys-lru
+    command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
     volumes:
       - redis_data:/data
     networks:
       - omi_network
     healthcheck:
-      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a ${REDIS_PASSWORD} ping | grep PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # Node.js Application
-  app:
+  server:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: omi_rss_app
+    image: omi-rss-server:latest
+    container_name: omi_rss_server
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
       NODE_ENV: production
       PORT: 3000
       DATABASE_URL: postgresql://${POSTGRES_USER:-omi_user}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-omi_rss}
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
-      JWT_SECRET: ${JWT_SECRET}
-      CORS_ORIGIN: ${CORS_ORIGIN}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
     volumes:
       - ./uploads:/app/uploads
       - ./logs:/app/logs
@@ -70,7 +64,6 @@ services:
       retries: 3
       start_period: 40s
 
-  # Nginx Reverse Proxy
   nginx:
     image: nginx:alpine
     container_name: omi_rss_nginx
@@ -78,71 +71,21 @@ services:
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
-      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./web-ui:/var/www/html:ro
       - nginx_logs:/var/log/nginx
     ports:
-      - "80:80"
-      - "443:443"
+      - "${NGINX_PORT:-80}:80"
     networks:
       - omi_network
     depends_on:
-      - app
-
-  # Backup Service
-  backup:
-    image: postgres:15-alpine
-    container_name: omi_rss_backup
-    restart: unless-stopped
-    volumes:
-      - ./backups:/backups
-    environment:
-      PGPASSWORD: ${POSTGRES_PASSWORD}
-    networks:
-      - omi_network
-    depends_on:
-      postgres:
+      server:
         condition: service_healthy
-    entrypoint: |
-      sh -c 'while true; do
-        pg_dump -h postgres -U ${POSTGRES_USER:-omi_user} ${POSTGRES_DB:-omi_rss} > /backups/backup_$$(date +%Y%m%d_%H%M%S).sql
-        find /backups -name "backup_*.sql" -mtime +7 -delete
-        sleep 86400
-      done'
-
-  # Monitoring - Prometheus
-  prometheus:
-    image: prom/prometheus:latest
-    container_name: omi_rss_prometheus
-    restart: unless-stopped
-    volumes:
-      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - prometheus_data:/prometheus
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
-      - '--web.console.templates=/usr/share/prometheus/consoles'
-    networks:
-      - omi_network
-
-  # Monitoring - Grafana
-  grafana:
-    image: grafana/grafana:latest
-    container_name: omi_rss_grafana
-    restart: unless-stopped
-    environment:
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD}
-      GF_USERS_ALLOW_SIGN_UP: false
-    volumes:
-      - grafana_data:/var/lib/grafana
-      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
-      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
-    ports:
-      - "3001:3000"
-    networks:
-      - omi_network
-    depends_on:
-      - prometheus
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
 networks:
   omi_network:
@@ -152,5 +95,3 @@ volumes:
   postgres_data:
   redis_data:
   nginx_logs:
-  prometheus_data:
-  grafana_data:

@@ -25,7 +25,8 @@ import discoveryRouter from './routes/discovery';
 import analyticsRouter from './routes/analytics';
 
 // Import services
-import { initializeDatabase } from './database/index';
+import { initializeDatabase, getDb } from './database/index';
+import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { initializeRedis } from './services/redis.service';
 import { initializeSocketIO } from './services/socket.service';
 import { initializeWorkers } from './workers/index';
@@ -53,6 +54,12 @@ class Server {
       // Initialize database
       await initializeDatabase();
       logger.info('Database initialized successfully');
+
+      // Run pending migrations before serving traffic
+      await migrate(getDb(), {
+        migrationsFolder: path.join(__dirname, '../drizzle'),
+      });
+      logger.info('Database migrations applied');
 
       // Initialize Redis
       const { redisClient } = await initializeRedis();
@@ -131,7 +138,7 @@ class Server {
         timestamp: new Date().toISOString(),
         uptime: process.uptime(),
         environment: process.env.NODE_ENV,
-        version: process.env.npm_package_version || '1.0.0'
+        version: process.env.npm_package_version || '0.2.0'
       });
     });
 

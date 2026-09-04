@@ -1,7 +1,4 @@
-version: '3.8'
-
 services:
-  # PostgreSQL Database
   postgres:
     image: postgres:16-alpine
     container_name: omi_rss_postgres
@@ -11,30 +8,24 @@ services:
       POSTGRES_DB: omi_rss_db
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U omi_rss"]
+      test: ["CMD-SHELL", "pg_isready -U omi_rss -d omi_rss_db"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # Redis Cache
   redis:
     image: redis:7-alpine
     container_name: omi_rss_redis
     command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
-    ports:
-      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # Omi RSS Server
   server:
     build:
       context: .
@@ -47,57 +38,23 @@ services:
         condition: service_healthy
     environment:
       NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3000
       DATABASE_URL: postgresql://omi_rss:${DB_PASSWORD:-password}@postgres:5432/omi_rss_db
       REDIS_URL: redis://redis:6379
       JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key}
-      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3001}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3998}
     ports:
-      - "3000:3000"
+      - "3998:3000"
     volumes:
       - ./uploads:/app/uploads
       - ./logs:/app/logs
-    command: npm run dev
-
-  # Database migrations
-  migrate:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: omi_rss_migrate
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      DATABASE_URL: postgresql://omi_rss:${DB_PASSWORD:-password}@postgres:5432/omi_rss_db
-    command: npm run db:migrate
-    
-  # pgAdmin for database management
-  pgadmin:
-    image: dpage/pgadmin4
-    container_name: omi_rss_pgadmin
-    environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@omirss.com}
-      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
-    ports:
-      - "5050:80"
-    depends_on:
-      - postgres
-    volumes:
-      - pgadmin_data:/var/lib/pgadmin
-
-  # RedisInsight for Redis management
-  redisinsight:
-    image: redislabs/redisinsight:latest
-    container_name: omi_rss_redisinsight
-    ports:
-      - "8001:8001"
-    volumes:
-      - redisinsight_data:/db
-    depends_on:
-      - redis
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
 volumes:
   postgres_data:
   redis_data:
-  pgadmin_data:
-  redisinsight_data:

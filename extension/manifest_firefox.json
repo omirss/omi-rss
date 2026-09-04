@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Omi RSS Reader",
-  "version": "1.0.0",
+  "version": "0.2.0",
   "description": "Save articles and read your feeds from anywhere",
   "permissions": [
     "activeTab",
@@ -82,7 +82,7 @@
   },
   "browser_specific_settings": {
     "gecko": {
-      "id": "omi-rss@example.com",
+      "id": "{41a6adaa-f9f6-429c-b579-48e0f0697dfe}",
       "strict_min_version": "109.0"
     }
   }
