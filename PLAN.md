@@ -117,6 +117,13 @@ Dart/Serverpod leftovers removed, READMEs rewritten to match reality.
   permissions, Firefox classic background), sidepanel crash fixed
 - TODO when server is up: live checklist — load unpacked, login, subscribe
   from a real blog, mark-read, OPML round-trip, offline path
+- Live-test checklist (run with server on :3999): load unpacked with no
+  service-worker errors; popup settings → server URL → login; Find Feeds on
+  a blog → subscribe → verify POST /api/feeds row + feed in popup; article
+  click → PUT state isRead; context-menu subscribe; logout/login token
+  survives; side panel local-first add/read/star without server; export +
+  import JSON backup; OPML import (multipart) + export; offline fallback
+  when server unreachable
 
 ### Phase 3 — App connects and shrinks (VERIFIED)
 
@@ -142,6 +149,35 @@ Dart/Serverpod leftovers removed, READMEs rewritten to match reality.
   On web, the app's server-URL setting defaults to its own origin
 - READMEs and this plan updated to match shipped reality
 - Tag `v0.2.0`; publish Docker image; self-host deployment guide
+
+### Post-v0.2 axis: aggregation parity and feed generation
+
+The original product ambition was FreshRSS + FullTextRSS + RSSHub combined.
+The reader core (FreshRSS role) is v0.2. The remaining axes, deliberately
+scoped:
+
+- **v0.3 — Full-text extraction (FullTextRSS role): first-class.** At feed
+  update time, optionally fetch the article page and rewrite summary content
+  via Mozilla Readability (MIT — was already a dependency), with a per-site
+  selector override file (seeds exist: app `rules/extraction`, extension
+  `js/extractors/site-specific.js`). Per-feed opt-in flag.
+- **v1.x — Page-to-feed generation (scoped RSSHub role).** Point at any
+  page, select the content region, get a durable feed — same extraction
+  engine, extension gets "generate feed from this page." RSSHub itself is
+  consumed, not replaced (any RSSHub URL works as a feed source); rebuilding
+  its thousands of community routes means inheriting the maintenance
+  treadmill without the community.
+- **greader-compatible API** (the protocol FreshRSS exposes that makes
+  Reeder-class mobile clients work) — evaluate in v1.x; it is a spec, not
+  code to port.
+
+**License rules for the eval sprint** (clone FreshRSS, RSSHub, and study
+fivefilters' approach as untracked local references):
+- FreshRSS is **AGPL-3.0** — spec reference only. Never copy code into this
+  MIT repo. Extract feature matrices and behavior; reimplement fresh.
+- RSSHub is **MIT** — selectively portable with attribution.
+- fivefilters FullTextRSS is proprietary — concept/pattern reference only;
+  the MIT-licensed engine core is Mozilla Readability.
 
 ## Design decisions
 

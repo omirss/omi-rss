@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This repository is **public** and mirrored to GitHub at https://github.com/im-tyler/omi-rss.
+This repository is **public** and mirrored to GitHub at https://github.com/omirss/omi-rss.
 Every commit is publicly visible — treat all work as public-facing.
 
 ## Do not commit private/transient context
