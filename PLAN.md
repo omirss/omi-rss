@@ -37,10 +37,11 @@ discovery provider drops in later without touching the reader core.
 **Nothing in Webroll adds requirements to omi-rss v0.2.** It is referenced
 here so its existence is deliberate, not forgotten.
 
-## Current state (v0.2.0, pre-tag)
+## Current state (v0.2.0 tagged)
 
-All phase code work through Phase 4 is done and live-verified. What remains
-for the v0.2.0 release is mechanical: tag, publish the Docker image, ship.
+All phase code work through Phase 4 is done and live-verified; `v0.2.0` is
+tagged. What remains is publishing the Docker image to a registry (owner
+decision) and store submissions for the extension.
 
 - **Server** — auth issues refresh tokens (`POST /auth/refresh`, rotating;
   `POST /auth/logout`), OPML export uses folder names, feed fetching has
@@ -149,7 +150,7 @@ Dart/Serverpod leftovers removed, READMEs rewritten to match reality.
   own origin
 - DONE: READMEs, docs/self-hosting.md, and this plan updated to match
   shipped reality
-- TODO: tag `v0.2.0`; publish Docker image
+- DONE: tagged `v0.2.0` (2026-09-04). Remaining: publish Docker image to a registry
 
 ### Post-v0.2 axis: aggregation parity and feed generation
 
