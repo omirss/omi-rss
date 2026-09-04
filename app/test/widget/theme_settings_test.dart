@@ -19,7 +19,7 @@ void main() {
     tester.view.physicalSize = const Size(1600, 1000);
     tester.view.devicePixelRatio = 1.0;
     await tester.pumpWidget(
-      const ProviderScope(child: app.RSSGlassmorphismReaderApp()),
+      const ProviderScope(child: app.OmiRssApp()),
     );
     await tester.pump(const Duration(milliseconds: 300));
   }

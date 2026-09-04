@@ -9,7 +9,7 @@ void main() {
 
     // Build our app and trigger a frame.
     await tester.pumpWidget(
-      const ProviderScope(child: RSSGlassmorphismReaderApp()),
+      const ProviderScope(child: OmiRssApp()),
     );
 
     // Verify that the title is displayed

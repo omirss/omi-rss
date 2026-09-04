@@ -41,7 +41,7 @@ class FeedService {
     _dio.options.connectTimeout = const Duration(seconds: 30);
     _dio.options.receiveTimeout = const Duration(seconds: 30);
     _dio.options.headers = {
-      'User-Agent': 'RSS Glassmorphism Reader/1.0 (+https://github.com/yourusername/rss-reader)',
+      'User-Agent': 'omi-rss/0.2.0 (+https://github.com/omirss/omi-rss)',
       'Accept': 'application/rss+xml, application/atom+xml, application/json, application/xml, text/xml, */*',
     };
   }
@@ -98,7 +98,7 @@ class FeedService {
     }
   }
   
-  /// Refresh a feed with smart caching
+  /// Refresh a feed, using cached metadata where available
   Future<RefreshResult> refreshFeed(Feed feed) async {
     final startTime = DateTime.now();
     

@@ -9,165 +9,19 @@ import '../components/glass_switch.dart';
 import '../components/glass_snack_bar.dart';
 import '../components/glass_dialog.dart';
 import '../../providers/opml_provider.dart';
+import '../../providers/settings_provider.dart';
 import '../../providers/theme_settings_provider.dart';
+import '../../providers/database_provider.dart';
 import '../../ui/tokens/glass_presets.dart';
-import '../../services/api_service.dart';
-import '../../config/api_config.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-
-// Settings provider
-final settingsProvider = StateNotifierProvider<SettingsNotifier, AppSettings>((ref) {
-  return SettingsNotifier(ref);
-});
-
-class AppSettings {
-  final bool autoUpdateFeeds;
-  final int updateInterval; // minutes
-  final bool showNotifications;
-  final bool enableSync;
-  final bool showReadArticles;
-  final int articlesPerFeed;
-  final bool enableOfflineMode;
-  final bool enableSmartCategorization;
-  final String corsProxy;
-  final String serverUrl;
-  
-  AppSettings({
-    this.autoUpdateFeeds = true,
-    this.updateInterval = 30,
-    this.showNotifications = true,
-    this.enableSync = true,
-    this.showReadArticles = true,
-    this.articlesPerFeed = 50,
-    this.enableOfflineMode = true,
-    this.enableSmartCategorization = false,
-    this.corsProxy = 'https://api.allorigins.win/raw?url=',
-    this.serverUrl = '',
-  });
-  
-  AppSettings copyWith({
-    bool? autoUpdateFeeds,
-    int? updateInterval,
-    bool? showNotifications,
-    bool? enableSync,
-    bool? showReadArticles,
-    int? articlesPerFeed,
-    bool? enableOfflineMode,
-    bool? enableSmartCategorization,
-    String? corsProxy,
-    String? serverUrl,
-  }) {
-    return AppSettings(
-      autoUpdateFeeds: autoUpdateFeeds ?? this.autoUpdateFeeds,
-      updateInterval: updateInterval ?? this.updateInterval,
-      showNotifications: showNotifications ?? this.showNotifications,
-      enableSync: enableSync ?? this.enableSync,
-      showReadArticles: showReadArticles ?? this.showReadArticles,
-      articlesPerFeed: articlesPerFeed ?? this.articlesPerFeed,
-      enableOfflineMode: enableOfflineMode ?? this.enableOfflineMode,
-      enableSmartCategorization: enableSmartCategorization ?? this.enableSmartCategorization,
-      corsProxy: corsProxy ?? this.corsProxy,
-      serverUrl: serverUrl ?? this.serverUrl,
-    );
-  }
-}
-
-class SettingsNotifier extends StateNotifier<AppSettings> {
-  final Ref ref;
-  
-  SettingsNotifier(this.ref) : super(AppSettings()) {
-    _loadSettings();
-  }
-  
-  Future<void> _loadSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('useDarkTheme');
-    state = AppSettings(
-      autoUpdateFeeds: prefs.getBool('autoUpdateFeeds') ?? true,
-      updateInterval: prefs.getInt('updateInterval') ?? 30,
-      showNotifications: prefs.getBool('showNotifications') ?? true,
-      enableSync: prefs.getBool('enableSync') ?? true,
-      showReadArticles: prefs.getBool('showReadArticles') ?? true,
-      articlesPerFeed: prefs.getInt('articlesPerFeed') ?? 50,
-      enableOfflineMode: prefs.getBool('enableOfflineMode') ?? true,
-      enableSmartCategorization: prefs.getBool('enableSmartCategorization') ?? false,
-      corsProxy: prefs.getString('corsProxy') ?? 'https://api.allorigins.win/raw?url=',
-      serverUrl: ApiConfig.baseUrl,
-    );
-  }
-  
-  Future<void> _saveSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('autoUpdateFeeds', state.autoUpdateFeeds);
-    await prefs.setInt('updateInterval', state.updateInterval);
-    await prefs.setBool('showNotifications', state.showNotifications);
-    await prefs.setBool('enableSync', state.enableSync);
-    await prefs.setBool('showReadArticles', state.showReadArticles);
-    await prefs.setInt('articlesPerFeed', state.articlesPerFeed);
-    await prefs.setBool('enableOfflineMode', state.enableOfflineMode);
-    await prefs.setBool('enableSmartCategorization', state.enableSmartCategorization);
-    await prefs.setString('corsProxy', state.corsProxy);
-  }
-  
-  void setAutoUpdateFeeds(bool value) {
-    state = state.copyWith(autoUpdateFeeds: value);
-    _saveSettings();
-  }
-  
-  void setUpdateInterval(int minutes) {
-    state = state.copyWith(updateInterval: minutes);
-    _saveSettings();
-  }
-  
-  void setShowNotifications(bool value) {
-    state = state.copyWith(showNotifications: value);
-    _saveSettings();
-  }
-  
-  void setEnableSync(bool value) {
-    state = state.copyWith(enableSync: value);
-    _saveSettings();
-  }
-  
-  void setShowReadArticles(bool value) {
-    state = state.copyWith(showReadArticles: value);
-    _saveSettings();
-  }
-  
-  void setArticlesPerFeed(int count) {
-    state = state.copyWith(articlesPerFeed: count);
-    _saveSettings();
-  }
-  
-  void setEnableOfflineMode(bool value) {
-    state = state.copyWith(enableOfflineMode: value);
-    _saveSettings();
-  }
-  
-  void setEnableSmartCategorization(bool value) {
-    state = state.copyWith(enableSmartCategorization: value);
-    _saveSettings();
-  }
-  
-  void setCorsProxy(String proxy) {
-    state = state.copyWith(corsProxy: proxy);
-    _saveSettings();
-  }
-  
-  void setServerUrl(String url) {
-    state = state.copyWith(serverUrl: url);
-    ApiConfig.setServerUrl(url);
-    ref.read(apiServiceProvider).updateBaseUrl(ApiConfig.baseUrl);
-  }
-}
+import '../../config/app_info.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
-  
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final settings = ref.watch(settingsProvider);
-    
+
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: AppBar(
@@ -218,9 +72,9 @@ class SettingsScreen extends ConsumerWidget {
                 ],
               ),
             ).animate().fadeIn(duration: 300.ms),
-            
+
             const SizedBox(height: 24),
-            
+
             // Feed Settings
             _buildSectionHeader('Feed Settings'),
             GlassContainer(
@@ -237,7 +91,7 @@ class SettingsScreen extends ConsumerWidget {
                   const Divider(color: Colors.white24, height: 32),
                   _buildNumberSetting(
                     'Update Interval',
-                    'How often to check for new articles (minutes)',
+                    'Default refresh interval for new feeds (minutes)',
                     Icons.schedule,
                     settings.updateInterval,
                     (value) => ref.read(settingsProvider.notifier).setUpdateInterval(value),
@@ -246,20 +100,12 @@ class SettingsScreen extends ConsumerWidget {
                     step: 5,
                     enabled: settings.autoUpdateFeeds,
                   ),
-                  const Divider(color: Colors.white24, height: 32),
-                  _buildTextSetting(
-                    'CORS Proxy',
-                    'Proxy URL for fetching feeds (leave empty to disable)',
-                    Icons.vpn_key,
-                    settings.corsProxy,
-                    (value) => ref.read(settingsProvider.notifier).setCorsProxy(value),
-                  ),
                 ],
               ),
             ).animate().fadeIn(duration: 300.ms, delay: 100.ms),
-            
+
             const SizedBox(height: 24),
-            
+
             // Sync Settings
             _buildSectionHeader('Server & Sync'),
             GlassContainer(
@@ -282,47 +128,23 @@ class SettingsScreen extends ConsumerWidget {
                     settings.enableSync,
                     (value) => ref.read(settingsProvider.notifier).setEnableSync(value),
                   ),
-                  const Divider(color: Colors.white24, height: 32),
-                  _buildSwitchTile(
-                    'Show Notifications',
-                    'Get notified about new articles',
-                    Icons.notifications,
-                    settings.showNotifications,
-                    (value) => ref.read(settingsProvider.notifier).setShowNotifications(value),
-                  ),
-                  const Divider(color: Colors.white24, height: 32),
-                  _buildSwitchTile(
-                    'Offline Mode',
-                    'Cache articles for offline reading',
-                    Icons.download_for_offline,
-                    settings.enableOfflineMode,
-                    (value) => ref.read(settingsProvider.notifier).setEnableOfflineMode(value),
-                  ),
                 ],
               ),
             ).animate().fadeIn(duration: 300.ms, delay: 200.ms),
-            
+
             const SizedBox(height: 24),
-            
+
             // Advanced Settings
             _buildSectionHeader('Advanced'),
             GlassContainer(
               padding: const EdgeInsets.all(20),
               child: Column(
                 children: [
-                  _buildSwitchTile(
-                    'Smart Categorization',
-                    'Use AI to categorize articles (experimental)',
-                    Icons.auto_awesome,
-                    settings.enableSmartCategorization,
-                    (value) => ref.read(settingsProvider.notifier).setEnableSmartCategorization(value),
-                  ),
-                  const Divider(color: Colors.white24, height: 32),
                   _buildActionTile(
                     'Clear Cache',
-                    'Remove all cached data',
+                    'Delete read, unstarred articles older than 30 days',
                     Icons.delete_outline,
-                    () => _clearCache(context),
+                    () => _clearCache(context, ref),
                   ),
                   const Divider(color: Colors.white24, height: 32),
                   _buildActionTile(
@@ -341,9 +163,9 @@ class SettingsScreen extends ConsumerWidget {
                 ],
               ),
             ).animate().fadeIn(duration: 300.ms, delay: 300.ms),
-            
+
             const SizedBox(height: 24),
-            
+
             // About Section
             _buildSectionHeader('About'),
             GlassContainer(
@@ -361,7 +183,7 @@ class SettingsScreen extends ConsumerWidget {
                         ),
                       ),
                       Text(
-                        '1.0.0',
+                        appVersion,
                         style: TextStyle(
                           color: Colors.white.withOpacity(0.9),
                           fontSize: 16,
@@ -375,17 +197,17 @@ class SettingsScreen extends ConsumerWidget {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Text(
-                        'Build',
+                        'Source',
                         style: TextStyle(
                           color: Colors.white70,
                           fontSize: 16,
                         ),
                       ),
                       Text(
-                        'Local-First Edition',
+                        appRepositoryUrl.replaceFirst('https://', ''),
                         style: TextStyle(
                           color: Colors.white.withOpacity(0.9),
-                          fontSize: 16,
+                          fontSize: 14,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
@@ -401,14 +223,14 @@ class SettingsScreen extends ConsumerWidget {
                 ],
               ),
             ).animate().fadeIn(duration: 300.ms, delay: 400.ms),
-            
+
             const SizedBox(height: 40),
           ],
         ),
       ),
     );
   }
-  
+
   Widget _buildSectionHeader(String title) {
     return Padding(
       padding: const EdgeInsets.only(left: 8, bottom: 12),
@@ -423,7 +245,7 @@ class SettingsScreen extends ConsumerWidget {
       ),
     );
   }
-  
+
   Widget _buildThemeSection(WidgetRef ref) {
     final themeSettings = ref.watch(themeSettingsProvider);
 
@@ -640,7 +462,7 @@ class SettingsScreen extends ConsumerWidget {
       ),
     );
   }
-  
+
   Widget _buildSwitchTile(
     String title,
     String subtitle,
@@ -690,7 +512,7 @@ class SettingsScreen extends ConsumerWidget {
       ],
     );
   }
-  
+
   Widget _buildNumberSetting(
     String title,
     String subtitle,
@@ -767,14 +589,14 @@ class SettingsScreen extends ConsumerWidget {
       ),
     );
   }
-  
+
   Widget _buildTextSetting(
     String title,
     String subtitle,
     IconData icon,
     String value,
     Function(String) onChanged, {
-    String hintText = 'Enter proxy URL',
+    String hintText = 'Enter URL',
   }) {
     return Column(
       children: [
@@ -825,7 +647,7 @@ class SettingsScreen extends ConsumerWidget {
       ],
     );
   }
-  
+
   Widget _buildActionTile(
     String title,
     String subtitle,
@@ -878,12 +700,12 @@ class SettingsScreen extends ConsumerWidget {
       ),
     );
   }
-  
-  void _clearCache(BuildContext context) {
+
+  void _clearCache(BuildContext context, WidgetRef ref) {
     showGlassDialog(
       context: context,
       title: const Text('Clear Cache'),
-      content: const Text('Are you sure you want to clear all cached data? This action cannot be undone.'),
+      content: const Text('Delete read, unstarred articles older than 30 days? Starred articles are kept. This action cannot be undone.'),
       actions: [
         GlassButton(
           text: 'Cancel',
@@ -892,17 +714,23 @@ class SettingsScreen extends ConsumerWidget {
         ),
         GlassButton(
           text: 'Clear',
-          onPressed: () {
+          onPressed: () async {
             Navigator.of(context).pop();
-            // TODO: Implement cache clearing
-            context.showSuccessSnackBar('Cache cleared successfully');
+            final database = ref.read(databaseProvider);
+            final cutoff = DateTime.now().subtract(const Duration(days: 30));
+            final deleted =
+                await database.articleDao.deleteOldArticles(cutoff);
+            PaintingBinding.instance.imageCache.clear();
+            if (context.mounted) {
+              context.showSuccessSnackBar('$deleted cached articles cleared');
+            }
           },
           variant: GlassButtonVariant.elevated,
         ),
       ],
     );
   }
-  
+
   void _exportData(BuildContext context, WidgetRef ref) async {
     try {
       await ref.read(exportOPMLProvider.future);
@@ -911,7 +739,7 @@ class SettingsScreen extends ConsumerWidget {
       context.showErrorSnackBar('Failed to export data');
     }
   }
-  
+
   void _resetSettings(BuildContext context, WidgetRef ref) {
     showGlassDialog(
       context: context,
@@ -925,24 +753,24 @@ class SettingsScreen extends ConsumerWidget {
         ),
         GlassButton(
           text: 'Reset',
-          onPressed: () {
+          onPressed: () async {
             Navigator.of(context).pop();
-            // Reset to default settings
-            ref.read(settingsProvider.notifier).setServerUrl('');
-            ref.read(settingsProvider.notifier).state = AppSettings();
-            context.showSuccessSnackBar('Settings reset to defaults');
+            await ref.read(settingsProvider.notifier).resetToDefaults();
+            if (context.mounted) {
+              context.showSuccessSnackBar('Settings reset to defaults');
+            }
           },
           variant: GlassButtonVariant.elevated,
         ),
       ],
     );
   }
-  
+
   void _showLicenses(BuildContext context) {
     showLicensePage(
       context: context,
-      applicationName: 'RSS Glassmorphism Reader',
-      applicationVersion: '1.0.0',
+      applicationName: appName,
+      applicationVersion: appVersion,
     );
   }
 }

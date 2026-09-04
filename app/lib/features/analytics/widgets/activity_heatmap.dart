@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
-import '../analytics_provider.dart';
+import '../../../providers/analytics_provider.dart';
 
 class ActivityHeatmap extends StatefulWidget {
   final List<ChartDataPoint> hourlyData;

@@ -1,12 +1,16 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../providers/auth_provider.dart';
+import '../../../config/api_config.dart';
 import '../../../core/models/user.dart';
+import '../../../services/api_service.dart';
 import '../../glass_theme.dart';
 import '../../components/glass_container.dart';
 import '../../components/glass_button.dart';
 import '../../components/glass_text_field.dart';
 import '../../components/glass_dialog.dart';
+import '../../components/glass_snack_bar.dart';
 import '../../animations/particle_background.dart';
 
 class UserSettingsScreen extends ConsumerStatefulWidget {
@@ -19,51 +23,97 @@ class UserSettingsScreen extends ConsumerStatefulWidget {
 class _UserSettingsScreenState extends ConsumerState<UserSettingsScreen> {
   final _formKey = GlobalKey<FormState>();
   late TextEditingController _usernameController;
-  late TextEditingController _fullNameController;
+  late TextEditingController _firstNameController;
+  late TextEditingController _lastNameController;
   late TextEditingController _emailController;
   bool _isEditing = false;
-  
+  bool _isSaving = false;
+
   @override
   void initState() {
     super.initState();
     final user = ref.read(authProvider).user;
     _usernameController = TextEditingController(text: user?.username ?? '');
-    _fullNameController = TextEditingController(text: user?.fullName ?? '');
+    final fullName = user?.fullName ?? '';
+    final nameParts = fullName.trim().split(' ');
+    _firstNameController =
+        TextEditingController(text: nameParts.isNotEmpty ? nameParts.first : '');
+    _lastNameController = TextEditingController(
+        text: nameParts.length > 1 ? nameParts.sublist(1).join(' ') : '');
     _emailController = TextEditingController(text: user?.email ?? '');
   }
-  
+
   @override
   void dispose() {
     _usernameController.dispose();
-    _fullNameController.dispose();
+    _firstNameController.dispose();
+    _lastNameController.dispose();
     _emailController.dispose();
     super.dispose();
   }
-  
+
   Future<void> _saveProfile() async {
     if (!_formKey.currentState!.validate()) return;
-    
-    // TODO: Implement profile update API call
-    setState(() {
-      _isEditing = false;
-    });
-    
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Profile updated successfully'),
-          backgroundColor: Colors.green.shade400,
-        ),
-      );
+
+    setState(() => _isSaving = true);
+    try {
+      final updated = await ref.read(apiServiceProvider).updateUser({
+        'username': _usernameController.text.trim(),
+        if (_firstNameController.text.trim().isNotEmpty)
+          'firstName': _firstNameController.text.trim(),
+        if (_lastNameController.text.trim().isNotEmpty)
+          'lastName': _lastNameController.text.trim(),
+      });
+      await ref.read(authProvider.notifier).updateUser(updated);
+      setState(() => _isEditing = false);
+      if (mounted) {
+        context.showSuccessSnackBar('Profile updated successfully');
+      }
+    } catch (e) {
+      if (mounted) {
+        context.showErrorSnackBar('Failed to update profile: $e');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
     }
   }
-  
+
+  Future<void> _uploadAvatar() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        withData: true,
+      );
+      final file = result?.files.single;
+      if (file == null) return;
+
+      final api = ref.read(apiServiceProvider);
+      final User updated;
+      if (file.bytes != null) {
+        updated = await api.uploadAvatarBytes(file.bytes!, file.name);
+      } else if (file.path != null) {
+        updated = await api.uploadAvatar(file.path!, file.name);
+      } else {
+        return;
+      }
+      await ref.read(authProvider.notifier).updateUser(updated);
+      if (mounted) {
+        context.showSuccessSnackBar('Avatar updated');
+      }
+    } catch (e) {
+      if (mounted) {
+        context.showErrorSnackBar('Failed to upload avatar: $e');
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authProvider);
     final user = authState.user;
-    final size = MediaQuery.of(context).size;
-    
+
     return Scaffold(
       body: Stack(
         children: [
@@ -77,13 +127,13 @@ class _UserSettingsScreenState extends ConsumerState<UserSettingsScreen> {
               ),
             ),
           ),
-          
+
           // Particle animation
           const ParticleBackground(
             particleCount: 40,
             child: SizedBox.expand(),
           ),
-          
+
           // Content
           SafeArea(
             child: SingleChildScrollView(
@@ -115,9 +165,9 @@ class _UserSettingsScreenState extends ConsumerState<UserSettingsScreen> {
                           ),
                         ],
                       ),
-                      
+
                       const SizedBox(height: 32),
-                      
+
                       // Profile section
                       GlassContainer(
                         padding: const EdgeInsets.all(24),
@@ -150,9 +200,9 @@ class _UserSettingsScreenState extends ConsumerState<UserSettingsScreen> {
                                     ),
                                 ],
                               ),
-                              
+
                               const SizedBox(height: 24),
-                              
+
                               // Avatar
                               Center(
                                 child: Stack(
@@ -161,10 +211,8 @@ class _UserSettingsScreenState extends ConsumerState<UserSettingsScreen> {
                                       width: 100,
                                       height: 100,
                                       borderRadius: BorderRadius.circular(50),
-                                      child: Icon(
-                                        Icons.person,
-                                        size: 50,
-                                        color: Colors.white.withOpacity(0.8),
+                                      child: ClipOval(
+                                        child: _avatarWidget(user),
                                       ),
                                     ),
                                     if (_isEditing)
@@ -173,9 +221,7 @@ class _UserSettingsScreenState extends ConsumerState<UserSettingsScreen> {
                                         right: 0,
                                         child: GlassButton(
                                           icon: Icons.camera_alt,
-                                          onPressed: () {
-                                            // TODO: Implement avatar upload
-                                          },
+                                          onPressed: _uploadAvatar,
                                           variant: GlassButtonVariant.icon,
                                           width: 32,
                                           height: 32,
@@ -184,9 +230,9 @@ class _UserSettingsScreenState extends ConsumerState<UserSettingsScreen> {
                                   ],
                                 ),
                               ),
-                              
+
                               const SizedBox(height: 24),
-                              
+
                               // Email (read-only)
                               _buildField(
                                 'Email',
@@ -194,9 +240,9 @@ class _UserSettingsScreenState extends ConsumerState<UserSettingsScreen> {
                                 enabled: false,
                                 icon: Icons.email,
                               ),
-                              
+
                               const SizedBox(height: 16),
-                              
+
                               // Username
                               _buildField(
                                 'Username',
@@ -204,23 +250,33 @@ class _UserSettingsScreenState extends ConsumerState<UserSettingsScreen> {
                                 enabled: _isEditing,
                                 icon: Icons.person,
                                 validator: (value) {
-                                  if (_isEditing && (value == null || value.isEmpty)) {
-                                    return 'Please enter a username';
+                                  if (_isEditing && (value == null || value.trim().length < 3)) {
+                                    return 'Username must be at least 3 characters';
                                   }
                                   return null;
                                 },
                               ),
-                              
+
                               const SizedBox(height: 16),
-                              
-                              // Full name
+
+                              // First name
                               _buildField(
-                                'Full Name',
-                                _fullNameController,
+                                'First Name',
+                                _firstNameController,
                                 enabled: _isEditing,
                                 icon: Icons.badge,
                               ),
-                              
+
+                              const SizedBox(height: 16),
+
+                              // Last name
+                              _buildField(
+                                'Last Name',
+                                _lastNameController,
+                                enabled: _isEditing,
+                                icon: Icons.badge,
+                              ),
+
                               if (_isEditing) ...[
                                 const SizedBox(height: 24),
                                 Row(
@@ -233,7 +289,12 @@ class _UserSettingsScreenState extends ConsumerState<UserSettingsScreen> {
                                           _isEditing = false;
                                           // Reset controllers
                                           _usernameController.text = user?.username ?? '';
-                                          _fullNameController.text = user?.fullName ?? '';
+                                          final nameParts = (user?.fullName ?? '').trim().split(' ');
+                                          _firstNameController.text =
+                                              nameParts.isNotEmpty ? nameParts.first : '';
+                                          _lastNameController.text = nameParts.length > 1
+                                              ? nameParts.sublist(1).join(' ')
+                                              : '';
                                         });
                                       },
                                       variant: GlassButtonVariant.outlined,
@@ -241,7 +302,7 @@ class _UserSettingsScreenState extends ConsumerState<UserSettingsScreen> {
                                     const SizedBox(width: 12),
                                     GlassButton(
                                       text: 'Save',
-                                      onPressed: _saveProfile,
+                                      onPressed: _isSaving ? null : _saveProfile,
                                       variant: GlassButtonVariant.elevated,
                                     ),
                                   ],
@@ -251,37 +312,9 @@ class _UserSettingsScreenState extends ConsumerState<UserSettingsScreen> {
                           ),
                         ),
                       ),
-                      
+
                       const SizedBox(height: 24),
-                      
-                      // Statistics
-                      if (user?.statistics != null)
-                        GlassContainer(
-                          padding: const EdgeInsets.all(24),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Statistics',
-                                style: TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                              _buildStatRow('Total Subscriptions', user!.statistics!.totalSubscriptions.toString()),
-                              _buildStatRow('Total Folders', user.statistics!.totalFolders.toString()),
-                              _buildStatRow('Saved Articles', user.statistics!.totalSavedArticles.toString()),
-                              _buildStatRow('Read Articles', user.statistics!.totalReadArticles.toString()),
-                              _buildStatRow('Reading Streak', '${user.statistics!.readingStreak} days'),
-                              _buildStatRow('Member Since', _formatDate(user.statistics!.memberSince)),
-                            ],
-                          ),
-                        ),
-                      
-                      const SizedBox(height: 24),
-                      
+
                       // Security section
                       GlassContainer(
                         padding: const EdgeInsets.all(24),
@@ -309,9 +342,9 @@ class _UserSettingsScreenState extends ConsumerState<UserSettingsScreen> {
                           ],
                         ),
                       ),
-                      
+
                       const SizedBox(height: 24),
-                      
+
                       // Danger zone
                       GlassContainer(
                         padding: const EdgeInsets.all(24),
@@ -350,7 +383,32 @@ class _UserSettingsScreenState extends ConsumerState<UserSettingsScreen> {
       ),
     );
   }
-  
+
+  Widget _avatarWidget(User? user) {
+    final avatarUrl = user?.avatarUrl;
+    if (avatarUrl != null && avatarUrl.isNotEmpty) {
+      final url = avatarUrl.startsWith('http')
+          ? avatarUrl
+          : '${ApiConfig.baseUrl}$avatarUrl';
+      return Image.network(
+        url,
+        width: 100,
+        height: 100,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => _avatarPlaceholder(),
+      );
+    }
+    return _avatarPlaceholder();
+  }
+
+  Widget _avatarPlaceholder() {
+    return Icon(
+      Icons.person,
+      size: 50,
+      color: Colors.white.withOpacity(0.8),
+    );
+  }
+
   Widget _buildField(
     String label,
     TextEditingController controller, {
@@ -378,43 +436,12 @@ class _UserSettingsScreenState extends ConsumerState<UserSettingsScreen> {
       ],
     );
   }
-  
-  Widget _buildStatRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.7),
-              fontSize: 14,
-            ),
-          ),
-          Text(
-            value,
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 14,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-  
-  String _formatDate(DateTime date) {
-    final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return '${months[date.month - 1]} ${date.day}, ${date.year}';
-  }
-  
+
   Future<void> _showChangePasswordDialog() async {
     final currentPasswordController = TextEditingController();
     final newPasswordController = TextEditingController();
     final confirmPasswordController = TextEditingController();
-    
+
     final result = await showGlassDialog<bool>(
       context: context,
       title: const Text('Change Password'),
@@ -430,7 +457,7 @@ class _UserSettingsScreenState extends ConsumerState<UserSettingsScreen> {
           const SizedBox(height: 16),
           GlassTextField(
             controller: newPasswordController,
-            hintText: 'New Password',
+            hintText: 'New Password (min 8 characters)',
             obscureText: true,
             prefixIcon: Icon(Icons.lock_outline, color: Colors.white70),
           ),
@@ -456,39 +483,84 @@ class _UserSettingsScreenState extends ConsumerState<UserSettingsScreen> {
         ),
       ],
     );
-    
+
     if (result == true) {
-      // TODO: Implement password change
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Password changed successfully'),
-            backgroundColor: Colors.green.shade400,
-          ),
-        );
+      final newPassword = newPasswordController.text;
+      if (newPassword.length < 8) {
+        context.showErrorSnackBar('New password must be at least 8 characters');
+      } else if (newPassword != confirmPasswordController.text) {
+        context.showErrorSnackBar('Passwords do not match');
+      } else {
+        try {
+          await ref.read(apiServiceProvider).changePassword(
+                currentPassword: currentPasswordController.text,
+                newPassword: newPassword,
+              );
+          if (mounted) {
+            context.showSuccessSnackBar('Password changed successfully');
+          }
+        } catch (e) {
+          if (mounted) {
+            context.showErrorSnackBar('Failed to change password: $e');
+          }
+        }
       }
     }
-    
+
     currentPasswordController.dispose();
     newPasswordController.dispose();
     confirmPasswordController.dispose();
   }
-  
+
   Future<void> _showDeleteAccountDialog() async {
-    final confirm = await showGlassConfirmDialog(
+    final passwordController = TextEditingController();
+
+    final result = await showGlassDialog<bool>(
       context: context,
-      title: 'Delete Account',
-      message: 'Are you sure you want to delete your account? This action cannot be undone.',
-      confirmText: 'Delete Account',
-      destructive: true,
+      title: const Text('Delete Account'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text(
+            'Are you sure you want to delete your account? This action cannot be undone.',
+          ),
+          const SizedBox(height: 16),
+          GlassTextField(
+            controller: passwordController,
+            hintText: 'Password',
+            obscureText: true,
+            prefixIcon: Icon(Icons.lock, color: Colors.white70),
+          ),
+        ],
+      ),
+      actions: [
+        GlassButton(
+          text: 'Cancel',
+          onPressed: () => Navigator.of(context).pop(false),
+          variant: GlassButtonVariant.text,
+        ),
+        GlassButton(
+          text: 'Delete Account',
+          onPressed: () => Navigator.of(context).pop(true),
+          variant: GlassButtonVariant.elevated,
+        ),
+      ],
     );
-    
-    if (confirm == true) {
-      // TODO: Implement account deletion
-      await ref.read(authProvider.notifier).logout();
-      if (mounted) {
-        Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
+
+    if (result == true) {
+      try {
+        await ref.read(apiServiceProvider).deleteAccount(passwordController.text);
+        await ref.read(authProvider.notifier).logout();
+        if (mounted) {
+          Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
+        }
+      } catch (e) {
+        if (mounted) {
+          context.showErrorSnackBar('Failed to delete account: $e');
+        }
       }
     }
+
+    passwordController.dispose();
   }
 }

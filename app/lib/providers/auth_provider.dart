@@ -1,11 +1,9 @@
 import 'dart:convert';
 
-import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../core/models/user.dart';
 import '../services/api_service.dart';
-import '../ui/screens/auth/login_screen.dart';
 
 /// Auth state
 class AuthState {
@@ -190,6 +188,16 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
     await _clearAuth();
   }
+
+  /// Replace the cached user after a profile update and persist it.
+  Future<void> updateUser(User user) async {
+    state = state.copyWith(user: user);
+    try {
+      await _prefs.setString(_userKey, jsonEncode(user.toJson()));
+    } catch (_) {
+      // Caching is best-effort
+    }
+  }
   
   Future<void> requestPasswordReset(String email) async {
     // TODO: Implement password reset when endpoint is available
@@ -247,29 +255,5 @@ class AuthNotifier extends StateNotifier<AuthState> {
       return {'Authorization': 'Bearer ${state.token}'};
     }
     return {};
-  }
-}
-
-
-/// Auth guard widget
-class AuthGuard extends ConsumerWidget {
-  final Widget child;
-  final Widget? unauthenticatedWidget;
-  
-  const AuthGuard({
-    super.key,
-    required this.child,
-    this.unauthenticatedWidget,
-  });
-  
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final authState = ref.watch(authProvider);
-    
-    if (authState.isAuthenticated) {
-      return child;
-    }
-    
-    return unauthenticatedWidget ?? const LoginScreen();
   }
 }

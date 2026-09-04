@@ -11,8 +11,8 @@ class ReadingStatsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final readingTime = analytics.readingTime;
-    if (readingTime == null) {
+    final reading = analytics.reading;
+    if (reading == null) {
       return const SizedBox.shrink();
     }
 
@@ -44,33 +44,33 @@ class ReadingStatsCard extends StatelessWidget {
                   context,
                   Icons.article,
                   'Articles Read',
-                  readingTime.articlesRead.toString(),
+                  reading.totalArticlesRead.toString(),
                   Theme.of(context).colorScheme.primary,
                 ),
                 _buildStatColumn(
                   context,
                   Icons.timer,
-                  'Total Hours',
-                  readingTime.totalTimeHours.toStringAsFixed(1),
+                  'Total Minutes',
+                  reading.totalReadingTime.toString(),
                   Theme.of(context).colorScheme.secondary,
                 ),
                 _buildStatColumn(
                   context,
                   Icons.speed,
                   'Avg Minutes',
-                  readingTime.averageTimeMinutes.toStringAsFixed(0),
+                  reading.averageReadingTime.toString(),
                   Theme.of(context).colorScheme.tertiary,
                 ),
               ],
             ),
-            if (readingTime.dailyReading.isNotEmpty) ...[
+            if ((analytics.patterns?.monthlyTrend ?? []).isNotEmpty) ...[
               const SizedBox(height: 24),
               Text(
                 'Daily Reading Trend',
                 style: Theme.of(context).textTheme.titleMedium,
               ),
               const SizedBox(height: 12),
-              _buildDailyTrend(context, readingTime.dailyReading),
+              _buildDailyTrend(context, analytics.patterns!.monthlyTrend),
             ],
           ],
         ),
@@ -113,26 +113,28 @@ class ReadingStatsCard extends StatelessWidget {
 
   Widget _buildDailyTrend(
     BuildContext context,
-    Map<String, int> dailyReading,
+    List<DateCount> monthlyTrend,
   ) {
-    final maxReading = dailyReading.values.fold(0, (a, b) => a > b ? a : b);
-    final entries = dailyReading.entries.toList()
-      ..sort((a, b) => a.key.compareTo(b.key));
+    final entries = monthlyTrend.length > 30
+        ? monthlyTrend.sublist(monthlyTrend.length - 30)
+        : monthlyTrend;
+    final maxReading =
+        entries.fold<int>(0, (a, b) => a > b.count ? a : b.count);
 
     return SizedBox(
       height: 60,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
-        children: entries.take(7).map((entry) {
+        children: entries.map((entry) {
           final height = maxReading > 0
-              ? (entry.value / maxReading) * 40 + 10
+              ? (entry.count / maxReading) * 40 + 10
               : 10.0;
-          
+
           return Expanded(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 2),
               child: Tooltip(
-                message: '${entry.key}: ${entry.value} articles',
+                message: '${entry.date}: ${entry.count} articles',
                 child: Container(
                   height: height,
                   decoration: BoxDecoration(

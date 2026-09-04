@@ -78,68 +78,6 @@ class AnalyticsService {
     }
   }
 
-  // Track AI usage
-  Future<void> trackAIUsage({
-    required String feature,
-    required String provider,
-    required int responseTime,
-    int? tokensUsed,
-  }) async {
-    if (!ApiConfig.hasServer) return;
-    final headers = await _getHeaders();
-    final response = await http.post(
-      Uri.parse('$baseUrl/api/analytics/ai-usage'),
-      headers: headers,
-      body: json.encode({
-        'feature': feature,
-        'provider': provider,
-        'responseTime': responseTime,
-        if (tokensUsed != null) 'tokensUsed': tokensUsed,
-      }),
-    );
-
-    if (response.statusCode != 200) {
-      throw Exception('Failed to track AI usage');
-    }
-  }
-
-  // Get personalized recommendations
-  Future<List<Recommendation>> getPersonalizedRecommendations({
-    String type = 'mixed',
-    int limit = 10,
-  }) async {
-    if (!ApiConfig.hasServer) return [];
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('$baseUrl/api/analytics/recommendations?type=$type&limit=$limit'),
-      headers: headers,
-    );
-
-    if (response.statusCode == 200) {
-      final data = json.decode(response.body) as List;
-      return data.map((item) => Recommendation.fromJson(item)).toList();
-    } else {
-      throw Exception('Failed to load recommendations');
-    }
-  }
-
-  // Get insights
-  Future<List<Insight>> getInsights({String category = 'all'}) async {
-    if (!ApiConfig.hasServer) return [];
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('$baseUrl/api/analytics/insights?category=$category'),
-      headers: headers,
-    );
-
-    if (response.statusCode == 200) {
-      final data = json.decode(response.body) as List;
-      return data.map((item) => Insight.fromJson(item)).toList();
-    } else {
-      throw Exception('Failed to load insights');
-    }
-  }
-
   // Export user data
   Future<String> exportUserData() async {
     if (!ApiConfig.hasServer) throw Exception('No server configured');
@@ -155,100 +93,81 @@ class AnalyticsService {
       throw Exception('Failed to export data');
     }
   }
-
-  // Get reading streaks
-  Future<Map<String, dynamic>> getReadingStreaks() async {
-    if (!ApiConfig.hasServer) return {};
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('$baseUrl/api/analytics/streaks'),
-      headers: headers,
-    );
-
-    if (response.statusCode == 200) {
-      return json.decode(response.body);
-    } else {
-      throw Exception('Failed to load streaks');
-    }
-  }
-
-  // Compare with others
-  Future<Map<String, dynamic>> compareWithOthers() async {
-    if (!ApiConfig.hasServer) return {};
-    final headers = await _getHeaders();
-    final response = await http.get(
-      Uri.parse('$baseUrl/api/analytics/compare'),
-      headers: headers,
-    );
-
-    if (response.statusCode == 200) {
-      return json.decode(response.body);
-    } else {
-      throw Exception('Failed to load comparison');
-    }
-  }
 }
 
-// Models
+// Models matching the server response from
+// server/src/services/analytics/index.ts getUserAnalytics().
 class UserAnalytics {
-  final String userId;
   final String timeframe;
-  final ReadingTime? readingTime;
-  final ContentPreferences? contentPreferences;
-  final ReadingPatterns? readingPatterns;
-  final EngagementMetrics? engagementMetrics;
-  final Map<String, dynamic>? aiUsage;
+  final ReadingAnalytics? reading;
+  final ContentPreferences? preferences;
+  final ReadingPatternsData? patterns;
+  final EngagementMetrics? engagement;
+  final List<String> insights;
 
   UserAnalytics({
-    required this.userId,
     required this.timeframe,
-    this.readingTime,
-    this.contentPreferences,
-    this.readingPatterns,
-    this.engagementMetrics,
-    this.aiUsage,
+    this.reading,
+    this.preferences,
+    this.patterns,
+    this.engagement,
+    this.insights = const [],
   });
 
   factory UserAnalytics.fromJson(Map<String, dynamic> json) {
     return UserAnalytics(
-      userId: json['userId'],
-      timeframe: json['timeframe'],
-      readingTime: json['readingTime'] != null
-          ? ReadingTime.fromJson(json['readingTime'])
+      timeframe: (json['timeframe'] as String?) ?? '',
+      reading: json['reading'] != null
+          ? ReadingAnalytics.fromJson(json['reading'])
           : null,
-      contentPreferences: json['contentPreferences'] != null
-          ? ContentPreferences.fromJson(json['contentPreferences'])
+      preferences: json['preferences'] != null
+          ? ContentPreferences.fromJson(json['preferences'])
           : null,
-      readingPatterns: json['readingPatterns'] != null
-          ? ReadingPatterns.fromJson(json['readingPatterns'])
+      patterns: json['patterns'] != null
+          ? ReadingPatternsData.fromJson(json['patterns'])
           : null,
-      engagementMetrics: json['engagementMetrics'] != null
-          ? EngagementMetrics.fromJson(json['engagementMetrics'])
+      engagement: json['engagement'] != null
+          ? EngagementMetrics.fromJson(json['engagement'])
           : null,
-      aiUsage: json['aiUsage'],
+      insights: (json['insights'] as List?)
+              ?.map((item) => item.toString())
+              .toList() ??
+          const [],
     );
   }
 }
 
-class ReadingTime {
-  final int articlesRead;
-  final double totalTimeHours;
-  final double averageTimeMinutes;
-  final Map<String, int> dailyReading;
+class ReadingAnalytics {
+  final int totalArticlesRead;
+  final int totalReadingTime; // minutes
+  final int averageReadingTime; // minutes
+  final double articlesPerDay;
+  final int mostActiveHour;
+  final String mostActiveDay;
+  final int readingStreak;
+  final int longestStreak;
 
-  ReadingTime({
-    required this.articlesRead,
-    required this.totalTimeHours,
-    required this.averageTimeMinutes,
-    required this.dailyReading,
+  ReadingAnalytics({
+    required this.totalArticlesRead,
+    required this.totalReadingTime,
+    required this.averageReadingTime,
+    required this.articlesPerDay,
+    required this.mostActiveHour,
+    required this.mostActiveDay,
+    required this.readingStreak,
+    required this.longestStreak,
   });
 
-  factory ReadingTime.fromJson(Map<String, dynamic> json) {
-    return ReadingTime(
-      articlesRead: json['articlesRead'],
-      totalTimeHours: json['totalTimeHours'].toDouble(),
-      averageTimeMinutes: json['averageTimeMinutes'].toDouble(),
-      dailyReading: Map<String, int>.from(json['dailyReading']),
+  factory ReadingAnalytics.fromJson(Map<String, dynamic> json) {
+    return ReadingAnalytics(
+      totalArticlesRead: (json['totalArticlesRead'] as num?)?.toInt() ?? 0,
+      totalReadingTime: (json['totalReadingTime'] as num?)?.toInt() ?? 0,
+      averageReadingTime: (json['averageReadingTime'] as num?)?.toInt() ?? 0,
+      articlesPerDay: (json['articlesPerDay'] as num?)?.toDouble() ?? 0,
+      mostActiveHour: (json['mostActiveHour'] as num?)?.toInt() ?? 0,
+      mostActiveDay: (json['mostActiveDay'] as String?) ?? '',
+      readingStreak: (json['readingStreak'] as num?)?.toInt() ?? 0,
+      longestStreak: (json['longestStreak'] as num?)?.toInt() ?? 0,
     );
   }
 }
@@ -257,27 +176,30 @@ class ContentPreferences {
   final List<CategoryCount> topCategories;
   final List<AuthorCount> topAuthors;
   final List<SourceCount> topSources;
-  final List<String> preferredLanguages;
+  final String preferredLength;
+  final int readingSpeed;
 
   ContentPreferences({
     required this.topCategories,
     required this.topAuthors,
     required this.topSources,
-    required this.preferredLanguages,
+    required this.preferredLength,
+    required this.readingSpeed,
   });
 
   factory ContentPreferences.fromJson(Map<String, dynamic> json) {
     return ContentPreferences(
-      topCategories: (json['topCategories'] as List)
+      topCategories: (json['topCategories'] as List? ?? [])
           .map((item) => CategoryCount.fromJson(item))
           .toList(),
-      topAuthors: (json['topAuthors'] as List)
+      topAuthors: (json['topAuthors'] as List? ?? [])
           .map((item) => AuthorCount.fromJson(item))
           .toList(),
-      topSources: (json['topSources'] as List)
+      topSources: (json['topSources'] as List? ?? [])
           .map((item) => SourceCount.fromJson(item))
           .toList(),
-      preferredLanguages: List<String>.from(json['preferredLanguages']),
+      preferredLength: (json['preferredLength'] as String?) ?? '',
+      readingSpeed: (json['readingSpeed'] as num?)?.toInt() ?? 0,
     );
   }
 }
@@ -295,9 +217,9 @@ class CategoryCount {
 
   factory CategoryCount.fromJson(Map<String, dynamic> json) {
     return CategoryCount(
-      name: json['name'],
-      count: json['count'],
-      percentage: json['percentage'].toDouble(),
+      name: (json['category'] ?? json['name'] ?? '') as String,
+      count: (json['count'] as num?)?.toInt() ?? 0,
+      percentage: (json['percentage'] as num?)?.toDouble() ?? 0,
     );
   }
 }
@@ -310,180 +232,111 @@ class AuthorCount {
 
   factory AuthorCount.fromJson(Map<String, dynamic> json) {
     return AuthorCount(
-      name: json['name'],
-      count: json['count'],
+      name: (json['author'] ?? json['name'] ?? '') as String,
+      count: (json['count'] as num?)?.toInt() ?? 0,
     );
   }
 }
 
 class SourceCount {
   final String name;
-  final String url;
   final int count;
 
-  SourceCount({
-    required this.name,
-    required this.url,
-    required this.count,
-  });
+  SourceCount({required this.name, required this.count});
 
   factory SourceCount.fromJson(Map<String, dynamic> json) {
     return SourceCount(
-      name: json['name'],
-      url: json['url'],
-      count: json['count'],
+      name: (json['source'] ?? json['name'] ?? '') as String,
+      count: (json['count'] as num?)?.toInt() ?? 0,
     );
   }
 }
 
-class ReadingPatterns {
-  final Map<String, int> hourlyDistribution;
-  final Map<String, int> weeklyDistribution;
-  final List<String> peakHours;
-  final List<String> peakDays;
-  final Map<String, double> trends;
-  final ReadingStreak? currentStreak;
-  final ReadingStreak? longestStreak;
+class ReadingPatternsData {
+  final List<HourCount> dailyDistribution;
+  final List<DayCount> weeklyDistribution;
+  final List<DateCount> monthlyTrend;
 
-  ReadingPatterns({
-    required this.hourlyDistribution,
+  ReadingPatternsData({
+    required this.dailyDistribution,
     required this.weeklyDistribution,
-    required this.peakHours,
-    required this.peakDays,
-    required this.trends,
-    this.currentStreak,
-    this.longestStreak,
+    required this.monthlyTrend,
   });
 
-  factory ReadingPatterns.fromJson(Map<String, dynamic> json) {
-    return ReadingPatterns(
-      hourlyDistribution: Map<String, int>.from(json['hourlyDistribution']),
-      weeklyDistribution: Map<String, int>.from(json['weeklyDistribution']),
-      peakHours: List<String>.from(json['peakHours']),
-      peakDays: List<String>.from(json['peakDays']),
-      trends: Map<String, double>.from(json['trends']),
-      currentStreak: json['currentStreak'] != null
-          ? ReadingStreak.fromJson(json['currentStreak'])
-          : null,
-      longestStreak: json['longestStreak'] != null
-          ? ReadingStreak.fromJson(json['longestStreak'])
-          : null,
+  factory ReadingPatternsData.fromJson(Map<String, dynamic> json) {
+    return ReadingPatternsData(
+      dailyDistribution: (json['dailyDistribution'] as List? ?? [])
+          .map((item) => HourCount.fromJson(item))
+          .toList(),
+      weeklyDistribution: (json['weeklyDistribution'] as List? ?? [])
+          .map((item) => DayCount.fromJson(item))
+          .toList(),
+      monthlyTrend: (json['monthlyTrend'] as List? ?? [])
+          .map((item) => DateCount.fromJson(item))
+          .toList(),
     );
   }
 }
 
-class ReadingStreak {
-  final int days;
-  final DateTime startDate;
-  final DateTime? endDate;
+class HourCount {
+  final int hour;
+  final int count;
 
-  ReadingStreak({
-    required this.days,
-    required this.startDate,
-    this.endDate,
-  });
+  HourCount({required this.hour, required this.count});
 
-  factory ReadingStreak.fromJson(Map<String, dynamic> json) {
-    return ReadingStreak(
-      days: json['days'],
-      startDate: DateTime.parse(json['startDate']),
-      endDate: json['endDate'] != null ? DateTime.parse(json['endDate']) : null,
+  factory HourCount.fromJson(Map<String, dynamic> json) {
+    return HourCount(
+      hour: (json['hour'] as num?)?.toInt() ?? 0,
+      count: (json['count'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
+class DayCount {
+  final String day;
+  final int count;
+
+  DayCount({required this.day, required this.count});
+
+  factory DayCount.fromJson(Map<String, dynamic> json) {
+    return DayCount(
+      day: (json['day'] ?? '') as String,
+      count: (json['count'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
+class DateCount {
+  final String date;
+  final int count;
+
+  DateCount({required this.date, required this.count});
+
+  factory DateCount.fromJson(Map<String, dynamic> json) {
+    return DateCount(
+      date: (json['date'] ?? '') as String,
+      count: (json['count'] as num?)?.toInt() ?? 0,
     );
   }
 }
 
 class EngagementMetrics {
-  final double averageScrollDepth;
-  final double bookmarkRate;
-  final double shareRate;
-  final double completionRate;
-  final Map<String, double> engagementByCategory;
+  final double averageTimePerParagraph; // minutes
+  final double bookmarkRate; // 0-100
+  final double interactionScore; // 0-100
 
   EngagementMetrics({
-    required this.averageScrollDepth,
+    required this.averageTimePerParagraph,
     required this.bookmarkRate,
-    required this.shareRate,
-    required this.completionRate,
-    required this.engagementByCategory,
+    required this.interactionScore,
   });
 
   factory EngagementMetrics.fromJson(Map<String, dynamic> json) {
     return EngagementMetrics(
-      averageScrollDepth: json['averageScrollDepth'].toDouble(),
-      bookmarkRate: json['bookmarkRate'].toDouble(),
-      shareRate: json['shareRate'].toDouble(),
-      completionRate: json['completionRate'].toDouble(),
-      engagementByCategory: Map<String, double>.from(json['engagementByCategory']),
-    );
-  }
-}
-
-class Recommendation {
-  final String id;
-  final String type;
-  final String title;
-  final String? description;
-  final String? url;
-  final double score;
-  final String reason;
-  final Map<String, dynamic>? metadata;
-
-  Recommendation({
-    required this.id,
-    required this.type,
-    required this.title,
-    this.description,
-    this.url,
-    required this.score,
-    required this.reason,
-    this.metadata,
-  });
-
-  factory Recommendation.fromJson(Map<String, dynamic> json) {
-    return Recommendation(
-      id: json['id'],
-      type: json['type'],
-      title: json['title'],
-      description: json['description'],
-      url: json['url'],
-      score: json['score'].toDouble(),
-      reason: json['reason'],
-      metadata: json['metadata'],
-    );
-  }
-}
-
-class Insight {
-  final String id;
-  final String category;
-  final String type;
-  final String title;
-  final String description;
-  final Map<String, dynamic>? data;
-  final String? actionUrl;
-  final DateTime createdAt;
-
-  Insight({
-    required this.id,
-    required this.category,
-    required this.type,
-    required this.title,
-    required this.description,
-    this.data,
-    this.actionUrl,
-    required this.createdAt,
-  });
-
-  factory Insight.fromJson(Map<String, dynamic> json) {
-    return Insight(
-      id: json['id'],
-      category: json['category'],
-      type: json['type'],
-      title: json['title'],
-      description: json['description'],
-      data: json['data'],
-      actionUrl: json['actionUrl'],
-      createdAt: DateTime.parse(json['createdAt']),
+      averageTimePerParagraph:
+          (json['averageTimePerParagraph'] as num?)?.toDouble() ?? 0,
+      bookmarkRate: (json['bookmarkRate'] as num?)?.toDouble() ?? 0,
+      interactionScore: (json['interactionScore'] as num?)?.toDouble() ?? 0,
     );
   }
 }

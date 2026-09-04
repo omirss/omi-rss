@@ -110,6 +110,52 @@ class ApiService {
     }
   }
 
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    try {
+      await _dio.put('/users/me/password', data: {
+        'currentPassword': currentPassword,
+        'newPassword': newPassword,
+      });
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  Future<User> uploadAvatar(String filePath, String filename) async {
+    try {
+      final formData = FormData.fromMap({
+        'avatar': await MultipartFile.fromFile(filePath, filename: filename),
+      });
+      final response = await _dio.post('/users/me/avatar', data: formData);
+      return User.fromJson(response.data['user']);
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  Future<User> uploadAvatarBytes(List<int> bytes, String filename) async {
+    try {
+      final formData = FormData.fromMap({
+        'avatar': MultipartFile.fromBytes(bytes, filename: filename),
+      });
+      final response = await _dio.post('/users/me/avatar', data: formData);
+      return User.fromJson(response.data['user']);
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  Future<void> deleteAccount(String password) async {
+    try {
+      await _dio.delete('/users/me', data: {'password': password});
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
   // Feed endpoints
   Future<List<Feed>> getFeeds() async {
     try {
@@ -300,16 +346,6 @@ class ApiService {
         options: Options(responseType: ResponseType.plain),
       );
       return response.data as String;
-    } on DioException catch (e) {
-      throw _handleError(e);
-    }
-  }
-
-  // Analytics endpoints
-  Future<Map<String, dynamic>> getAnalytics() async {
-    try {
-      final response = await _dio.get('/analytics');
-      return response.data;
     } on DioException catch (e) {
       throw _handleError(e);
     }

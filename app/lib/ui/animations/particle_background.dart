@@ -148,9 +148,15 @@ class _ParticleBackgroundState extends State<ParticleBackground>
 
   @override
   Widget build(BuildContext context) {
+    // While a route (drawer, dialog) covers this one, stop painting the
+    // particles: the constant repaint forces every covering blur layer to
+    // re-render each frame, which stalls overlay animations on web.
+    final modalRoute = ModalRoute.of(context);
+    final bool paintParticles = modalRoute == null || modalRoute.isCurrent;
+
     return MouseRegion(
       onHover: widget.enableMouseInteraction ? _handleMouseMove : null,
-      onExit: widget.enableMouseInteraction 
+      onExit: widget.enableMouseInteraction
           ? (_) => setState(() => _mousePosition = null)
           : null,
       child: Stack(
@@ -169,6 +175,7 @@ class _ParticleBackgroundState extends State<ParticleBackground>
           AnimatedBuilder(
             animation: _animationController,
             builder: (context, _) {
+              if (!paintParticles) return const SizedBox.shrink();
               return CustomPaint(
                 painter: ParticlePainter(
                   particles: _particles,

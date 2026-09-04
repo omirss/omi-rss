@@ -2,7 +2,6 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../glass_theme.dart';
-import 'glass_container.dart';
 
 /// Glass drawer with blur overlay and nested menus
 class GlassDrawer extends StatefulWidget {
@@ -134,15 +133,15 @@ class _GlassDrawerState extends State<GlassDrawer>
               builder: (context, child) {
                 return Container(
                   color: Colors.black.withOpacity(0.5 * _fadeAnimation.value),
-                  child: BackdropFilter(
-                    filter: ImageFilter.blur(
-                      sigmaX: 5 * _fadeAnimation.value,
-                      sigmaY: 5 * _fadeAnimation.value,
-                    ),
-                    child: Container(),
-                  ),
+                  child: child,
                 );
               },
+              // Fixed blur sigma: animating it re-rasterizes the
+              // full-screen blur every frame, which stalls the slide on web.
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
+                child: const SizedBox.expand(),
+              ),
             ),
           ),
           // Drawer
@@ -223,7 +222,6 @@ class _GlassDrawerState extends State<GlassDrawer>
 
   Widget _buildDrawerItem(GlassDrawerItem item, GlassThemeData theme, {int depth = 0}) {
     final hasChildren = item.children != null && item.children!.isNotEmpty;
-    final isExpanded = _expandedItems[item.id] ?? false;
     
     return Column(
       children: [

@@ -76,11 +76,33 @@ class FeedSyncNotifier extends StateNotifier<FeedSyncState> {
   bool get _connected =>
       ApiConfig.hasServer && ref.read(authProvider).isAuthenticated;
 
+  /// The enableSync setting (persisted by the settings screen). When off,
+  /// no server pull/push happens from the sync engine.
+  Future<bool> _syncEnabled() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getBool('enableSync') ?? true;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  /// The articlesPerFeed retention setting.
+  Future<int> _perFeedLimit() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getInt('articlesPerFeed') ?? 50;
+    } catch (_) {
+      return 50;
+    }
+  }
+
   /// Pull server feeds, folders and articles into drift. Local feeds
   /// that only exist locally are pushed to the server so app, extension
   /// and server converge on the same feed set.
   Future<void> syncFromServer() async {
     if (!_connected || state.isSyncing) return;
+    if (!await _syncEnabled()) return;
 
     state = state.copyWith(isSyncing: true, lastError: null);
     try {
@@ -118,6 +140,7 @@ class FeedSyncNotifier extends StateNotifier<FeedSyncState> {
 
       final articles = await _api.getArticles(limit: 100);
       await _db.articleDao.insertArticles(articles);
+      await _db.articleDao.enforcePerFeedLimit(await _perFeedLimit());
 
       final now = DateTime.now();
       await _db.setLastSyncAt(now);
@@ -148,8 +171,9 @@ class FeedSyncNotifier extends StateNotifier<FeedSyncState> {
           now.difference(feed.lastFetched!) >= Duration(minutes: frequency);
     });
 
+    final syncEnabled = await _syncEnabled();
     for (final feed in due) {
-      if (_connected) {
+      if (_connected && syncEnabled) {
         await _refreshServerFeed(feed);
       } else {
         await ref
@@ -164,6 +188,7 @@ class FeedSyncNotifier extends StateNotifier<FeedSyncState> {
       await _api.refreshFeed(feed.id);
       final articles = await _api.getArticles(feedId: feed.id, limit: 50);
       await _db.articleDao.insertArticles(articles);
+      await _db.articleDao.enforcePerFeedLimit(await _perFeedLimit());
       await _db.feedDao.setLastFetched(feed.id, DateTime.now());
     } catch (_) {
       // Best-effort; retried on the next tick
@@ -173,26 +198,35 @@ class FeedSyncNotifier extends StateNotifier<FeedSyncState> {
 
 /// Subscribe to a feed. Goes through the server (so extension and other
 /// devices see it) when connected, otherwise falls back to direct local
-/// parsing into drift.
+/// parsing into drift. New subscriptions default their refresh interval
+/// to the updateInterval setting.
 final subscribeFeedProvider =
     FutureProvider.family<Feed, String>((ref, url) async {
   final database = ref.watch(databaseProvider);
   final connected =
       ApiConfig.hasServer && ref.read(authProvider).isAuthenticated;
 
+  int defaultInterval = 30;
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    defaultInterval = prefs.getInt('updateInterval') ?? 30;
+  } catch (_) {}
+
   if (connected) {
     final feed = await ref.read(apiServiceProvider).createFeed(url);
-    await database.feedDao.insertOrUpdateFeed(feed);
+    await database.feedDao
+        .insertOrUpdateFeed(feed.copyWith(updateFrequency: defaultInterval));
     unawaited(ref.read(feedSyncProvider.notifier).syncFromServer());
     return feed;
   }
 
   final feedService = ref.read(feedServiceProvider);
   final feed = await feedService.subscribeFeed(url);
-  await database.feedDao.insertFeed(feed);
-  final result = await feedService.refreshFeed(feed);
+  final localFeed = feed.copyWith(updateFrequency: defaultInterval);
+  await database.feedDao.insertFeed(localFeed);
+  final result = await feedService.refreshFeed(localFeed);
   if (result.newArticles.isNotEmpty) {
     await database.articleDao.insertArticles(result.newArticles);
   }
-  return feed;
+  return localFeed;
 });

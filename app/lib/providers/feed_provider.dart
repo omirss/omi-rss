@@ -8,6 +8,7 @@ import '../core/models/folder.dart';
 import '../services/api_service.dart';
 import 'auth_provider.dart';
 import 'database_provider.dart';
+import 'settings_provider.dart';
 import 'sync_provider.dart';
 
 /// Feed service provider
@@ -42,10 +43,13 @@ final articlesByFeedProvider = StreamProvider.family<List<Article>, String>((ref
 final articlesProvider = StreamProvider<List<Article>>((ref) {
   final database = ref.watch(databaseProvider);
   final filter = ref.watch(articleFilterProvider);
-  
+  final showRead = ref.watch(settingsProvider.select((s) => s.showReadArticles));
+
   switch (filter.type) {
     case ArticleFilterType.all:
-      return database.articleDao.watchAllArticles();
+      return showRead
+          ? database.articleDao.watchAllArticles()
+          : database.articleDao.watchUnreadArticles();
     case ArticleFilterType.unread:
       return database.articleDao.watchUnreadArticles();
     case ArticleFilterType.starred:
@@ -313,4 +317,16 @@ final feedStatisticsProvider = FutureProvider.family<FeedStatistics, String>((re
 final foldersProvider = StreamProvider<List<Folder>>((ref) {
   final database = ref.watch(databaseProvider);
   return database.folderDao.watchAllFolders();
+});
+
+/// Total unread article count
+final unreadCountProvider = StreamProvider<int>((ref) {
+  final database = ref.watch(databaseProvider);
+  return database.articleDao.watchUnreadCount();
+});
+
+/// Unread article counts per folder id
+final folderUnreadCountsProvider = StreamProvider<Map<String, int>>((ref) {
+  final database = ref.watch(databaseProvider);
+  return database.articleDao.watchFolderUnreadCounts();
 });

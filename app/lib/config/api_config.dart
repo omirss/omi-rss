@@ -119,9 +119,4 @@ class ApiConfig {
 
   static const Duration connectionTimeout = Duration(seconds: 10);
   static const Duration receiveTimeout = Duration(seconds: 30);
-
-  // WebSocket configuration
-  static String get wsUrl {
-    return baseUrl.replaceFirst('http://', 'ws://').replaceFirst('https://', 'wss://');
-  }
 }

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'config/api_config.dart';
+import 'config/app_info.dart';
 import 'core/models/article.dart';
+import 'core/models/folder.dart';
 import 'ui/glass_theme.dart';
 import '../providers/theme_settings_provider.dart';
 import 'ui/animations/particle_background.dart';
@@ -23,6 +25,9 @@ import 'providers/sync_provider.dart';
 import 'providers/opml_provider.dart';
 import 'ui/screens/auth/login_screen.dart';
 import 'ui/screens/settings_screen.dart';
+import 'ui/screens/settings/user_settings_screen.dart';
+import 'ui/screens/offline_articles_screen.dart';
+import 'ui/screens/feed_statistics_screen.dart';
 import 'ui/screens/statistics_screen.dart';
 import 'ui/screens/discover_screen.dart';
 import 'ui/screens/saved_articles_screen.dart';
@@ -36,21 +41,19 @@ void main() async {
   await ApiConfig.load();
   runApp(
     const ProviderScope(
-      child: RSSGlassmorphismReaderApp(),
+      child: OmiRssApp(),
     ),
   );
 }
 
-class RSSGlassmorphismReaderApp extends ConsumerStatefulWidget {
-  const RSSGlassmorphismReaderApp({super.key});
+class OmiRssApp extends ConsumerStatefulWidget {
+  const OmiRssApp({super.key});
 
   @override
-  ConsumerState<RSSGlassmorphismReaderApp> createState() =>
-      _RSSGlassmorphismReaderAppState();
+  ConsumerState<OmiRssApp> createState() => _OmiRssAppState();
 }
 
-class _RSSGlassmorphismReaderAppState
-    extends ConsumerState<RSSGlassmorphismReaderApp> {
+class _OmiRssAppState extends ConsumerState<OmiRssApp> {
   @override
   void initState() {
     super.initState();
@@ -66,7 +69,7 @@ class _RSSGlassmorphismReaderAppState
     final themeMode = ref.watch(materialThemeModeProvider);
 
     return MaterialApp(
-      title: 'RSS Glassmorphism Reader',
+      title: appName,
       theme: materialThemes.light,
       darkTheme: materialThemes.dark,
       themeMode: themeMode,
@@ -179,6 +182,10 @@ class _HomePageState extends ConsumerState<HomePage> {
     // Keeps the sync engine (server pull + per-feed refresh schedule)
     // alive while the home shell is on screen.
     ref.watch(feedSyncProvider);
+    // Warm the drawer's unread-count/folder streams.
+    ref.watch(unreadCountProvider);
+    ref.watch(folderUnreadCountsProvider);
+    ref.watch(foldersProvider);
 
     final settings = ref.watch(themeSettingsProvider);
     final preset = ref.watch(themePresetProvider);
@@ -796,7 +803,7 @@ class _HomePageState extends ConsumerState<HomePage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Welcome to RSS Glassmorphism Reader',
+                  'Welcome to omi-rss',
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 28,
@@ -866,9 +873,9 @@ class _HomePageState extends ConsumerState<HomePage> {
                                 _buildFeatureItem(
                                     Icons.bar_chart, 'Reading statistics'),
                                 const SizedBox(height: 16),
-                                const Text(
-                                  'Version: 1.0.0',
-                                  style: TextStyle(
+                                Text(
+                                  'Version: $appVersion',
+                                  style: const TextStyle(
                                     fontSize: 14,
                                     color: Colors.white70,
                                   ),
@@ -879,8 +886,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                               GlassButton(
                                 text: 'Documentation',
                                 onPressed: () {
-                                  launchUrl(Uri.parse(
-                                      'https://github.com/yourusername/omi-rss'));
+                                  launchUrl(Uri.parse(appRepositoryUrl));
                                 },
                                 variant: GlassButtonVariant.secondary,
                               ),
@@ -993,6 +999,12 @@ class _HomePageState extends ConsumerState<HomePage> {
     final authState = ref.read(authProvider);
     final user = authState.user;
 
+    // Read from drift stream caches (warmed by the home shell build)
+    final totalUnread = ref.read(unreadCountProvider).valueOrNull ?? 0;
+    final folders = ref.read(foldersProvider).valueOrNull ?? const <Folder>[];
+    final folderUnread =
+        ref.read(folderUnreadCountsProvider).valueOrNull ?? const <String, int>{};
+
     showGlassDrawer(
       context: context,
       header: GlassDrawerHeader(
@@ -1000,7 +1012,14 @@ class _HomePageState extends ConsumerState<HomePage> {
         userEmail: user?.email ?? 'Not logged in',
         onProfileTap: () {
           Navigator.of(context).pop();
-          context.showGlassSnackBar('Profile settings coming soon');
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const GlassThemeShell(
+                child: UserSettingsScreen(),
+              ),
+            ),
+          );
         },
       ),
       items: [
@@ -1014,21 +1033,33 @@ class _HomePageState extends ConsumerState<HomePage> {
               id: 'all-feeds',
               title: 'All Feeds',
               icon: Icons.inbox,
-              badge: '156',
-              selected: true,
+              badge: totalUnread > 0 ? '$totalUnread' : null,
+              selected: ref.read(selectedFeedProvider) == null &&
+                  !ref.read(showStarredProvider),
+              onTap: () {
+                _clearSearch();
+                ref.read(selectedFeedProvider.notifier).state = null;
+                ref.read(showStarredProvider.notifier).state = false;
+                ref.read(articleFilterProvider.notifier).showAll();
+              },
             ),
-            GlassDrawerItem(
-              id: 'tech',
-              title: 'Technology',
-              icon: Icons.computer,
-              badge: '42',
-            ),
-            GlassDrawerItem(
-              id: 'news',
-              title: 'News',
-              icon: Icons.newspaper,
-              badge: '67',
-            ),
+            ...folders.map((folder) {
+              return GlassDrawerItem(
+                id: 'folder-${folder.id}',
+                title: folder.name,
+                icon: Icons.folder,
+                badge: (folderUnread[folder.id] ?? 0) > 0
+                    ? '${folderUnread[folder.id]}'
+                    : null,
+                onTap: () {
+                  _clearSearch();
+                  ref.read(selectedFeedProvider.notifier).state = null;
+                  ref.read(showStarredProvider.notifier).state = false;
+                  ref.read(articleFilterProvider.notifier)
+                      .showFolder(folder.id);
+                },
+              );
+            }),
           ],
         ),
         GlassDrawerItem(
@@ -1042,6 +1073,19 @@ class _HomePageState extends ConsumerState<HomePage> {
                 builder: (context) => const GlassThemeShell(
                   child: SavedArticlesScreen(),
                 ),
+              ),
+            );
+          },
+        ),
+        GlassDrawerItem(
+          id: 'offline',
+          title: 'Saved for offline',
+          icon: Icons.offline_pin,
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const OfflineArticlesScreen(),
               ),
             );
           },
@@ -1078,8 +1122,6 @@ class _HomePageState extends ConsumerState<HomePage> {
           id: 'analytics',
           title: 'Analytics',
           icon: Icons.analytics,
-          badge: 'NEW',
-          badgeColor: Colors.purple,
           onTap: () {
             Navigator.push(
               context,
@@ -1158,6 +1200,31 @@ class _HomePageState extends ConsumerState<HomePage> {
                   MaterialPageRoute(
                     builder: (context) => const GlassThemeShell(
                       child: StatisticsScreen(),
+                    ),
+                  ),
+                );
+              },
+            ),
+            ListTile(
+              leading: Icon(
+                Icons.table_chart,
+                color: Colors.white.withOpacity(0.7),
+                size: 20,
+              ),
+              title: Text(
+                'Feed Statistics',
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.9),
+                  fontSize: 14,
+                ),
+              ),
+              onTap: () {
+                Navigator.of(context).pop();
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const GlassThemeShell(
+                      child: FeedStatisticsScreen(),
                     ),
                   ),
                 );

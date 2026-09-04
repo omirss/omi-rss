@@ -7,12 +7,9 @@ import 'widgets/reading_stats_card.dart';
 import 'widgets/streak_indicator.dart';
 import 'widgets/category_chart.dart';
 import 'widgets/activity_heatmap.dart';
-import 'widgets/recommendations_list.dart';
-import 'widgets/insights_carousel.dart';
 import '../../ui/glass_theme.dart';
 import '../../ui/components/glass_container.dart';
 import '../../ui/components/glass_button.dart';
-import '../../ui/components/glass_dialog.dart';
 import '../../ui/components/glass_snack_bar.dart';
 
 class AnalyticsDashboard extends ConsumerStatefulWidget {
@@ -29,7 +26,7 @@ class _AnalyticsDashboardState extends ConsumerState<AnalyticsDashboard>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
   }
 
   @override
@@ -68,10 +65,11 @@ class _AnalyticsDashboardState extends ConsumerState<AnalyticsDashboard>
                     child: Consumer(
                       builder: (context, ref, _) {
                         final analyticsAsync = ref.watch(userAnalyticsProvider(selectedTimeframe));
-                        
+
                         return analyticsAsync.maybeWhen(
                           data: (analytics) {
-                            if (analytics.readingPatterns?.currentStreak != null) {
+                            final streak = analytics.reading?.readingStreak ?? 0;
+                            if (streak > 0) {
                               return Column(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
@@ -82,7 +80,7 @@ class _AnalyticsDashboardState extends ConsumerState<AnalyticsDashboard>
                                   ),
                                   const SizedBox(height: 8),
                                   Text(
-                                    '${analytics.readingPatterns!.currentStreak!.days} Day Streak!',
+                                    '$streak Day Streak!',
                                     style: Theme.of(context)
                                         .textTheme
                                         .headlineMedium
@@ -109,7 +107,6 @@ class _AnalyticsDashboardState extends ConsumerState<AnalyticsDashboard>
                   Tab(text: 'Overview', icon: Icon(Icons.dashboard)),
                   Tab(text: 'Activity', icon: Icon(Icons.timeline)),
                   Tab(text: 'Insights', icon: Icon(Icons.lightbulb)),
-                  Tab(text: 'Recommendations', icon: Icon(Icons.recommend)),
                 ],
               ),
               actions: [
@@ -154,7 +151,6 @@ class _AnalyticsDashboardState extends ConsumerState<AnalyticsDashboard>
               _buildOverviewTab(),
               _buildActivityTab(),
               _buildInsightsTab(),
-              _buildRecommendationsTab(),
             ],
           ),
         ),
@@ -182,31 +178,26 @@ class _AnalyticsDashboardState extends ConsumerState<AnalyticsDashboard>
                 const SizedBox(height: 16),
 
                 // Streak Indicators
-                if (analytics.readingPatterns?.currentStreak != null ||
-                    analytics.readingPatterns?.longestStreak != null) ...[
+                if (analytics.reading != null) ...[
                   Row(
                     children: [
-                      if (analytics.readingPatterns?.currentStreak != null)
-                        Expanded(
-                          child: StreakIndicator(
-                            title: 'Current Streak',
-                            streak: analytics.readingPatterns!.currentStreak!,
-                            icon: Icons.local_fire_department,
-                            color: Colors.orange,
-                          ),
+                      Expanded(
+                        child: StreakIndicator(
+                          title: 'Current Streak',
+                          days: analytics.reading!.readingStreak,
+                          icon: Icons.local_fire_department,
+                          color: Colors.orange,
                         ),
-                      if (analytics.readingPatterns?.currentStreak != null &&
-                          analytics.readingPatterns?.longestStreak != null)
-                        const SizedBox(width: 16),
-                      if (analytics.readingPatterns?.longestStreak != null)
-                        Expanded(
-                          child: StreakIndicator(
-                            title: 'Longest Streak',
-                            streak: analytics.readingPatterns!.longestStreak!,
-                            icon: Icons.emoji_events,
-                            color: Colors.amber,
-                          ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: StreakIndicator(
+                          title: 'Longest Streak',
+                          days: analytics.reading!.longestStreak,
+                          icon: Icons.emoji_events,
+                          color: Colors.amber,
                         ),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 16),
@@ -224,7 +215,7 @@ class _AnalyticsDashboardState extends ConsumerState<AnalyticsDashboard>
                 const SizedBox(height: 24),
 
                 // Engagement Metrics
-                if (analytics.engagementMetrics != null) ...[
+                if (analytics.engagement != null) ...[
                   Text(
                     'Engagement Metrics',
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(
@@ -232,7 +223,7 @@ class _AnalyticsDashboardState extends ConsumerState<AnalyticsDashboard>
                     ),
                   ),
                   const SizedBox(height: 12),
-                  _buildEngagementMetrics(analytics.engagementMetrics!),
+                  _buildEngagementMetrics(analytics.engagement!),
                 ],
               ],
             ),
@@ -274,7 +265,7 @@ class _AnalyticsDashboardState extends ConsumerState<AnalyticsDashboard>
 
     return analyticsAsync.maybeWhen(
       data: (analytics) {
-        if (analytics.readingPatterns == null) {
+        if (analytics.patterns == null) {
           return const Center(
             child: Text(
               'No activity data available',
@@ -302,30 +293,8 @@ class _AnalyticsDashboardState extends ConsumerState<AnalyticsDashboard>
               ),
               const SizedBox(height: 24),
 
-              // Peak Hours
-              if (analytics.readingPatterns!.peakHours.isNotEmpty) ...[
-                Text(
-                  'Peak Reading Hours',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    color: Colors.white,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: analytics.readingPatterns!.peakHours
-                      .map((hour) => Chip(
-                            label: Text(hour),
-                            avatar: const Icon(Icons.access_time, size: 16),
-                          ))
-                      .toList(),
-                ),
-                const SizedBox(height: 24),
-              ],
-
               // Reading Trends
-              if (analytics.readingPatterns!.trends.isNotEmpty) ...[
+              if (analytics.patterns!.monthlyTrend.length > 1) ...[
                 Text(
                   'Reading Trends',
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
@@ -333,19 +302,8 @@ class _AnalyticsDashboardState extends ConsumerState<AnalyticsDashboard>
                   ),
                 ),
                 const SizedBox(height: 12),
-                _buildTrendsChart(analytics.readingPatterns!.trends),
+                _buildTrendsChart(analytics.patterns!.monthlyTrend),
               ],
-
-              // Compare with Others
-              const SizedBox(height: 24),
-              Center(
-                child: GlassButton(
-                  onPressed: _compareWithOthers,
-                  icon: Icons.compare,
-                  text: 'Compare with Other Readers',
-                  variant: GlassButtonVariant.elevated,
-                ),
-              ),
             ],
           ),
         );
@@ -360,11 +318,12 @@ class _AnalyticsDashboardState extends ConsumerState<AnalyticsDashboard>
   }
 
   Widget _buildInsightsTab() {
-    final insightsAsync = ref.watch(insightsProvider('all'));
+    final selectedTimeframe = ref.watch(selectedTimeframeProvider);
+    final analyticsAsync = ref.watch(userAnalyticsProvider(selectedTimeframe));
 
-    return insightsAsync.when(
-      data: (insights) {
-        if (insights.isEmpty) {
+    return analyticsAsync.when(
+      data: (analytics) {
+        if (analytics.insights.isEmpty) {
           return Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -393,7 +352,22 @@ class _AnalyticsDashboardState extends ConsumerState<AnalyticsDashboard>
           );
         }
 
-        return InsightsCarousel(insights: insights);
+        return ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: analytics.insights.length,
+          itemBuilder: (context, index) {
+            return Card(
+              margin: const EdgeInsets.only(bottom: 12),
+              child: ListTile(
+                leading: const Icon(Icons.lightbulb),
+                title: Text(
+                  analytics.insights[index],
+                  style: const TextStyle(color: Colors.black87),
+                ),
+              ),
+            );
+          },
+        );
       },
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (error, stack) => Center(
@@ -405,116 +379,27 @@ class _AnalyticsDashboardState extends ConsumerState<AnalyticsDashboard>
     );
   }
 
-  Widget _buildRecommendationsTab() {
-    return DefaultTabController(
-      length: 3,
-      child: Column(
-        children: [
-          const TabBar(
-            tabs: [
-              Tab(text: 'Articles'),
-              Tab(text: 'Feeds'),
-              Tab(text: 'Mixed'),
-            ],
-          ),
-          Expanded(
-            child: TabBarView(
-              children: [
-                Consumer(
-                  builder: (context, ref, _) {
-                    final recommendationsAsync = ref.watch(
-                      recommendationsProvider(RecommendationQuery(type: 'articles')),
-                    );
-                    return recommendationsAsync.when(
-                      data: (recommendations) => RecommendationsList(
-                        recommendations: recommendations,
-                        onRefresh: () => ref.invalidate(recommendationsProvider),
-                      ),
-                      loading: () => const Center(child: CircularProgressIndicator()),
-                      error: (error, stack) => Center(
-                        child: Text(
-                          'Failed to load recommendations',
-                          style: TextStyle(color: Colors.white.withOpacity(0.7)),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-                Consumer(
-                  builder: (context, ref, _) {
-                    final recommendationsAsync = ref.watch(
-                      recommendationsProvider(RecommendationQuery(type: 'feeds')),
-                    );
-                    return recommendationsAsync.when(
-                      data: (recommendations) => RecommendationsList(
-                        recommendations: recommendations,
-                        onRefresh: () => ref.invalidate(recommendationsProvider),
-                      ),
-                      loading: () => const Center(child: CircularProgressIndicator()),
-                      error: (error, stack) => Center(
-                        child: Text(
-                          'Failed to load recommendations',
-                          style: TextStyle(color: Colors.white.withOpacity(0.7)),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-                Consumer(
-                  builder: (context, ref, _) {
-                    final recommendationsAsync = ref.watch(
-                      recommendationsProvider(RecommendationQuery(type: 'mixed')),
-                    );
-                    return recommendationsAsync.when(
-                      data: (recommendations) => RecommendationsList(
-                        recommendations: recommendations,
-                        onRefresh: () => ref.invalidate(recommendationsProvider),
-                      ),
-                      loading: () => const Center(child: CircularProgressIndicator()),
-                      error: (error, stack) => Center(
-                        child: Text(
-                          'Failed to load recommendations',
-                          style: TextStyle(color: Colors.white.withOpacity(0.7)),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildEngagementMetrics(EngagementMetrics metrics) {
     return GlassContainer(
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
           _buildMetricRow(
-            'Avg. Scroll Depth',
-            '${metrics.averageScrollDepth.toStringAsFixed(0)}%',
-            Icons.vertical_align_bottom,
+            'Avg. Time Per Paragraph',
+            '${metrics.averageTimePerParagraph.toStringAsFixed(1)} min',
+            Icons.timelapse,
           ),
           const Divider(color: Colors.white24),
           _buildMetricRow(
             'Bookmark Rate',
-            '${(metrics.bookmarkRate * 100).toStringAsFixed(1)}%',
+            '${metrics.bookmarkRate.toStringAsFixed(0)}%',
             Icons.bookmark,
           ),
           const Divider(color: Colors.white24),
           _buildMetricRow(
-            'Share Rate',
-            '${(metrics.shareRate * 100).toStringAsFixed(1)}%',
-            Icons.share,
-          ),
-          const Divider(color: Colors.white24),
-          _buildMetricRow(
-            'Completion Rate',
-            '${(metrics.completionRate * 100).toStringAsFixed(1)}%',
-            Icons.check_circle,
+            'Interaction Score',
+            '${metrics.interactionScore.toStringAsFixed(0)}/100',
+            Icons.bolt,
           ),
         ],
       ),
@@ -547,10 +432,9 @@ class _AnalyticsDashboardState extends ConsumerState<AnalyticsDashboard>
     );
   }
 
-  Widget _buildTrendsChart(Map<String, double> trends) {
-    final spots = trends.entries.map((entry) {
-      final index = trends.keys.toList().indexOf(entry.key);
-      return FlSpot(index.toDouble(), entry.value);
+  Widget _buildTrendsChart(List<DateCount> monthlyTrend) {
+    final spots = monthlyTrend.asMap().entries.map((entry) {
+      return FlSpot(entry.key.toDouble(), entry.value.count.toDouble());
     }).toList();
 
     return SizedBox(
@@ -571,15 +455,22 @@ class _AnalyticsDashboardState extends ConsumerState<AnalyticsDashboard>
             bottomTitles: AxisTitles(
               sideTitles: SideTitles(
                 showTitles: true,
+                interval: 5,
                 getTitlesWidget: (value, meta) {
-                  final labels = trends.keys.toList();
-                  if (value.toInt() < labels.length) {
-                    return Text(
-                      labels[value.toInt()],
-                      style: const TextStyle(fontSize: 10, color: Colors.white70),
-                    );
+                  final index = value.toInt();
+                  if (index < 0 || index >= monthlyTrend.length) {
+                    return const SizedBox.shrink();
                   }
-                  return const SizedBox.shrink();
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: RotatedBox(
+                      quarterTurns: 1,
+                      child: Text(
+                        monthlyTrend[index].date.substring(5),
+                        style: const TextStyle(fontSize: 9, color: Colors.white70),
+                      ),
+                    ),
+                  );
                 },
               ),
             ),
@@ -604,78 +495,10 @@ class _AnalyticsDashboardState extends ConsumerState<AnalyticsDashboard>
   }
 
   Future<void> _exportAnalytics() async {
-    final exportAsync = await ref.read(exportAnalyticsProvider.future);
-    
+    await ref.read(exportAnalyticsProvider.future);
+
     if (mounted) {
       context.showSuccessSnackBar('Analytics data exported successfully');
     }
-  }
-
-  Future<void> _compareWithOthers() async {
-    final comparisonAsync = await ref.read(comparisonProvider.future);
-    
-    if (mounted) {
-      showGlassDialog(
-        context: context,
-        title: const Text('How You Compare'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _buildComparisonItem(
-                'Reading Time',
-                comparisonAsync['percentile']?['readingTime']?.toString() ?? '0',
-              ),
-              _buildComparisonItem(
-                'Articles Read',
-                comparisonAsync['percentile']?['articlesRead']?.toString() ?? '0',
-              ),
-              _buildComparisonItem(
-                'Streak',
-                comparisonAsync['percentile']?['streak']?.toString() ?? '0',
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          GlassButton(
-            onPressed: () => Navigator.pop(context),
-            text: 'Close',
-            variant: GlassButtonVariant.text,
-          ),
-        ],
-      );
-    }
-  }
-
-  Widget _buildComparisonItem(String label, String percentile) {
-    final value = double.tryParse(percentile) ?? 0;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: TextStyle(color: Colors.white.withOpacity(0.8)),
-          ),
-          const SizedBox(height: 4),
-          LinearProgressIndicator(
-            value: value / 100,
-            backgroundColor: Colors.grey[300]?.withOpacity(0.3),
-            valueColor: AlwaysStoppedAnimation<Color>(
-              Theme.of(context).colorScheme.primary,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Top ${(100 - value).toStringAsFixed(0)}%',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Colors.white.withOpacity(0.6),
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }
