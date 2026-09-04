@@ -46,6 +46,10 @@ extension/build/
 *.tsbuildinfo
 _archive/
 
+# --- brand icon dirs (override global Icon? rule) ---
+!extension/icons/
+!app/web/icons/
+
 # --- Flutter machine-specific ---
 **/local.properties
 .dart_tool/
