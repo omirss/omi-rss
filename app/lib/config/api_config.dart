@@ -1,4 +1,6 @@
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:universal_html/html.dart' as html;
 
 /// API Configuration
 class ApiConfig {
@@ -12,7 +14,16 @@ class ApiConfig {
 
   /// Base URL of the server (no trailing "/" or "/api" suffix).
   /// Empty when running in local-only mode.
-  static String get baseUrl => _savedServerUrl ?? _defaultBaseUrl;
+  static String get baseUrl {
+    final saved = _savedServerUrl;
+    if (saved != null && saved.isNotEmpty) return saved;
+    if (_defaultBaseUrl.isNotEmpty) return _defaultBaseUrl;
+    if (kIsWeb) {
+      final origin = html.window.location.origin;
+      if (origin.isNotEmpty && !origin.startsWith('about:')) return origin;
+    }
+    return '';
+  }
 
   /// Base URL for all API calls: the server root with a single "/api" prefix.
   static String get apiBaseUrl => baseUrl.isEmpty ? '' : '$baseUrl/api';
