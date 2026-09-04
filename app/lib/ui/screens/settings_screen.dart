@@ -1,19 +1,20 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-import '../glass_theme.dart';
-import '../components/glass_container.dart';
-import '../components/glass_button.dart';
-import '../components/glass_text_field.dart';
-import '../components/glass_switch.dart';
-import '../components/glass_snack_bar.dart';
-import '../components/glass_dialog.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../config/app_info.dart';
+import '../../providers/database_provider.dart';
 import '../../providers/opml_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/theme_settings_provider.dart';
-import '../../providers/database_provider.dart';
-import '../../ui/tokens/glass_presets.dart';
-import '../../config/app_info.dart';
+import '../components/glass_button.dart';
+import '../components/glass_container.dart';
+import '../components/glass_dialog.dart';
+import '../components/glass_snack_bar.dart';
+import '../components/glass_switch.dart';
+import '../components/glass_text_field.dart';
+import '../tokens/glass_presets.dart';
+import '../tokens/glass_tokens.dart';
+import 'glass_screen.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -21,50 +22,47 @@ class SettingsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final settings = ref.watch(settingsProvider);
+    final tokens = screenTokensOf(context, ref);
 
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        title: const Text(
-          'Settings',
-          style: TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-      ),
+    return GlassScreen(
+      title: 'Settings',
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(GlassSpacing.xl),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Theme Settings
-            _buildSectionHeader('Theme'),
-            _buildThemeSection(ref),
-            const SizedBox(height: 24),
+            ScreenSectionHeader(title: 'Theme', tokens: tokens),
+            _buildThemeSection(context, ref, tokens),
+            const SizedBox(height: GlassSpacing.xl),
 
-            // General Settings
-            _buildSectionHeader('General Settings'),
+            ScreenSectionHeader(title: 'General Settings', tokens: tokens),
             GlassContainer(
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.all(GlassSpacing.xl),
               child: Column(
                 children: [
-                  _buildSwitchTile(
-                    'Show Read Articles',
-                    'Display articles marked as read',
-                    Icons.visibility,
-                    settings.showReadArticles,
-                    (value) => ref.read(settingsProvider.notifier).setShowReadArticles(value),
+                  ScreenListRow(
+                    icon: Icons.visibility,
+                    title: 'Show Read Articles',
+                    subtitle: 'Display articles marked as read',
+                    tokens: tokens,
+                    trailing: GlassSwitch(
+                      value: settings.showReadArticles,
+                      onChanged: (value) => ref
+                          .read(settingsProvider.notifier)
+                          .setShowReadArticles(value),
+                    ),
                   ),
-                  const Divider(color: Colors.white24, height: 32),
+                  Divider(
+                      color: tokens.glassStroke, height: GlassSpacing.xxl),
                   _buildNumberSetting(
                     'Articles Per Feed',
                     'Maximum articles to keep per feed',
                     Icons.format_list_numbered,
                     settings.articlesPerFeed,
-                    (value) => ref.read(settingsProvider.notifier).setArticlesPerFeed(value),
+                    (value) => ref
+                        .read(settingsProvider.notifier)
+                        .setArticlesPerFeed(value),
+                    tokens: tokens,
                     min: 10,
                     max: 200,
                     step: 10,
@@ -73,28 +71,36 @@ class SettingsScreen extends ConsumerWidget {
               ),
             ).animate().fadeIn(duration: 300.ms),
 
-            const SizedBox(height: 24),
+            const SizedBox(height: GlassSpacing.xl),
 
-            // Feed Settings
-            _buildSectionHeader('Feed Settings'),
+            ScreenSectionHeader(title: 'Feed Settings', tokens: tokens),
             GlassContainer(
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.all(GlassSpacing.xl),
               child: Column(
                 children: [
-                  _buildSwitchTile(
-                    'Auto Update Feeds',
-                    'Automatically refresh feeds in the background',
-                    Icons.refresh,
-                    settings.autoUpdateFeeds,
-                    (value) => ref.read(settingsProvider.notifier).setAutoUpdateFeeds(value),
+                  ScreenListRow(
+                    icon: Icons.refresh,
+                    title: 'Auto Update Feeds',
+                    subtitle: 'Automatically refresh feeds in the background',
+                    tokens: tokens,
+                    trailing: GlassSwitch(
+                      value: settings.autoUpdateFeeds,
+                      onChanged: (value) => ref
+                          .read(settingsProvider.notifier)
+                          .setAutoUpdateFeeds(value),
+                    ),
                   ),
-                  const Divider(color: Colors.white24, height: 32),
+                  Divider(
+                      color: tokens.glassStroke, height: GlassSpacing.xxl),
                   _buildNumberSetting(
                     'Update Interval',
                     'Default refresh interval for new feeds (minutes)',
                     Icons.schedule,
                     settings.updateInterval,
-                    (value) => ref.read(settingsProvider.notifier).setUpdateInterval(value),
+                    (value) => ref
+                        .read(settingsProvider.notifier)
+                        .setUpdateInterval(value),
+                    tokens: tokens,
                     min: 5,
                     max: 120,
                     step: 5,
@@ -104,12 +110,11 @@ class SettingsScreen extends ConsumerWidget {
               ),
             ).animate().fadeIn(duration: 300.ms, delay: 100.ms),
 
-            const SizedBox(height: 24),
+            const SizedBox(height: GlassSpacing.xl),
 
-            // Sync Settings
-            _buildSectionHeader('Server & Sync'),
+            ScreenSectionHeader(title: 'Server & Sync', tokens: tokens),
             GlassContainer(
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.all(GlassSpacing.xl),
               child: Column(
                 children: [
                   _buildTextSetting(
@@ -117,103 +122,121 @@ class SettingsScreen extends ConsumerWidget {
                     'Self-hosted server API URL (empty for local-only mode)',
                     Icons.dns,
                     settings.serverUrl,
-                    (value) => ref.read(settingsProvider.notifier).setServerUrl(value),
+                    (value) => ref
+                        .read(settingsProvider.notifier)
+                        .setServerUrl(value),
+                    tokens: tokens,
                     hintText: 'http://localhost:8080',
                   ),
-                  const Divider(color: Colors.white24, height: 32),
-                  _buildSwitchTile(
-                    'Enable Sync',
-                    'Sync data between devices',
-                    Icons.sync,
-                    settings.enableSync,
-                    (value) => ref.read(settingsProvider.notifier).setEnableSync(value),
+                  Divider(
+                      color: tokens.glassStroke, height: GlassSpacing.xxl),
+                  ScreenListRow(
+                    icon: Icons.sync,
+                    title: 'Enable Sync',
+                    subtitle: 'Sync data between devices',
+                    tokens: tokens,
+                    trailing: GlassSwitch(
+                      value: settings.enableSync,
+                      onChanged: (value) => ref
+                          .read(settingsProvider.notifier)
+                          .setEnableSync(value),
+                    ),
                   ),
                 ],
               ),
             ).animate().fadeIn(duration: 300.ms, delay: 200.ms),
 
-            const SizedBox(height: 24),
+            const SizedBox(height: GlassSpacing.xl),
 
-            // Advanced Settings
-            _buildSectionHeader('Advanced'),
+            ScreenSectionHeader(title: 'Advanced', tokens: tokens),
             GlassContainer(
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.all(GlassSpacing.xl),
               child: Column(
                 children: [
-                  _buildActionTile(
-                    'Clear Cache',
-                    'Delete read, unstarred articles older than 30 days',
-                    Icons.delete_outline,
-                    () => _clearCache(context, ref),
+                  ScreenListRow(
+                    icon: Icons.delete_outline,
+                    title: 'Clear Cache',
+                    subtitle: 'Delete read, unstarred articles older than 30 days',
+                    tokens: tokens,
+                    onTap: () => _clearCache(context, ref),
+                    trailing: Icon(
+                      Icons.chevron_right,
+                      color: tokens.textLow,
+                    ),
                   ),
-                  const Divider(color: Colors.white24, height: 32),
-                  _buildActionTile(
-                    'Export Data',
-                    'Export all feeds and settings',
-                    Icons.download,
-                    () => _exportData(context, ref),
+                  Divider(
+                      color: tokens.glassStroke, height: GlassSpacing.xxl),
+                  ScreenListRow(
+                    icon: Icons.download,
+                    title: 'Export Data',
+                    subtitle: 'Export all feeds and settings',
+                    tokens: tokens,
+                    onTap: () => _exportData(context, ref),
+                    trailing: Icon(
+                      Icons.chevron_right,
+                      color: tokens.textLow,
+                    ),
                   ),
-                  const Divider(color: Colors.white24, height: 32),
-                  _buildActionTile(
-                    'Reset to Defaults',
-                    'Reset all settings to default values',
-                    Icons.restore,
-                    () => _resetSettings(context, ref),
+                  Divider(
+                      color: tokens.glassStroke, height: GlassSpacing.xxl),
+                  ScreenListRow(
+                    icon: Icons.restore,
+                    title: 'Reset to Defaults',
+                    subtitle: 'Reset all settings to default values',
+                    tokens: tokens,
+                    onTap: () => _resetSettings(context, ref),
+                    trailing: Icon(
+                      Icons.chevron_right,
+                      color: tokens.textLow,
+                    ),
                   ),
                 ],
               ),
             ).animate().fadeIn(duration: 300.ms, delay: 300.ms),
 
-            const SizedBox(height: 24),
+            const SizedBox(height: GlassSpacing.xl),
 
-            // About Section
-            _buildSectionHeader('About'),
+            ScreenSectionHeader(title: 'About', tokens: tokens),
             GlassContainer(
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.all(GlassSpacing.xl),
               child: Column(
                 children: [
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
+                      Text(
                         'Version',
-                        style: TextStyle(
-                          color: Colors.white70,
-                          fontSize: 16,
-                        ),
+                        style: GlassTypeScale.body
+                            .copyWith(color: tokens.textMedium),
                       ),
                       Text(
                         appVersion,
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.9),
-                          fontSize: 16,
+                        style: GlassTypeScale.body.copyWith(
+                          color: tokens.textHigh,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: GlassSpacing.lg),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
+                      Text(
                         'Source',
-                        style: TextStyle(
-                          color: Colors.white70,
-                          fontSize: 16,
-                        ),
+                        style: GlassTypeScale.body
+                            .copyWith(color: tokens.textMedium),
                       ),
                       Text(
                         appRepositoryUrl.replaceFirst('https://', ''),
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.9),
-                          fontSize: 14,
+                        style: GlassTypeScale.label.copyWith(
+                          color: tokens.textHigh,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: GlassSpacing.xl),
                   GlassButton(
                     text: 'View Licenses',
                     onPressed: () => _showLicenses(context),
@@ -231,44 +254,26 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildSectionHeader(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(left: 8, bottom: 12),
-      child: Text(
-        title,
-        style: const TextStyle(
-          color: Colors.white70,
-          fontSize: 18,
-          fontWeight: FontWeight.w600,
-          letterSpacing: 0.5,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildThemeSection(WidgetRef ref) {
+  Widget _buildThemeSection(
+      BuildContext context, WidgetRef ref, GlassColorTokens tokens) {
     final themeSettings = ref.watch(themeSettingsProvider);
 
     return GlassContainer(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(GlassSpacing.xl),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'Preset',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.w500,
-            ),
+            style: GlassTypeScale.body.copyWith(color: tokens.textHigh),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: GlassSpacing.md),
           SizedBox(
             height: 104,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
               itemCount: GlassPresets.all.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 12),
+              separatorBuilder: (_, __) => const SizedBox(width: GlassSpacing.md),
               itemBuilder: (context, index) {
                 final preset = GlassPresets.all[index];
                 return _buildPresetCard(
@@ -276,20 +281,17 @@ class SettingsScreen extends ConsumerWidget {
                   ref,
                   preset,
                   preset.id == themeSettings.presetId,
+                  tokens,
                 );
               },
             ),
           ),
-          const SizedBox(height: 20),
-          const Text(
+          const SizedBox(height: GlassSpacing.xl),
+          Text(
             'Mode',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.w500,
-            ),
+            style: GlassTypeScale.body.copyWith(color: tokens.textHigh),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: GlassSpacing.md),
           Row(
             children: [
               Expanded(
@@ -301,9 +303,10 @@ class SettingsScreen extends ConsumerWidget {
                   () => ref
                       .read(themeSettingsProvider.notifier)
                       .setMode(AppThemeMode.system),
+                  tokens,
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: GlassSpacing.sm),
               Expanded(
                 child: _buildModeChip(
                   ref,
@@ -313,9 +316,10 @@ class SettingsScreen extends ConsumerWidget {
                   () => ref
                       .read(themeSettingsProvider.notifier)
                       .setMode(AppThemeMode.light),
+                  tokens,
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: GlassSpacing.sm),
               Expanded(
                 child: _buildModeChip(
                   ref,
@@ -325,6 +329,7 @@ class SettingsScreen extends ConsumerWidget {
                   () => ref
                       .read(themeSettingsProvider.notifier)
                       .setMode(AppThemeMode.dark),
+                  tokens,
                 ),
               ),
             ],
@@ -339,23 +344,22 @@ class SettingsScreen extends ConsumerWidget {
     WidgetRef ref,
     GlassThemePreset preset,
     bool isSelected,
+    GlassColorTokens tokens,
   ) {
-    final tokens = preset.dark;
+    final preview = preset.dark;
 
     return InkWell(
       onTap: () =>
           ref.read(themeSettingsProvider.notifier).setPreset(preset.id),
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(GlassRadii.lg),
       child: Container(
         width: 96,
-        padding: const EdgeInsets.all(8),
+        padding: const EdgeInsets.all(GlassSpacing.sm),
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.05),
-          borderRadius: BorderRadius.circular(16),
+          color: tokens.glassFill,
+          borderRadius: BorderRadius.circular(GlassRadii.lg),
           border: Border.all(
-            color: isSelected
-                ? tokens.accent
-                : Colors.white.withValues(alpha: 0.15),
+            color: isSelected ? tokens.accent : tokens.glassStroke,
             width: isSelected ? 2 : 1,
           ),
         ),
@@ -369,11 +373,11 @@ class SettingsScreen extends ConsumerWidget {
                 gradient: LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
-                  colors: tokens.backgroundGradient,
+                  colors: preview.backgroundGradient,
                 ),
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(GlassRadii.sm + 2),
                 border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.2),
+                  color: tokens.glassStroke,
                 ),
               ),
               child: Center(
@@ -384,22 +388,22 @@ class SettingsScreen extends ConsumerWidget {
                     gradient: LinearGradient(
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
-                      colors: tokens.primaryGradient,
+                      colors: preview.primaryGradient,
                     ),
                     shape: BoxShape.circle,
                     border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.4),
+                      color: tokens.textHigh.withValues(alpha: 0.4),
                     ),
                   ),
                 ),
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: GlassSpacing.sm),
             Text(
               preset.name,
-              style: TextStyle(
-                color: isSelected ? Colors.white : Colors.white70,
+              style: GlassTypeScale.label.copyWith(
                 fontSize: 13,
+                color: isSelected ? tokens.textHigh : tokens.textMedium,
                 fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
               ),
               maxLines: 1,
@@ -417,23 +421,25 @@ class SettingsScreen extends ConsumerWidget {
     IconData icon,
     bool isSelected,
     VoidCallback onTap,
+    GlassColorTokens tokens,
   ) {
-    final accent = ref.watch(themePresetProvider).dark.accent;
+    final accent = tokens.accent;
 
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(GlassRadii.md),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: const EdgeInsets.symmetric(
+            horizontal: GlassSpacing.md, vertical: 10),
         decoration: BoxDecoration(
           color: isSelected
               ? accent.withValues(alpha: 0.2)
-              : Colors.white.withValues(alpha: 0.05),
-          borderRadius: BorderRadius.circular(12),
+              : tokens.glassFill,
+          borderRadius: BorderRadius.circular(GlassRadii.md),
           border: Border.all(
             color: isSelected
                 ? accent.withValues(alpha: 0.6)
-                : Colors.white.withValues(alpha: 0.15),
+                : tokens.glassStroke,
           ),
         ),
         child: Row(
@@ -442,15 +448,15 @@ class SettingsScreen extends ConsumerWidget {
             Icon(
               icon,
               size: 16,
-              color: isSelected ? Colors.white : Colors.white70,
+              color: isSelected ? tokens.textHigh : tokens.textMedium,
             ),
             const SizedBox(width: 6),
             Flexible(
               child: Text(
                 label,
-                style: TextStyle(
-                  color: isSelected ? Colors.white : Colors.white70,
+                style: GlassTypeScale.label.copyWith(
                   fontSize: 13,
+                  color: isSelected ? tokens.textHigh : tokens.textMedium,
                   fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
                 ),
                 maxLines: 1,
@@ -463,62 +469,13 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildSwitchTile(
-    String title,
-    String subtitle,
-    IconData icon,
-    bool value,
-    Function(bool) onChanged,
-  ) {
-    return Row(
-      children: [
-        Container(
-          width: 48,
-          height: 48,
-          decoration: BoxDecoration(
-            color: GlassColors.primaryGradient[0].withOpacity(0.2),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Icon(icon, color: Colors.white70),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                subtitle,
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.6),
-                  fontSize: 14,
-                ),
-              ),
-            ],
-          ),
-        ),
-        GlassSwitch(
-          value: value,
-          onChanged: onChanged,
-        ),
-      ],
-    );
-  }
-
   Widget _buildNumberSetting(
     String title,
     String subtitle,
     IconData icon,
     int value,
     Function(int) onChanged, {
+    required GlassColorTokens tokens,
     required int min,
     required int max,
     required int step,
@@ -526,66 +483,34 @@ class SettingsScreen extends ConsumerWidget {
   }) {
     return Opacity(
       opacity: enabled ? 1.0 : 0.5,
-      child: Row(
-        children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: GlassColors.primaryGradient[0].withOpacity(0.2),
-              borderRadius: BorderRadius.circular(12),
+      child: ScreenListRow(
+        icon: icon,
+        title: title,
+        subtitle: subtitle,
+        tokens: tokens,
+        trailing: Row(
+          children: [
+            IconButton(
+              icon: Icon(Icons.remove, color: tokens.textMedium),
+              onPressed: enabled && value > min
+                  ? () => onChanged(value - step)
+                  : null,
             ),
-            child: Icon(icon, color: Colors.white70),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  subtitle,
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.6),
-                    fontSize: 14,
-                  ),
-                ),
-              ],
+            Text(
+              '$value',
+              style: GlassTypeScale.body.copyWith(
+                color: tokens.textHigh,
+                fontWeight: FontWeight.w500,
+              ),
             ),
-          ),
-          Row(
-            children: [
-              IconButton(
-                icon: Icon(Icons.remove, color: Colors.white.withOpacity(0.6)),
-                onPressed: enabled && value > min
-                    ? () => onChanged(value - step)
-                    : null,
-              ),
-              Text(
-                '$value',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              IconButton(
-                icon: Icon(Icons.add, color: Colors.white.withOpacity(0.6)),
-                onPressed: enabled && value < max
-                    ? () => onChanged(value + step)
-                    : null,
-              ),
-            ],
-          ),
-        ],
+            IconButton(
+              icon: Icon(Icons.add, color: tokens.textMedium),
+              onPressed: enabled && value < max
+                  ? () => onChanged(value + step)
+                  : null,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -596,108 +521,25 @@ class SettingsScreen extends ConsumerWidget {
     IconData icon,
     String value,
     Function(String) onChanged, {
+    required GlassColorTokens tokens,
     String hintText = 'Enter URL',
   }) {
     return Column(
       children: [
-        Row(
-          children: [
-            Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                color: GlassColors.primaryGradient[0].withOpacity(0.2),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(icon, color: Colors.white70),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    subtitle,
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.6),
-                      fontSize: 14,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
+        ScreenListRow(
+          icon: icon,
+          title: title,
+          subtitle: subtitle,
+          tokens: tokens,
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: GlassSpacing.md),
         GlassTextField(
           hintText: hintText,
           initialValue: value,
           onChanged: onChanged,
-          textStyle: const TextStyle(fontSize: 14),
+          textStyle: GlassTypeScale.label.copyWith(color: tokens.textHigh),
         ),
       ],
-    );
-  }
-
-  Widget _buildActionTile(
-    String title,
-    String subtitle,
-    IconData icon,
-    VoidCallback onTap,
-  ) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Row(
-        children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: GlassColors.primaryGradient[0].withOpacity(0.2),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icon, color: Colors.white70),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  subtitle,
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.6),
-                    fontSize: 14,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Icon(
-            Icons.chevron_right,
-            color: Colors.white.withOpacity(0.5),
-          ),
-        ],
-      ),
     );
   }
 
@@ -705,7 +547,8 @@ class SettingsScreen extends ConsumerWidget {
     showGlassDialog(
       context: context,
       title: const Text('Clear Cache'),
-      content: const Text('Delete read, unstarred articles older than 30 days? Starred articles are kept. This action cannot be undone.'),
+      content: const Text(
+          'Delete read, unstarred articles older than 30 days? Starred articles are kept. This action cannot be undone.'),
       actions: [
         GlassButton(
           text: 'Cancel',
@@ -731,12 +574,16 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  void _exportData(BuildContext context, WidgetRef ref) async {
+  Future<void> _exportData(BuildContext context, WidgetRef ref) async {
     try {
       await ref.read(exportOPMLProvider.future);
-      context.showSuccessSnackBar('Data exported successfully');
+      if (context.mounted) {
+        context.showSuccessSnackBar('Data exported successfully');
+      }
     } catch (e) {
-      context.showErrorSnackBar('Failed to export data');
+      if (context.mounted) {
+        context.showErrorSnackBar('Failed to export data');
+      }
     }
   }
 
@@ -744,7 +591,8 @@ class SettingsScreen extends ConsumerWidget {
     showGlassDialog(
       context: context,
       title: const Text('Reset Settings'),
-      content: const Text('Are you sure you want to reset all settings to their default values?'),
+      content: const Text(
+          'Are you sure you want to reset all settings to their default values?'),
       actions: [
         GlassButton(
           text: 'Cancel',

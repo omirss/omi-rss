@@ -20,6 +20,12 @@ class GlassColorTokens {
   final Color glassFill;
   final Color glassStroke;
   final Color overlay;
+  final Color divider;
+  final Color hoverFill;
+
+  // Skeleton loading
+  final Color skeletonBase;
+  final Color skeletonHighlight;
 
   // Semantic
   final Color success;
@@ -48,6 +54,10 @@ class GlassColorTokens {
     required this.glassFill,
     required this.glassStroke,
     required this.overlay,
+    required this.divider,
+    required this.hoverFill,
+    required this.skeletonBase,
+    required this.skeletonHighlight,
     required this.success,
     required this.warning,
     required this.error,
@@ -67,6 +77,7 @@ class GlassRadii {
   static const double sm = 8;
   static const double md = 12;
   static const double lg = 20;
+  static const double xl = 24;
 
   const GlassRadii._();
 }
@@ -92,15 +103,36 @@ class GlassSpacing {
   const GlassSpacing._();
 }
 
-/// Five-step type scale. Colors are applied per mode from GlassColorTokens.
+/// Opacity scale for the remaining translucent surface treatments.
+/// Text hierarchy comes from textHigh/textMedium/textLow instead.
+class GlassOpacity {
+  static const double faint = 0.25;
+  static const double soft = 0.4;
+  static const double medium = 0.6;
+  static const double strong = 0.8;
+
+  const GlassOpacity._();
+}
+
+/// Seven-step type scale. Colors are applied per mode from GlassColorTokens.
 class GlassTypeScale {
   static const TextStyle display = TextStyle(
     fontSize: 28,
     fontWeight: FontWeight.w700,
   );
 
+  static const TextStyle displaySmall = TextStyle(
+    fontSize: 24,
+    fontWeight: FontWeight.w700,
+  );
+
   static const TextStyle title = TextStyle(
     fontSize: 20,
+    fontWeight: FontWeight.w600,
+  );
+
+  static const TextStyle heading = TextStyle(
+    fontSize: 18,
     fontWeight: FontWeight.w600,
   );
 

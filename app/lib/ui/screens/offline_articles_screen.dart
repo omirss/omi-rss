@@ -1,18 +1,17 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-import '../glass_theme.dart';
-import '../components/glass_container.dart';
-import '../components/glass_button.dart';
-import '../components/glass_app_bar.dart';
-import '../components/glass_snack_bar.dart';
-import '../components/glass_dialog.dart';
-import '../components/article_card.dart';
-import '../components/empty_state.dart';
-import '../components/error_state.dart';
-import '../../providers/offline_provider.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../features/offline/offline_storage.dart';
+import '../../providers/offline_provider.dart';
+import '../components/article_card.dart';
+import '../components/glass_app_bar.dart';
+import '../components/glass_button.dart';
+import '../components/glass_container.dart';
+import '../components/glass_dialog.dart';
+import '../components/glass_snack_bar.dart';
+import '../tokens/glass_tokens.dart';
 import 'article_reader_screen.dart';
+import 'glass_screen.dart';
 
 class OfflineArticlesScreen extends ConsumerWidget {
   const OfflineArticlesScreen({super.key});
@@ -21,114 +20,107 @@ class OfflineArticlesScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final offlineArticles = ref.watch(offlineArticlesProvider);
     final statistics = ref.watch(offlineStatisticsProvider);
-    
-    return Scaffold(
-      backgroundColor: GlassTheme.backgroundColor,
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              GlassTheme.primaryColor.withOpacity(0.1),
-              GlassTheme.accentColor.withOpacity(0.1),
+    final tokens = screenTokensOf(context, ref);
+
+    return GlassScreen(
+      body: Column(
+        children: [
+          GlassAppBar(
+            title: Text(
+              'Offline Articles',
+              style: GlassTypeScale.title.copyWith(
+                color: tokens.textHigh,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            leading: GlassButton(
+              icon: Icons.arrow_back,
+              onPressed: () => Navigator.of(context).pop(),
+              variant: GlassButtonVariant.icon,
+            ),
+            actions: [
+              GlassButton(
+                icon: Icons.settings,
+                onPressed: () => _showOfflineSettings(context, ref, tokens),
+                variant: GlassButtonVariant.icon,
+              ),
+              const SizedBox(width: GlassSpacing.sm),
+              GlassButton(
+                icon: Icons.delete_sweep,
+                onPressed: () =>
+                    _confirmClearOfflineData(context, ref),
+                variant: GlassButtonVariant.icon,
+              ),
             ],
           ),
-        ),
-        child: SafeArea(
-          child: Column(
-            children: [
-              // App Bar
-              GlassAppBar(
-                title: const Text('Offline Articles'),
-                leading: GlassButton(
-                  icon: Icons.arrow_back,
-                  onPressed: () => Navigator.of(context).pop(),
-                  variant: GlassButtonVariant.icon,
-                ),
-                actions: [
-                  GlassButton(
-                    icon: Icons.settings,
-                    onPressed: () => _showOfflineSettings(context, ref),
-                    variant: GlassButtonVariant.icon,
-                  ),
-                  const SizedBox(width: 8),
-                  GlassButton(
-                    icon: Icons.delete_sweep,
-                    onPressed: () => _confirmClearOfflineData(context, ref),
-                    variant: GlassButtonVariant.icon,
-                  ),
-                ],
-              ),
-              
-              // Statistics bar
-              statistics.when(
-                data: (stats) => _buildStatisticsBar(stats),
-                loading: () => const SizedBox.shrink(),
-                error: (_, __) => const SizedBox.shrink(),
-              ),
-              
-              // Articles list
-              Expanded(
-                child: offlineArticles.when(
-                  data: (articles) {
-                    if (articles.isEmpty) {
-                      return EmptyState(
-                        icon: Icons.offline_pin_outlined,
-                        title: 'No offline articles',
-                        subtitle: 'Save articles to read them offline',
-                      );
-                    }
-                    
-                    return ListView.builder(
-                      padding: const EdgeInsets.all(16),
-                      itemCount: articles.length,
-                      itemBuilder: (context, index) {
-                        final article = articles[index];
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 16),
-                          child: ArticleCard(
-                            article: article,
-                            onTap: () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => ArticleReaderScreen(article: article),
-                              ),
-                            ),
-                            trailing: IconButton(
-                              icon: const Icon(Icons.delete_outline, color: Colors.white),
-                              onPressed: () => _confirmDeleteOfflineArticle(context, ref, article.id),
-                            ),
-                          ).animate()
-                            .fadeIn(duration: 300.ms, delay: (index * 50).ms)
-                            .slideY(begin: 0.1, end: 0, duration: 300.ms, delay: (index * 50).ms),
-                        );
-                      },
+
+          statistics.when(
+            data: (stats) => _buildStatisticsBar(stats, tokens),
+            loading: () => const SizedBox.shrink(),
+            error: (_, __) => const SizedBox.shrink(),
+          ),
+
+          Expanded(
+            child: offlineArticles.when(
+              data: (articles) {
+                if (articles.isEmpty) {
+                  return ScreenEmptyState(
+                    icon: Icons.offline_pin_outlined,
+                    title: 'No offline articles',
+                    subtitle:
+                        'Save articles for offline reading from the article view',
+                    tokens: tokens,
+                  );
+                }
+
+                return ListView.builder(
+                  padding: const EdgeInsets.all(GlassSpacing.lg),
+                  itemCount: articles.length,
+                  itemBuilder: (context, index) {
+                    final article = articles[index];
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: GlassSpacing.lg),
+                      child: ArticleCard(
+                        article: article,
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => ArticleReaderScreen(article: article),
+                          ),
+                        ),
+                        trailing: IconButton(
+                          icon: Icon(
+                            Icons.delete_outline,
+                            color: tokens.textHigh,
+                          ),
+                          onPressed: () => _confirmDeleteOfflineArticle(
+                              context, ref, article.id),
+                        ),
+                      ).animate()
+                        .fadeIn(duration: 300.ms, delay: (index * 50).ms)
+                        .slideY(begin: 0.1, end: 0, duration: 300.ms, delay: (index * 50).ms),
                     );
                   },
-                  loading: () => const Center(
-                    child: CircularProgressIndicator(
-                      color: GlassColors.primary,
-                    ),
-                  ),
-                  error: (error, _) => ErrorState(
-                    error: error.toString(),
-                    onRetry: () => ref.refresh(offlineArticlesProvider),
-                  ),
-                ),
+                );
+              },
+              loading: () => ScreenLoading(tokens: tokens),
+              error: (error, _) => ScreenErrorState(
+                message: error.toString(),
+                onRetry: () => ref.refresh(offlineArticlesProvider),
+                tokens: tokens,
               ),
-            ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
-  
-  Widget _buildStatisticsBar(OfflineStatistics stats) {
+
+  Widget _buildStatisticsBar(OfflineStatistics stats, GlassColorTokens tokens) {
     return Padding(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(GlassSpacing.lg),
       child: GlassContainer(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(GlassSpacing.lg),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [
@@ -136,53 +128,53 @@ class OfflineArticlesScreen extends ConsumerWidget {
               icon: Icons.article,
               label: 'Articles',
               value: stats.articleCount.toString(),
+              tokens: tokens,
             ),
             _buildStatItem(
               icon: Icons.storage,
               label: 'Storage',
               value: stats.formattedSize,
+              tokens: tokens,
             ),
             if (stats.lastSync != null)
               _buildStatItem(
                 icon: Icons.sync,
                 label: 'Last sync',
                 value: _formatLastSync(stats.lastSync!),
+                tokens: tokens,
               ),
           ],
         ),
       ),
     );
   }
-  
+
   Widget _buildStatItem({
     required IconData icon,
     required String label,
     required String value,
+    required GlassColorTokens tokens,
   }) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, color: Colors.white.withOpacity(0.7), size: 20),
-        const SizedBox(height: 4),
+        Icon(icon, color: tokens.textMedium, size: 20),
+        const SizedBox(height: GlassSpacing.xs),
         Text(
           value,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
+          style: GlassTypeScale.body.copyWith(
+            color: tokens.textHigh,
+            fontWeight: FontWeight.w700,
           ),
         ),
         Text(
           label,
-          style: TextStyle(
-            color: Colors.white.withOpacity(0.6),
-            fontSize: 12,
-          ),
+          style: GlassTypeScale.caption.copyWith(color: tokens.textMedium),
         ),
       ],
     );
   }
-  
+
   String _formatLastSync(DateTime lastSync) {
     final difference = DateTime.now().difference(lastSync);
     if (difference.inMinutes < 60) {
@@ -193,16 +185,17 @@ class OfflineArticlesScreen extends ConsumerWidget {
       return '${difference.inDays}d ago';
     }
   }
-  
-  void _showOfflineSettings(BuildContext context, WidgetRef ref) {
+
+  void _showOfflineSettings(
+      BuildContext context, WidgetRef ref, GlassColorTokens tokens) {
     showGlassDialog(
       context: context,
       title: const Text('Offline Settings'),
-      content: const OfflineSettingsDialog(),
+      content: OfflineSettingsDialog(tokens: tokens),
       size: GlassDialogSize.medium,
     );
   }
-  
+
   void _confirmClearOfflineData(BuildContext context, WidgetRef ref) {
     showGlassDialog(
       context: context,
@@ -239,8 +232,9 @@ class OfflineArticlesScreen extends ConsumerWidget {
       ],
     );
   }
-  
-  void _confirmDeleteOfflineArticle(BuildContext context, WidgetRef ref, String articleId) {
+
+  void _confirmDeleteOfflineArticle(
+      BuildContext context, WidgetRef ref, String articleId) {
     showGlassDialog(
       context: context,
       title: const Text('Delete Offline Article'),
@@ -256,10 +250,13 @@ class OfflineArticlesScreen extends ConsumerWidget {
           onPressed: () async {
             Navigator.pop(context);
             try {
-              await ref.read(offlineArticlesProvider.notifier).deleteOfflineArticle(articleId);
+              await ref
+                  .read(offlineArticlesProvider.notifier)
+                  .deleteOfflineArticle(articleId);
               ref.invalidate(offlineStatisticsProvider);
               if (context.mounted) {
-                context.showSuccessSnackBar('Article removed from offline storage');
+                context.showSuccessSnackBar(
+                    'Article removed from offline storage');
               }
             } catch (e) {
               if (context.mounted) {
@@ -275,61 +272,65 @@ class OfflineArticlesScreen extends ConsumerWidget {
 }
 
 class OfflineSettingsDialog extends ConsumerWidget {
-  const OfflineSettingsDialog({super.key});
+  final GlassColorTokens tokens;
+
+  const OfflineSettingsDialog({super.key, required this.tokens});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final settings = ref.watch(offlineSettingsProvider);
     final settingsNotifier = ref.read(offlineSettingsProvider.notifier);
-    
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         SwitchListTile(
           title: Text(
             'Auto-download starred articles',
-            style: TextStyle(color: Colors.white.withOpacity(0.9)),
+            style: GlassTypeScale.label.copyWith(color: tokens.textHigh),
           ),
           value: settings.autoDownloadStarred,
           onChanged: (_) => settingsNotifier.toggleAutoDownloadStarred(),
-          activeColor: Theme.of(context).colorScheme.primary,
+          activeThumbColor: tokens.accent,
         ),
         SwitchListTile(
           title: Text(
             'Auto-download unread articles',
-            style: TextStyle(color: Colors.white.withOpacity(0.9)),
+            style: GlassTypeScale.label.copyWith(color: tokens.textHigh),
           ),
           value: settings.autoDownloadUnread,
           onChanged: (_) => settingsNotifier.toggleAutoDownloadUnread(),
-          activeColor: Theme.of(context).colorScheme.primary,
+          activeThumbColor: tokens.accent,
         ),
         SwitchListTile(
           title: Text(
             'Download images',
-            style: TextStyle(color: Colors.white.withOpacity(0.9)),
+            style: GlassTypeScale.label.copyWith(color: tokens.textHigh),
           ),
           subtitle: Text(
             'Include images in offline articles',
-            style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 12),
+            style:
+                GlassTypeScale.caption.copyWith(color: tokens.textMedium),
           ),
           value: settings.downloadImages,
           onChanged: (_) => settingsNotifier.toggleDownloadImages(),
-          activeColor: Theme.of(context).colorScheme.primary,
+          activeThumbColor: tokens.accent,
         ),
         SwitchListTile(
           title: Text(
             'Wi-Fi only',
-            style: TextStyle(color: Colors.white.withOpacity(0.9)),
+            style: GlassTypeScale.label.copyWith(color: tokens.textHigh),
           ),
           subtitle: Text(
             'Download articles only on Wi-Fi',
-            style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 12),
+            style:
+                GlassTypeScale.caption.copyWith(color: tokens.textMedium),
           ),
           value: settings.wifiOnly,
           onChanged: (_) => settingsNotifier.toggleWifiOnly(),
-          activeColor: Theme.of(context).colorScheme.primary,
+          activeThumbColor: tokens.accent,
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: GlassSpacing.lg),
         _buildSliderSetting(
           title: 'Max offline articles',
           value: settings.maxOfflineArticles.toDouble(),
@@ -337,9 +338,10 @@ class OfflineSettingsDialog extends ConsumerWidget {
           max: 500,
           divisions: 49,
           label: settings.maxOfflineArticles.toString(),
-          onChanged: (value) => settingsNotifier.setMaxOfflineArticles(value.toInt()),
+          onChanged: (value) =>
+              settingsNotifier.setMaxOfflineArticles(value.toInt()),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: GlassSpacing.lg),
         _buildSliderSetting(
           title: 'Max storage size (MB)',
           value: settings.maxStorageSizeMB.toDouble(),
@@ -349,7 +351,7 @@ class OfflineSettingsDialog extends ConsumerWidget {
           label: '${settings.maxStorageSizeMB} MB',
           onChanged: (value) => settingsNotifier.setMaxStorageSize(value.toInt()),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: GlassSpacing.lg),
         SizedBox(
           width: double.infinity,
           child: GlassButton(
@@ -361,7 +363,7 @@ class OfflineSettingsDialog extends ConsumerWidget {
       ],
     );
   }
-  
+
   Widget _buildSliderSetting({
     required String title,
     required double value,
@@ -379,17 +381,12 @@ class OfflineSettingsDialog extends ConsumerWidget {
           children: [
             Text(
               title,
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.9),
-                fontSize: 16,
-              ),
+              style: GlassTypeScale.body.copyWith(color: tokens.textHigh),
             ),
             Text(
               label,
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.7),
-                fontSize: 14,
-              ),
+              style:
+                  GlassTypeScale.label.copyWith(color: tokens.textMedium),
             ),
           ],
         ),
@@ -400,8 +397,8 @@ class OfflineSettingsDialog extends ConsumerWidget {
           divisions: divisions,
           label: label,
           onChanged: onChanged,
-          activeColor: GlassTheme.primaryColor,
-          inactiveColor: Colors.white.withOpacity(0.3),
+          activeColor: tokens.accent,
+          inactiveColor: tokens.glassStroke,
         ),
       ],
     );

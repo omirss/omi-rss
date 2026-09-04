@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../ui/glass_theme.dart';
+import '../../ui/tokens/glass_tokens.dart';
 import '../../ui/components/glass_container.dart';
 import 'search_service.dart';
 
@@ -15,108 +16,107 @@ class SearchResultCard extends StatelessWidget {
   
   @override
   Widget build(BuildContext context) {
+    final tokens = GlassTheme.colorsOf(context);
     return GlassContainer(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+      margin: const EdgeInsets.only(bottom: GlassSpacing.md),
+      onTap: onTap,
+      padding: const EdgeInsets.all(GlassSpacing.lg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Result type and score
+          Row(
             children: [
-              // Result type and score
-              Row(
-                children: [
-                  Icon(
-                    _getTypeIcon(result.type),
-                    size: 16,
-                    color: _getTypeColor(result.type),
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    _getTypeLabel(result.type),
-                    style: TextStyle(
-                      color: _getTypeColor(result.type),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  const Spacer(),
-                  if (result.score > 0.8)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: Colors.green.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        'High match',
-                        style: TextStyle(
-                          color: Colors.green.shade300,
-                          fontSize: 11,
-                        ),
-                      ),
-                    ),
-                ],
+              Icon(
+                _getTypeIcon(result.type),
+                size: 16,
+                color: _getTypeColor(result.type, tokens),
               ),
-              const SizedBox(height: 8),
-              
-              // Title with highlights
-              _buildHighlightedText(
-                result.title,
-                result.highlights.where((h) => h.field == 'title').toList(),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
+              const SizedBox(width: GlassSpacing.xs),
+              Text(
+                _getTypeLabel(result.type),
+                style: GlassTypeScale.caption.copyWith(
+                  color: _getTypeColor(result.type, tokens),
+                  fontWeight: FontWeight.w500,
                 ),
               ),
-              const SizedBox(height: 8),
-              
-              // Snippet with highlights
-              if (result.snippet.isNotEmpty)
-                _buildHighlightedText(
-                  result.snippet,
-                  result.highlights.where((h) => h.field == 'content').toList(),
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.8),
-                    fontSize: 14,
-                    height: 1.4,
+              const Spacer(),
+              if (result.score > 0.8)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: GlassSpacing.sm, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: tokens.success.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(GlassRadii.md),
                   ),
-                  maxLines: 3,
+                  child: Text(
+                    'High match',
+                    style: GlassTypeScale.caption.copyWith(
+                      color: tokens.success,
+                    ),
+                  ),
                 ),
-              const SizedBox(height: 8),
-              
-              // Metadata
-              Wrap(
-                spacing: 12,
-                children: [
-                  if (result.metadata['feedTitle'] != null)
-                    _buildMetadataChip(
-                      Icons.rss_feed,
-                      result.metadata['feedTitle'],
-                    ),
-                  if (result.metadata['publishedAt'] != null)
-                    _buildMetadataChip(
-                      Icons.calendar_today,
-                      _formatDate(DateTime.parse(result.metadata['publishedAt'])),
-                    ),
-                  if (result.metadata['author'] != null)
-                    _buildMetadataChip(
-                      Icons.person,
-                      result.metadata['author'],
-                    ),
-                  if (result.metadata['wordCount'] != null)
-                    _buildMetadataChip(
-                      Icons.text_snippet,
-                      '${result.metadata['wordCount']} words',
-                    ),
-                ],
-              ),
             ],
           ),
-        ),
+          const SizedBox(height: GlassSpacing.sm),
+
+          // Title with highlights
+          _buildHighlightedText(
+            result.title,
+            result.highlights.where((h) => h.field == 'title').toList(),
+            tokens,
+            style: GlassTypeScale.body.copyWith(
+              color: tokens.textHigh,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: GlassSpacing.sm),
+
+          // Snippet with highlights
+          if (result.snippet.isNotEmpty)
+            _buildHighlightedText(
+              result.snippet,
+              result.highlights.where((h) => h.field == 'content').toList(),
+              tokens,
+              style: GlassTypeScale.label.copyWith(
+                color: tokens.textMedium,
+                height: 1.4,
+              ),
+              maxLines: 3,
+            ),
+          const SizedBox(height: GlassSpacing.sm),
+
+          // Metadata
+          Wrap(
+            spacing: GlassSpacing.md,
+            children: [
+              if (result.metadata['feedTitle'] != null)
+                _buildMetadataChip(
+                  tokens,
+                  Icons.rss_feed,
+                  result.metadata['feedTitle'],
+                ),
+              if (result.metadata['publishedAt'] != null)
+                _buildMetadataChip(
+                  tokens,
+                  Icons.calendar_today,
+                  _formatDate(DateTime.parse(result.metadata['publishedAt'])),
+                ),
+              if (result.metadata['author'] != null)
+                _buildMetadataChip(
+                  tokens,
+                  Icons.person,
+                  result.metadata['author'],
+                ),
+              if (result.metadata['wordCount'] != null)
+                _buildMetadataChip(
+                  tokens,
+                  Icons.text_snippet,
+                  '${result.metadata['wordCount']} words',
+                ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -124,8 +124,10 @@ class SearchResultCard extends StatelessWidget {
   Widget _buildHighlightedText(
     String text,
     List<TextHighlight> highlights,
-    {required TextStyle style, int? maxLines}
-  ) {
+    GlassColorTokens tokens, {
+    required TextStyle style,
+    int? maxLines,
+  }) {
     if (highlights.isEmpty) {
       return Text(
         text,
@@ -162,7 +164,7 @@ class SearchResultCard extends StatelessWidget {
         spans.add(TextSpan(
           text: text.substring(position.start, position.end),
           style: style.copyWith(
-            backgroundColor: Colors.yellow.withOpacity(0.3),
+            backgroundColor: tokens.accentSoft,
             fontWeight: FontWeight.bold,
           ),
         ));
@@ -186,22 +188,20 @@ class SearchResultCard extends StatelessWidget {
     );
   }
   
-  Widget _buildMetadataChip(IconData icon, String label) {
+  Widget _buildMetadataChip(
+      GlassColorTokens tokens, IconData icon, String label) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         Icon(
           icon,
           size: 12,
-          color: Colors.white.withOpacity(0.5),
+          color: tokens.textLow,
         ),
-        const SizedBox(width: 4),
+        const SizedBox(width: GlassSpacing.xs),
         Text(
           label,
-          style: TextStyle(
-            color: Colors.white.withOpacity(0.5),
-            fontSize: 12,
-          ),
+          style: GlassTypeScale.caption.copyWith(color: tokens.textLow),
         ),
       ],
     );
@@ -220,16 +220,16 @@ class SearchResultCard extends StatelessWidget {
     }
   }
   
-  Color _getTypeColor(SearchResultType type) {
+  Color _getTypeColor(SearchResultType type, GlassColorTokens tokens) {
     switch (type) {
       case SearchResultType.article:
-        return Colors.blue.shade300;
+        return tokens.accent;
       case SearchResultType.feed:
-        return Colors.orange.shade300;
+        return tokens.secondary;
       case SearchResultType.highlight:
-        return Colors.yellow.shade300;
+        return tokens.primary;
       case SearchResultType.annotation:
-        return Colors.green.shade300;
+        return tokens.success;
     }
   }
   

@@ -3,8 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'config/api_config.dart';
 import 'config/app_info.dart';
 import 'core/models/article.dart';
+import 'core/models/feed.dart';
 import 'core/models/folder.dart';
 import 'ui/glass_theme.dart';
+import 'ui/tokens/glass_tokens.dart';
 import '../providers/theme_settings_provider.dart';
 import 'ui/animations/particle_background.dart';
 import 'ui/layouts/three_column_layout.dart';
@@ -16,6 +18,10 @@ import 'ui/components/glass_dialog.dart';
 import 'ui/components/glass_snack_bar.dart';
 import 'ui/components/glass_drawer.dart';
 import 'ui/components/glass_tooltip.dart';
+import 'ui/components/article_card.dart';
+import 'ui/components/empty_state.dart';
+import 'ui/components/error_state.dart';
+import 'ui/components/skeleton.dart';
 import 'ui/screens/article_reader_screen.dart';
 import 'providers/database_provider.dart';
 import 'providers/feed_provider.dart';
@@ -165,18 +171,6 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
-  String _formatTime(DateTime? dateTime) {
-    if (dateTime == null) return 'Unknown time';
-    final now = DateTime.now();
-    final difference = now.difference(dateTime);
-
-    if (difference.inMinutes < 1) return 'Just now';
-    if (difference.inMinutes < 60) return '${difference.inMinutes} minutes ago';
-    if (difference.inHours < 24) return '${difference.inHours} hours ago';
-    if (difference.inDays < 7) return '${difference.inDays} days ago';
-    return '${(difference.inDays / 7).floor()} weeks ago';
-  }
-
   @override
   Widget build(BuildContext context) {
     // Keeps the sync engine (server pull + per-feed refresh schedule)
@@ -230,6 +224,7 @@ class _HomePageState extends ConsumerState<HomePage> {
   }
 
   Widget _buildLeftPanel() {
+    final tokens = GlassTheme.colorsOf(context);
     return Container(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -253,20 +248,17 @@ class _HomePageState extends ConsumerState<HomePage> {
                     ).glassTooltip('Open menu'),
                     Icon(
                       Icons.rss_feed,
-                      color: Colors.white.withOpacity(0.9),
+                      color: tokens.textMedium,
                       size: 48,
                     ),
                     const SizedBox(width: 40), // Balance the layout
                   ],
                 ),
-                const SizedBox(height: 12),
-                const Text(
+                const SizedBox(height: GlassSpacing.md),
+                Text(
                   'RSS Reader',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: GlassTypeScale.displaySmall
+                      .copyWith(color: tokens.textHigh),
                 ),
               ],
             ),
@@ -418,49 +410,44 @@ class _HomePageState extends ConsumerState<HomePage> {
   Widget _buildCategoryItem(
       String title, IconData icon, int count, bool isSelected,
       {VoidCallback? onTap}) {
+    final tokens = GlassTheme.colorsOf(context);
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.only(bottom: GlassSpacing.sm),
       child: GlassContainer(
         onTap: onTap,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        gradientColors: isSelected
-            ? [
-                GlassColors.accentGradient[0].withOpacity(0.2),
-                GlassColors.accentGradient[1].withOpacity(0.1),
-              ]
-            : null,
+        selected: isSelected,
+        padding: const EdgeInsets.symmetric(
+            horizontal: GlassSpacing.lg, vertical: GlassSpacing.md),
         child: Row(
           children: [
             Icon(
               icon,
-              color: Colors.white.withOpacity(0.8),
+              color: isSelected ? tokens.accent : tokens.textMedium,
               size: 20,
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: GlassSpacing.md),
             Expanded(
               child: Text(
                 title,
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.9),
-                  fontSize: 16,
+                style: GlassTypeScale.label.copyWith(
+                  color:
+                      isSelected ? tokens.textHigh : tokens.textMedium,
                 ),
               ),
             ),
             if (count > 0)
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: GlassSpacing.sm, vertical: GlassSpacing.xs),
                 decoration: BoxDecoration(
-                  color: count > 0
-                      ? GlassColors.accentGradient[0].withOpacity(0.3)
-                      : Colors.white.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
+                  color: tokens.accentSoft,
+                  borderRadius: BorderRadius.circular(GlassRadii.md),
                 ),
                 child: Text(
                   count.toString(),
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.9),
-                    fontSize: 12,
-                    fontWeight: count > 0 ? FontWeight.bold : FontWeight.normal,
+                  style: GlassTypeScale.caption.copyWith(
+                    color: tokens.accent,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ),
@@ -517,55 +504,55 @@ class _HomePageState extends ConsumerState<HomePage> {
             child: Consumer(
               builder: (context, ref, child) {
                 final articlesAsync = ref.watch(articlesProvider);
+                final feeds =
+                    ref.watch(feedsProvider).valueOrNull ?? const <Feed>[];
+                final favicons = <String, String?>{
+                  for (final feed in feeds) feed.id: feed.faviconUrl,
+                };
 
                 return articlesAsync.when(
                   data: (articles) {
                     if (articles.isEmpty) {
-                      return Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.article_outlined,
-                              size: 64,
-                              color: Colors.white.withOpacity(0.3),
-                            ),
-                            const SizedBox(height: 16),
-                            Text(
-                              'No articles found',
-                              style: TextStyle(
-                                color: Colors.white.withOpacity(0.5),
-                                fontSize: 18,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Add some feeds to get started',
-                              style: TextStyle(
-                                color: Colors.white.withOpacity(0.4),
-                                fontSize: 14,
-                              ),
-                            ),
-                          ],
-                        ),
+                      final hasFeeds = feeds.isNotEmpty;
+                      return EmptyState(
+                        icon: Icons.article_outlined,
+                        title: 'No articles found',
+                        subtitle: hasFeeds
+                            ? 'Try refreshing your feeds or adjusting filters'
+                            : 'Add some feeds to get started',
+                        actionLabel: hasFeeds ? 'Refresh All' : 'Discover feeds',
+                        onAction: hasFeeds
+                            ? () => _refreshAllFeeds(context)
+                            : () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) =>
+                                        const GlassThemeShell(
+                                      child: DiscoverScreen(),
+                                    ),
+                                  ),
+                                );
+                              },
                       );
                     }
 
                     return ListView.builder(
                       itemCount: articles.length,
                       itemBuilder: (context, index) {
+                        final article = articles[index];
                         return Padding(
-                          padding: const EdgeInsets.only(bottom: 12),
+                          padding: const EdgeInsets.only(bottom: GlassSpacing.md),
                           child: Dismissible(
-                            key: Key(articles[index].id),
+                            key: Key(article.id),
                             direction: DismissDirection.horizontal,
                             confirmDismiss: (direction) async {
                               if (direction == DismissDirection.endToStart) {
                                 // Mark as read
-                                if (!articles[index].isRead) {
+                                if (!article.isRead) {
                                   await ref
                                       .read(articleActionsProvider)
-                                      .markAsRead(articles[index].id);
+                                      .markAsRead(article.id);
                                 }
                                 return false; // Don't actually dismiss
                               } else if (direction ==
@@ -573,7 +560,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                                 // Toggle star
                                 await ref
                                     .read(articleActionsProvider)
-                                    .toggleStarred(articles[index].id);
+                                    .toggleStarred(article.id);
                                 return false; // Don't actually dismiss
                               }
                               return false;
@@ -582,191 +569,60 @@ class _HomePageState extends ConsumerState<HomePage> {
                               alignment: Alignment.centerLeft,
                               padding: const EdgeInsets.only(left: 20),
                               decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: [
-                                    Colors.amber.withOpacity(0.3),
-                                    Colors.amber.withOpacity(0.1)
-                                  ],
-                                  begin: Alignment.centerLeft,
-                                  end: Alignment.centerRight,
-                                ),
-                                borderRadius: BorderRadius.circular(16),
+                                color: GlassTheme.colorsOf(context)
+                                    .warning
+                                    .withValues(alpha: 0.25),
+                                borderRadius:
+                                    BorderRadius.circular(GlassRadii.lg),
                               ),
-                              child: const Icon(Icons.star,
-                                  color: Colors.amber, size: 28),
+                              child: Icon(Icons.star,
+                                  color: GlassTheme.colorsOf(context).warning,
+                                  size: 28),
                             ),
                             secondaryBackground: Container(
                               alignment: Alignment.centerRight,
                               padding: const EdgeInsets.only(right: 20),
                               decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: [
-                                    Colors.green.withOpacity(0.1),
-                                    Colors.green.withOpacity(0.3)
-                                  ],
-                                  begin: Alignment.centerLeft,
-                                  end: Alignment.centerRight,
-                                ),
-                                borderRadius: BorderRadius.circular(16),
+                                color: GlassTheme.colorsOf(context)
+                                    .success
+                                    .withValues(alpha: 0.25),
+                                borderRadius:
+                                    BorderRadius.circular(GlassRadii.lg),
                               ),
-                              child: const Icon(Icons.check,
-                                  color: Colors.green, size: 28),
+                              child: Icon(Icons.check,
+                                  color: GlassTheme.colorsOf(context).success,
+                                  size: 28),
                             ),
-                            child: GlassCard(
-                              elevation: 2,
+                            child: ArticleCard(
+                              article: article,
+                              faviconUrl: favicons[article.feedId],
                               onTap: () {
                                 Navigator.push(
                                   context,
-                                MaterialPageRoute(
-                                  builder: (context) => GlassThemeShell(
-                                    child: ArticleReaderScreen(
-                                        article: articles[index]),
+                                  MaterialPageRoute(
+                                    builder: (context) => GlassThemeShell(
+                                      child: ArticleReaderScreen(
+                                          article: article),
+                                    ),
                                   ),
-                                ),
                                 );
                               },
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Container(
-                                        width: 40,
-                                        height: 40,
-                                        decoration: BoxDecoration(
-                                          color: GlassColors.primaryGradient[0]
-                                              .withOpacity(0.3),
-                                          borderRadius:
-                                              BorderRadius.circular(8),
-                                        ),
-                                        child: const Icon(
-                                          Icons.article,
-                                          color: Colors.white,
-                                          size: 20,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              articles[index].title,
-                                              style: const TextStyle(
-                                                color: Colors.white,
-                                                fontSize: 16,
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                              maxLines: 2,
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                            const SizedBox(height: 4),
-                                            Text(
-                                              '${articles[index].feedTitle ?? 'Unknown Source'} • ${_formatTime(articles[index].publishedAt)}',
-                                              style: TextStyle(
-                                                color: Colors.white
-                                                    .withOpacity(0.6),
-                                                fontSize: 12,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Text(
-                                    articles[index].content ??
-                                        articles[index].description,
-                                    style: TextStyle(
-                                      color: Colors.white.withOpacity(0.8),
-                                      fontSize: 14,
-                                      height: 1.5,
-                                    ),
-                                    maxLines: 3,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Row(
-                                    children: [
-                                      _buildArticleAction(
-                                        articles[index].isRead
-                                            ? Icons.mark_email_read
-                                            : Icons.mark_email_unread,
-                                        () =>
-                                            _toggleArticleRead(articles[index]),
-                                        color: articles[index].isRead
-                                            ? Colors.green
-                                            : null,
-                                      ).glassTooltip(articles[index].isRead
-                                          ? 'Mark as unread'
-                                          : 'Mark as read'),
-                                      const SizedBox(width: 8),
-                                      _buildArticleAction(
-                                        articles[index].isStarred
-                                            ? Icons.star
-                                            : Icons.star_outline,
-                                        () => _toggleArticleStarred(
-                                            articles[index]),
-                                        color: articles[index].isStarred
-                                            ? Colors.amber
-                                            : null,
-                                      ).glassTooltip(articles[index].isStarred
-                                          ? 'Unstar'
-                                          : 'Star'),
-                                      const SizedBox(width: 8),
-                                      _buildArticleAction(Icons.share, () {
-                                        _shareArticle(articles[index]);
-                                      }).glassTooltip('Share'),
-                                      const SizedBox(width: 8),
-                                      _buildArticleAction(Icons.open_in_browser,
-                                          () {
-                                        _openArticleInBrowser(articles[index]);
-                                      }).glassTooltip('Open in browser'),
-                                    ],
-                                  ),
-                                ],
-                              ),
+                              onToggleRead: () => _toggleArticleRead(article),
+                              onToggleStar: () => _toggleArticleStarred(article),
+                              onShare: () => _shareArticle(article),
+                              onOpenExternally: () =>
+                                  _openArticleInBrowser(article),
                             ),
                           ),
                         );
                       },
                     );
                   },
-                  loading: () => const Center(
-                    child: CircularProgressIndicator(
-                      color: Colors.white,
-                    ),
-                  ),
-                  error: (error, stack) => Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.error_outline,
-                          size: 64,
-                          color: Colors.red.withOpacity(0.5),
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'Error loading articles',
-                          style: TextStyle(
-                            color: Colors.white.withOpacity(0.5),
-                            fontSize: 18,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          error.toString(),
-                          style: TextStyle(
-                            color: Colors.white.withOpacity(0.4),
-                            fontSize: 14,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                      ],
-                    ),
+                  loading: () => const GlassSkeletonList(),
+                  error: (error, stack) => ErrorState(
+                    error: error.toString(),
+                    title: 'Error loading articles',
+                    onRetry: () => ref.invalidate(articlesProvider),
                   ),
                 );
               },
@@ -777,46 +633,30 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
-  Widget _buildArticleAction(IconData icon, VoidCallback onTap,
-      {Color? color}) {
-    return GlassButton(
-      icon: icon,
-      onPressed: onTap,
-      variant: GlassButtonVariant.icon,
-      width: 32,
-      height: 32,
-      iconColor: color,
-    );
-  }
-
   Widget _buildRightPanel() {
+    final tokens = GlassTheme.colorsOf(context);
     return Container(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.all(GlassSpacing.xl),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const SizedBox(height: 32),
+          const SizedBox(height: GlassSpacing.xxl),
           // Article content header
           GlassContainer(
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.all(GlassSpacing.xl),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'Welcome to omi-rss',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: GlassTypeScale.display
+                      .copyWith(color: tokens.textHigh),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: GlassSpacing.md),
                 Text(
                   'Select an article from the list to start reading',
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.8),
-                    fontSize: 16,
-                  ),
+                  style: GlassTypeScale.body
+                      .copyWith(color: tokens.textMedium),
                 ),
                 const SizedBox(height: 24),
                 Row(
@@ -828,7 +668,9 @@ class _HomePageState extends ConsumerState<HomePage> {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (context) => const DiscoverScreen(),
+                            builder: (context) => const GlassThemeShell(
+                              child: DiscoverScreen(),
+                            ),
                           ),
                         );
                       },
@@ -847,19 +689,20 @@ class _HomePageState extends ConsumerState<HomePage> {
                               mainAxisSize: MainAxisSize.min,
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Text(
+                                Text(
                                   'Omi RSS Reader is a modern, local-first RSS reader with beautiful glassmorphism design.',
-                                  style: TextStyle(fontSize: 16),
+                                  style: GlassTypeScale.body.copyWith(
+                                      color: GlassTheme.colorsOf(context)
+                                          .textHigh),
                                 ),
-                                const SizedBox(height: 16),
-                                const Text(
+                                const SizedBox(height: GlassSpacing.lg),
+                                Text(
                                   'Key Features:',
-                                  style: TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                  ),
+                                  style: GlassTypeScale.heading.copyWith(
+                                      color: GlassTheme.colorsOf(context)
+                                          .textHigh),
                                 ),
-                                const SizedBox(height: 8),
+                                const SizedBox(height: GlassSpacing.sm),
                                 _buildFeatureItem(Icons.rss_feed,
                                     'Local-first feed subscriptions'),
                                 _buildFeatureItem(
@@ -872,13 +715,12 @@ class _HomePageState extends ConsumerState<HomePage> {
                                     'OPML import and export'),
                                 _buildFeatureItem(
                                     Icons.bar_chart, 'Reading statistics'),
-                                const SizedBox(height: 16),
+                                const SizedBox(height: GlassSpacing.lg),
                                 Text(
                                   'Version: $appVersion',
-                                  style: const TextStyle(
-                                    fontSize: 14,
-                                    color: Colors.white70,
-                                  ),
+                                  style: GlassTypeScale.label.copyWith(
+                                      color: GlassTheme.colorsOf(context)
+                                          .textMedium),
                                 ),
                               ],
                             ),
@@ -906,39 +748,44 @@ class _HomePageState extends ConsumerState<HomePage> {
               ],
             ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: GlassSpacing.xl),
           // Feature cards
           Expanded(
-            child: GridView.count(
-              crossAxisCount: 2,
-              mainAxisSpacing: 16,
-              crossAxisSpacing: 16,
-              children: [
-                _buildFeatureCard(
-                  'All Your Feeds',
-                  'Subscribe to any RSS, Atom, or JSON feed',
-                  Icons.rss_feed,
-                  GlassColors.primaryGradient,
-                ),
-                _buildFeatureCard(
-                  'Full Text',
-                  'Extract complete articles',
-                  Icons.article,
-                  GlassColors.accentGradient,
-                ),
-                _buildFeatureCard(
-                  'Offline Reading',
-                  'Save articles for later',
-                  Icons.download_for_offline,
-                  GlassColors.secondaryGradient,
-                ),
-                _buildFeatureCard(
-                  'Starred Articles',
-                  'Keep track of what matters',
-                  Icons.star,
-                  GlassColors.auroraColors.sublist(0, 2),
-                ),
-              ],
+            child: Builder(
+              builder: (context) {
+                final tokens = GlassTheme.colorsOf(context);
+                return GridView.count(
+                  crossAxisCount: 2,
+                  mainAxisSpacing: GlassSpacing.lg,
+                  crossAxisSpacing: GlassSpacing.lg,
+                  children: [
+                    _buildFeatureCard(
+                      'All Your Feeds',
+                      'Subscribe to any RSS, Atom, or JSON feed',
+                      Icons.rss_feed,
+                      tokens.primaryGradient,
+                    ),
+                    _buildFeatureCard(
+                      'Full Text',
+                      'Extract complete articles',
+                      Icons.article,
+                      tokens.accentGradient,
+                    ),
+                    _buildFeatureCard(
+                      'Offline Reading',
+                      'Save articles for later',
+                      Icons.download_for_offline,
+                      tokens.auroraColors.sublist(0, 2),
+                    ),
+                    _buildFeatureCard(
+                      'Starred Articles',
+                      'Keep track of what matters',
+                      Icons.star,
+                      tokens.auroraColors.sublist(2),
+                    ),
+                  ],
+                );
+              },
             ),
           ),
         ],
@@ -948,6 +795,7 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   Widget _buildFeatureCard(
       String title, String description, IconData icon, List<Color> gradient) {
+    final tokens = GlassTheme.colorsOf(context);
     return GlassCard(
       elevation: 3,
       padding: const EdgeInsets.all(20),
@@ -963,31 +811,24 @@ class _HomePageState extends ConsumerState<HomePage> {
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(GlassRadii.lg),
             ),
             child: Icon(
               icon,
-              color: Colors.white,
+              color: tokens.textHigh,
               size: 32,
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: GlassSpacing.lg),
           Text(
             title,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-            ),
+            style: GlassTypeScale.heading.copyWith(color: tokens.textHigh),
             textAlign: TextAlign.center,
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: GlassSpacing.sm),
           Text(
             description,
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.7),
-              fontSize: 14,
-            ),
+            style: GlassTypeScale.label.copyWith(color: tokens.textMedium),
             textAlign: TextAlign.center,
           ),
         ],
@@ -1133,66 +974,39 @@ class _HomePageState extends ConsumerState<HomePage> {
         ),
       ],
       footer: Container(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(GlassSpacing.lg),
         decoration: BoxDecoration(
           border: Border(
             top: BorderSide(
-              color: Colors.white.withOpacity(0.1),
+              color: GlassTheme.colorsOf(context).divider,
               width: 1,
             ),
           ),
         ),
         child: Column(
           children: [
-            ListTile(
-              leading: Icon(
-                Icons.download,
-                color: Colors.white.withOpacity(0.7),
-                size: 20,
-              ),
-              title: Text(
-                'Import OPML',
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.9),
-                  fontSize: 14,
-                ),
-              ),
+            _buildDrawerFooterTile(
+              context,
+              icon: Icons.download,
+              label: 'Import OPML',
               onTap: () {
                 Navigator.of(context).pop();
                 _importOPML(context);
               },
             ),
-            ListTile(
-              leading: Icon(
-                Icons.upload,
-                color: Colors.white.withOpacity(0.7),
-                size: 20,
-              ),
-              title: Text(
-                'Export OPML',
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.9),
-                  fontSize: 14,
-                ),
-              ),
+            _buildDrawerFooterTile(
+              context,
+              icon: Icons.upload,
+              label: 'Export OPML',
               onTap: () {
                 Navigator.of(context).pop();
                 _exportOPML(context);
               },
             ),
-            ListTile(
-              leading: Icon(
-                Icons.bar_chart,
-                color: Colors.white.withOpacity(0.7),
-                size: 20,
-              ),
-              title: Text(
-                'Statistics',
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.9),
-                  fontSize: 14,
-                ),
-              ),
+            _buildDrawerFooterTile(
+              context,
+              icon: Icons.bar_chart,
+              label: 'Statistics',
               onTap: () {
                 Navigator.of(context).pop();
                 Navigator.push(
@@ -1205,19 +1019,10 @@ class _HomePageState extends ConsumerState<HomePage> {
                 );
               },
             ),
-            ListTile(
-              leading: Icon(
-                Icons.table_chart,
-                color: Colors.white.withOpacity(0.7),
-                size: 20,
-              ),
-              title: Text(
-                'Feed Statistics',
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.9),
-                  fontSize: 14,
-                ),
-              ),
+            _buildDrawerFooterTile(
+              context,
+              icon: Icons.table_chart,
+              label: 'Feed Statistics',
               onTap: () {
                 Navigator.of(context).pop();
                 Navigator.push(
@@ -1230,19 +1035,10 @@ class _HomePageState extends ConsumerState<HomePage> {
                 );
               },
             ),
-            ListTile(
-              leading: Icon(
-                Icons.settings,
-                color: Colors.white.withOpacity(0.7),
-                size: 20,
-              ),
-              title: Text(
-                'Settings',
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.9),
-                  fontSize: 14,
-                ),
-              ),
+            _buildDrawerFooterTile(
+              context,
+              icon: Icons.settings,
+              label: 'Settings',
               onTap: () {
                 Navigator.of(context).pop();
                 Navigator.push(
@@ -1255,19 +1051,10 @@ class _HomePageState extends ConsumerState<HomePage> {
                 );
               },
             ),
-            ListTile(
-              leading: Icon(
-                Icons.logout,
-                color: Colors.white.withOpacity(0.7),
-                size: 20,
-              ),
-              title: Text(
-                'Logout',
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.9),
-                  fontSize: 14,
-                ),
-              ),
+            _buildDrawerFooterTile(
+              context,
+              icon: Icons.logout,
+              label: 'Logout',
               onTap: () async {
                 Navigator.of(context).pop();
                 final confirm = await showGlassConfirmDialog(
@@ -1292,6 +1079,24 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
+  Widget _buildDrawerFooterTile(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    final tokens = GlassTheme.colorsOf(context);
+    return ListTile(
+      visualDensity: VisualDensity.compact,
+      leading: Icon(icon, color: tokens.textMedium, size: 20),
+      title: Text(
+        label,
+        style: GlassTypeScale.label.copyWith(color: tokens.textMedium),
+      ),
+      onTap: onTap,
+    );
+  }
+
   Future<void> _showAddFeedDialog(BuildContext context) async {
     final urlController = TextEditingController();
     final result = await showGlassDialog<bool>(
@@ -1302,12 +1107,10 @@ class _HomePageState extends ConsumerState<HomePage> {
         children: [
           Text(
             'Enter the URL of an RSS, Atom, or JSON feed',
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.8),
-              fontSize: 14,
-            ),
+            style: GlassTypeScale.label.copyWith(
+                color: GlassTheme.colorsOf(context).textMedium),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: GlassSpacing.lg),
           GlassTextField(
             controller: urlController,
             hintText: 'https://example.com/feed.xml',
@@ -1346,6 +1149,11 @@ class _HomePageState extends ConsumerState<HomePage> {
   }
 
   void _importOPML(BuildContext context) async {
+    final settings = ref.read(themeSettingsProvider);
+    final preset = ref.read(themePresetProvider);
+    final tokens =
+        preset.resolve(resolvedBrightness(settings.mode, context));
+
     try {
       await ref.read(importOPMLFromFileProvider.future);
 
@@ -1363,19 +1171,19 @@ class _HomePageState extends ConsumerState<HomePage> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   if (!importState.isComplete) ...[
-                    const CircularProgressIndicator(color: Colors.white),
+                    CircularProgressIndicator(color: tokens.accent),
                     const SizedBox(height: 16),
                     Text(
                       importState.progressText,
-                      style: TextStyle(color: Colors.white.withOpacity(0.8)),
+                      style: GlassTypeScale.label
+                          .copyWith(color: tokens.textMedium),
                     ),
                     const SizedBox(height: 8),
                     LinearProgressIndicator(
                       value: importState.progress,
-                      backgroundColor: Colors.white.withOpacity(0.2),
-                      valueColor: AlwaysStoppedAnimation<Color>(
-                        GlassColors.accentGradient[0],
-                      ),
+                      backgroundColor: tokens.glassStroke,
+                      valueColor:
+                          AlwaysStoppedAnimation<Color>(tokens.accent),
                     ),
                   ] else ...[
                     Icon(
@@ -1383,28 +1191,30 @@ class _HomePageState extends ConsumerState<HomePage> {
                           ? Icons.check_circle
                           : Icons.warning,
                       color: importState.failedFeeds == 0
-                          ? Colors.green
-                          : Colors.orange,
+                          ? tokens.success
+                          : tokens.warning,
                       size: 48,
                     ),
                     const SizedBox(height: 16),
                     Text(
-                      'Import Complete!',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
+                      importState.failedFeeds == 0
+                          ? 'Import Complete!'
+                          : 'Import Finished',
+                      style: GlassTypeScale.title.copyWith(
+                        color: tokens.textHigh,
                       ),
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      '${importState.importedFeeds} feeds imported successfully',
-                      style: TextStyle(color: Colors.white.withOpacity(0.8)),
+                      '${importState.importedFeeds} of ${importState.totalFeeds} feeds imported successfully',
+                      style: GlassTypeScale.label
+                          .copyWith(color: tokens.textMedium),
                     ),
                     if (importState.failedFeeds > 0) ...[
                       Text(
                         '${importState.failedFeeds} feeds failed',
-                        style: TextStyle(color: Colors.orange.withOpacity(0.8)),
+                        style: GlassTypeScale.label
+                            .copyWith(color: tokens.warning),
                       ),
                     ],
                   ],
@@ -1421,8 +1231,17 @@ class _HomePageState extends ConsumerState<HomePage> {
                   return GlassButton(
                     text: 'Done',
                     onPressed: () {
+                      final summary = importState.failedFeeds == 0
+                          ? '${importState.importedFeeds} feeds imported'
+                          : '${importState.importedFeeds} imported, '
+                              '${importState.failedFeeds} failed';
                       ref.read(opmlImportProvider.notifier).reset();
                       Navigator.of(context).pop();
+                      if (importState.failedFeeds == 0) {
+                        context.showSuccessSnackBar(summary);
+                      } else {
+                        context.showWarningSnackBar(summary);
+                      }
                     },
                     variant: GlassButtonVariant.elevated,
                   );
@@ -1542,20 +1361,21 @@ class _HomePageState extends ConsumerState<HomePage> {
   }
 
   Widget _buildFeatureItem(IconData icon, String text) {
+    final tokens = GlassTheme.colorsOf(context);
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: GlassSpacing.xs),
       child: Row(
         children: [
           Icon(
             icon,
             size: 20,
-            color: Theme.of(context).primaryColor,
+            color: tokens.primary,
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: GlassSpacing.md),
           Expanded(
             child: Text(
               text,
-              style: const TextStyle(fontSize: 14),
+              style: GlassTypeScale.label.copyWith(color: tokens.textMedium),
             ),
           ),
         ],

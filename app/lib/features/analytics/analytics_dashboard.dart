@@ -1,16 +1,17 @@
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:fl_chart/fl_chart.dart';
 import '../../providers/analytics_provider.dart';
+import '../../ui/components/glass_container.dart';
+import '../../ui/components/glass_snack_bar.dart';
+import '../../ui/glass_theme.dart';
+import '../../ui/screens/glass_screen.dart';
+import '../../ui/tokens/glass_tokens.dart';
 import 'analytics_service.dart';
+import 'widgets/activity_heatmap.dart';
+import 'widgets/category_chart.dart';
 import 'widgets/reading_stats_card.dart';
 import 'widgets/streak_indicator.dart';
-import 'widgets/category_chart.dart';
-import 'widgets/activity_heatmap.dart';
-import '../../ui/glass_theme.dart';
-import '../../ui/components/glass_container.dart';
-import '../../ui/components/glass_button.dart';
-import '../../ui/components/glass_snack_bar.dart';
 
 class AnalyticsDashboard extends ConsumerStatefulWidget {
   const AnalyticsDashboard({super.key});
@@ -38,147 +39,179 @@ class _AnalyticsDashboardState extends ConsumerState<AnalyticsDashboard>
   @override
   Widget build(BuildContext context) {
     final selectedTimeframe = ref.watch(selectedTimeframeProvider);
+    final tokens = screenTokensOf(context, ref);
 
     return GlassTheme(
-      data: GlassThemeData.defaultTheme,
-      child: Scaffold(
-        body: NestedScrollView(
-          headerSliverBuilder: (context, innerBoxIsScrolled) => [
-            SliverAppBar(
-              expandedHeight: 200,
-              floating: true,
-              pinned: true,
-              flexibleSpace: FlexibleSpaceBar(
-                title: const Text('Analytics'),
-                background: Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        Theme.of(context).colorScheme.primary,
-                        Theme.of(context).colorScheme.secondary,
+      data: GlassThemeData.fromTokens(tokens),
+      child: GlassSnackBarManager(
+        child: Scaffold(
+          backgroundColor: tokens.bgBase,
+          body: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: tokens.backgroundGradient,
+              ),
+            ),
+            child: NestedScrollView(
+              headerSliverBuilder: (context, innerBoxIsScrolled) => [
+                SliverAppBar(
+                  expandedHeight: 200,
+                  floating: true,
+                  pinned: true,
+                  backgroundColor: Colors.transparent,
+                  foregroundColor: tokens.textHigh,
+                  iconTheme: IconThemeData(color: tokens.textHigh),
+                  title: Text(
+                    'Analytics',
+                    style: GlassTypeScale.title.copyWith(
+                      color: tokens.textHigh,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  flexibleSpace: FlexibleSpaceBar(
+                    background: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [tokens.primary, tokens.secondary],
+                        ),
+                      ),
+                      child: Center(
+                        child: Consumer(
+                          builder: (context, ref, _) {
+                            final analyticsAsync = ref.watch(
+                                userAnalyticsProvider(selectedTimeframe));
+
+                            return analyticsAsync.maybeWhen(
+                              data: (analytics) {
+                                final streak =
+                                    analytics.reading?.readingStreak ?? 0;
+                                if (streak > 0) {
+                                  return Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(
+                                        Icons.local_fire_department,
+                                        size: 48,
+                                        color: tokens.textHigh,
+                                      ),
+                                      const SizedBox(height: GlassSpacing.sm),
+                                      Text(
+                                        '$streak Day Streak!',
+                                        style: GlassTypeScale.display.copyWith(
+                                          color: tokens.textHigh,
+                                        ),
+                                      ),
+                                    ],
+                                  );
+                                }
+                                return const SizedBox.shrink();
+                              },
+                              orElse: () => const SizedBox.shrink(),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  ),
+                  bottom: TabBar(
+                    controller: _tabController,
+                    tabs: const [
+                      Tab(text: 'Overview', icon: Icon(Icons.dashboard)),
+                      Tab(text: 'Activity', icon: Icon(Icons.timeline)),
+                      Tab(text: 'Insights', icon: Icon(Icons.lightbulb)),
+                    ],
+                    indicatorColor: tokens.accent,
+                    labelColor: tokens.textHigh,
+                    unselectedLabelColor: tokens.textMedium,
+                  ),
+                  actions: [
+                    PopupMenuButton<String>(
+                      icon: Icon(Icons.calendar_today,
+                          color: tokens.textHigh),
+                      onSelected: (value) {
+                        ref.read(selectedTimeframeProvider.notifier).state =
+                            value;
+                      },
+                      itemBuilder: (context) => [
+                        PopupMenuItem(
+                          value: 'day',
+                          child: Text('Today',
+                              style: GlassTypeScale.label.copyWith(
+                                  color: tokens.textHigh)),
+                        ),
+                        PopupMenuItem(
+                          value: 'week',
+                          child: Text('This Week',
+                              style: GlassTypeScale.label.copyWith(
+                                  color: tokens.textHigh)),
+                        ),
+                        PopupMenuItem(
+                          value: 'month',
+                          child: Text('This Month',
+                              style: GlassTypeScale.label.copyWith(
+                                  color: tokens.textHigh)),
+                        ),
+                        PopupMenuItem(
+                          value: 'year',
+                          child: Text('This Year',
+                              style: GlassTypeScale.label.copyWith(
+                                  color: tokens.textHigh)),
+                        ),
+                        PopupMenuItem(
+                          value: 'all',
+                          child: Text('All Time',
+                              style: GlassTypeScale.label.copyWith(
+                                  color: tokens.textHigh)),
+                        ),
                       ],
                     ),
-                  ),
-                  child: Center(
-                    child: Consumer(
-                      builder: (context, ref, _) {
-                        final analyticsAsync = ref.watch(userAnalyticsProvider(selectedTimeframe));
-
-                        return analyticsAsync.maybeWhen(
-                          data: (analytics) {
-                            final streak = analytics.reading?.readingStreak ?? 0;
-                            if (streak > 0) {
-                              return Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  const Icon(
-                                    Icons.local_fire_department,
-                                    size: 48,
-                                    color: Colors.white,
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    '$streak Day Streak!',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .headlineMedium
-                                        ?.copyWith(
-                                          color: Colors.white,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                  ),
-                                ],
-                              );
-                            }
-                            return const SizedBox.shrink();
-                          },
-                          orElse: () => const SizedBox.shrink(),
-                        );
-                      },
-                    ),
-                  ),
-                ),
-              ),
-              bottom: TabBar(
-                controller: _tabController,
-                tabs: const [
-                  Tab(text: 'Overview', icon: Icon(Icons.dashboard)),
-                  Tab(text: 'Activity', icon: Icon(Icons.timeline)),
-                  Tab(text: 'Insights', icon: Icon(Icons.lightbulb)),
-                ],
-              ),
-              actions: [
-                PopupMenuButton<String>(
-                  icon: const Icon(Icons.calendar_today),
-                  onSelected: (value) {
-                    ref.read(selectedTimeframeProvider.notifier).state = value;
-                  },
-                  itemBuilder: (context) => [
-                    PopupMenuItem(
-                      value: 'day',
-                      child: Text('Today', style: TextStyle(color: Colors.white.withOpacity(0.9))),
-                    ),
-                    PopupMenuItem(
-                      value: 'week',
-                      child: Text('This Week', style: TextStyle(color: Colors.white.withOpacity(0.9))),
-                    ),
-                    PopupMenuItem(
-                      value: 'month',
-                      child: Text('This Month', style: TextStyle(color: Colors.white.withOpacity(0.9))),
-                    ),
-                    PopupMenuItem(
-                      value: 'year',
-                      child: Text('This Year', style: TextStyle(color: Colors.white.withOpacity(0.9))),
-                    ),
-                    PopupMenuItem(
-                      value: 'all',
-                      child: Text('All Time', style: TextStyle(color: Colors.white.withOpacity(0.9))),
+                    IconButton(
+                      icon: Icon(Icons.download, color: tokens.textHigh),
+                      onPressed: _exportAnalytics,
                     ),
                   ],
                 ),
-                IconButton(
-                  icon: const Icon(Icons.download),
-                  onPressed: _exportAnalytics,
-                ),
               ],
+              body: TabBarView(
+                controller: _tabController,
+                children: [
+                  _buildOverviewTab(tokens),
+                  _buildActivityTab(tokens),
+                  _buildInsightsTab(tokens),
+                ],
+              ),
             ),
-          ],
-          body: TabBarView(
-            controller: _tabController,
-            children: [
-              _buildOverviewTab(),
-              _buildActivityTab(),
-              _buildInsightsTab(),
-            ],
           ),
         ),
       ),
     );
   }
 
-  Widget _buildOverviewTab() {
+  Widget _buildOverviewTab(GlassColorTokens tokens) {
     final selectedTimeframe = ref.watch(selectedTimeframeProvider);
     final analyticsAsync = ref.watch(userAnalyticsProvider(selectedTimeframe));
 
     return analyticsAsync.when(
       data: (analytics) {
         return RefreshIndicator(
+          color: tokens.accent,
+          backgroundColor: tokens.bgBase,
           onRefresh: () async {
             ref.invalidate(userAnalyticsProvider);
           },
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(GlassSpacing.lg),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Reading Stats Overview
                 ReadingStatsCard(analytics: analytics),
-                const SizedBox(height: 16),
 
-                // Streak Indicators
                 if (analytics.reading != null) ...[
+                  const SizedBox(height: GlassSpacing.lg),
                   Row(
                     children: [
                       Expanded(
@@ -186,245 +219,195 @@ class _AnalyticsDashboardState extends ConsumerState<AnalyticsDashboard>
                           title: 'Current Streak',
                           days: analytics.reading!.readingStreak,
                           icon: Icons.local_fire_department,
-                          color: Colors.orange,
+                          color: tokens.warning,
                         ),
                       ),
-                      const SizedBox(width: 16),
+                      const SizedBox(width: GlassSpacing.lg),
                       Expanded(
                         child: StreakIndicator(
                           title: 'Longest Streak',
                           days: analytics.reading!.longestStreak,
                           icon: Icons.emoji_events,
-                          color: Colors.amber,
+                          color: tokens.accent,
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 16),
                 ],
 
-                // Category Distribution
-                Text(
-                  'Top Categories',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    color: Colors.white,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                CategoryChart(data: ref.watch(categoryChartProvider(analytics))),
-                const SizedBox(height: 24),
+                const SizedBox(height: GlassSpacing.xl),
+                ScreenSectionHeader(
+                    title: 'Top Categories', tokens: tokens),
+                CategoryChart(
+                    data: ref.watch(categoryChartProvider(analytics))),
+                const SizedBox(height: GlassSpacing.xl),
 
-                // Engagement Metrics
                 if (analytics.engagement != null) ...[
-                  Text(
-                    'Engagement Metrics',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  _buildEngagementMetrics(analytics.engagement!),
+                  ScreenSectionHeader(
+                      title: 'Engagement Metrics', tokens: tokens),
+                  _buildEngagementMetrics(analytics.engagement!, tokens),
                 ],
               ],
             ),
           ),
         );
       },
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (error, stack) => Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.error_outline,
-              size: 64,
-              color: Theme.of(context).colorScheme.error,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Failed to load analytics',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: Colors.white,
-              ),
-            ),
-            const SizedBox(height: 8),
-            GlassButton(
-              onPressed: () => ref.invalidate(userAnalyticsProvider),
-              text: 'Retry',
-              variant: GlassButtonVariant.elevated,
-            ),
-          ],
-        ),
+      loading: () => ScreenSkeleton(tokens: tokens),
+      error: (error, stack) => ScreenErrorState(
+        message: error.toString(),
+        onRetry: () => ref.invalidate(userAnalyticsProvider),
+        tokens: tokens,
       ),
     );
   }
 
-  Widget _buildActivityTab() {
+  Widget _buildActivityTab(GlassColorTokens tokens) {
     final selectedTimeframe = ref.watch(selectedTimeframeProvider);
     final analyticsAsync = ref.watch(userAnalyticsProvider(selectedTimeframe));
 
-    return analyticsAsync.maybeWhen(
+    return analyticsAsync.when(
       data: (analytics) {
         if (analytics.patterns == null) {
-          return const Center(
-            child: Text(
-              'No activity data available',
-              style: TextStyle(color: Colors.white),
-            ),
+          return ScreenEmptyState(
+            icon: Icons.timeline_outlined,
+            title: 'No activity data available',
+            subtitle: 'Your reading activity will show up here',
+            tokens: tokens,
           );
         }
 
         return SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(GlassSpacing.lg),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Activity Heatmap
-              Text(
-                'Reading Activity',
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  color: Colors.white,
-                ),
-              ),
-              const SizedBox(height: 12),
+              ScreenSectionHeader(title: 'Reading Activity', tokens: tokens),
               ActivityHeatmap(
-                hourlyData: ref.watch(hourlyActivityChartProvider(analytics)),
-                weeklyData: ref.watch(weeklyActivityChartProvider(analytics)),
+                hourlyData:
+                    ref.watch(hourlyActivityChartProvider(analytics)),
+                weeklyData:
+                    ref.watch(weeklyActivityChartProvider(analytics)),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: GlassSpacing.xl),
 
-              // Reading Trends
               if (analytics.patterns!.monthlyTrend.length > 1) ...[
-                Text(
-                  'Reading Trends',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    color: Colors.white,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                _buildTrendsChart(analytics.patterns!.monthlyTrend),
+                ScreenSectionHeader(title: 'Reading Trends', tokens: tokens),
+                _buildTrendsChart(
+                    analytics.patterns!.monthlyTrend, tokens),
               ],
             ],
           ),
         );
       },
-      orElse: () => const Center(
-        child: Text(
-          'No activity data available',
-          style: TextStyle(color: Colors.white),
-        ),
+      loading: () => ScreenLoading(tokens: tokens),
+      error: (error, stack) => ScreenErrorState(
+        message: error.toString(),
+        onRetry: () => ref.invalidate(userAnalyticsProvider),
+        tokens: tokens,
       ),
     );
   }
 
-  Widget _buildInsightsTab() {
+  Widget _buildInsightsTab(GlassColorTokens tokens) {
     final selectedTimeframe = ref.watch(selectedTimeframeProvider);
     final analyticsAsync = ref.watch(userAnalyticsProvider(selectedTimeframe));
 
     return analyticsAsync.when(
       data: (analytics) {
         if (analytics.insights.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.lightbulb_outline,
-                  size: 64,
-                  color: Theme.of(context).colorScheme.outline,
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'No insights available yet',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: Colors.white,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Keep reading to generate personalized insights',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Colors.white.withOpacity(0.7),
-                  ),
-                ),
-              ],
-            ),
+          return ScreenEmptyState(
+            icon: Icons.lightbulb_outline,
+            title: 'No insights available yet',
+            subtitle: 'Keep reading to generate personalized insights',
+            tokens: tokens,
           );
         }
 
         return ListView.builder(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(GlassSpacing.lg),
           itemCount: analytics.insights.length,
           itemBuilder: (context, index) {
-            return Card(
-              margin: const EdgeInsets.only(bottom: 12),
-              child: ListTile(
-                leading: const Icon(Icons.lightbulb),
-                title: Text(
-                  analytics.insights[index],
-                  style: const TextStyle(color: Colors.black87),
-                ),
+            return GlassContainer(
+              margin: const EdgeInsets.only(bottom: GlassSpacing.md),
+              padding: const EdgeInsets.all(GlassSpacing.md),
+              child: Row(
+                children: [
+                  Icon(Icons.lightbulb, color: tokens.warning, size: 22),
+                  const SizedBox(width: GlassSpacing.md),
+                  Expanded(
+                    child: Text(
+                      analytics.insights[index],
+                      style: GlassTypeScale.label
+                          .copyWith(color: tokens.textHigh),
+                    ),
+                  ),
+                ],
               ),
             );
           },
         );
       },
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (error, stack) => Center(
-        child: Text(
-          'Failed to load insights',
-          style: TextStyle(color: Colors.white.withOpacity(0.7)),
-        ),
+      loading: () => ScreenLoading(tokens: tokens),
+      error: (error, stack) => ScreenErrorState(
+        message: error.toString(),
+        onRetry: () => ref.invalidate(userAnalyticsProvider),
+        tokens: tokens,
       ),
     );
   }
 
-  Widget _buildEngagementMetrics(EngagementMetrics metrics) {
+  Widget _buildEngagementMetrics(
+      EngagementMetrics metrics, GlassColorTokens tokens) {
     return GlassContainer(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(GlassSpacing.lg),
       child: Column(
         children: [
           _buildMetricRow(
             'Avg. Time Per Paragraph',
             '${metrics.averageTimePerParagraph.toStringAsFixed(1)} min',
             Icons.timelapse,
+            tokens,
           ),
-          const Divider(color: Colors.white24),
+          Divider(color: tokens.glassStroke),
           _buildMetricRow(
             'Bookmark Rate',
             '${metrics.bookmarkRate.toStringAsFixed(0)}%',
             Icons.bookmark,
+            tokens,
           ),
-          const Divider(color: Colors.white24),
+          Divider(color: tokens.glassStroke),
           _buildMetricRow(
             'Interaction Score',
             '${metrics.interactionScore.toStringAsFixed(0)}/100',
             Icons.bolt,
+            tokens,
           ),
         ],
       ),
     );
   }
 
-  Widget _buildMetricRow(String label, String value, IconData icon) {
+  Widget _buildMetricRow(
+      String label, String value, IconData icon, GlassColorTokens tokens) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.symmetric(vertical: GlassSpacing.sm),
       child: Row(
         children: [
-          Icon(icon, size: 24, color: Colors.white.withOpacity(0.8)),
-          const SizedBox(width: 12),
-          Text(
-            label,
-            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-              color: Colors.white.withOpacity(0.8),
+          Icon(icon, size: 24, color: tokens.textMedium),
+          const SizedBox(width: GlassSpacing.md),
+          Expanded(
+            child: Text(
+              label,
+              style: GlassTypeScale.body.copyWith(
+                color: tokens.textMedium,
+              ),
             ),
           ),
-          const Spacer(),
           Text(
             value,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
+            style: GlassTypeScale.body.copyWith(
+              fontWeight: FontWeight.w700,
+              color: tokens.textHigh,
             ),
           ),
         ],
@@ -432,7 +415,8 @@ class _AnalyticsDashboardState extends ConsumerState<AnalyticsDashboard>
     );
   }
 
-  Widget _buildTrendsChart(List<DateCount> monthlyTrend) {
+  Widget _buildTrendsChart(
+      List<DateCount> monthlyTrend, GlassColorTokens tokens) {
     final spots = monthlyTrend.asMap().entries.map((entry) {
       return FlSpot(entry.key.toDouble(), entry.value.count.toDouble());
     }).toList();
@@ -441,33 +425,37 @@ class _AnalyticsDashboardState extends ConsumerState<AnalyticsDashboard>
       height: 200,
       child: LineChart(
         LineChartData(
-          gridData: FlGridData(show: false),
+          gridData: const FlGridData(show: false),
           titlesData: FlTitlesData(
-            leftTitles: AxisTitles(
+            leftTitles: const AxisTitles(
               sideTitles: SideTitles(showTitles: false),
             ),
-            rightTitles: AxisTitles(
+            rightTitles: const AxisTitles(
               sideTitles: SideTitles(showTitles: false),
             ),
-            topTitles: AxisTitles(
+            topTitles: const AxisTitles(
               sideTitles: SideTitles(showTitles: false),
             ),
             bottomTitles: AxisTitles(
               sideTitles: SideTitles(
                 showTitles: true,
                 interval: 5,
+                reservedSize: 24,
                 getTitlesWidget: (value, meta) {
                   final index = value.toInt();
                   if (index < 0 || index >= monthlyTrend.length) {
                     return const SizedBox.shrink();
                   }
                   return Padding(
-                    padding: const EdgeInsets.only(top: 4),
+                    padding: const EdgeInsets.only(top: GlassSpacing.xs),
                     child: RotatedBox(
                       quarterTurns: 1,
                       child: Text(
                         monthlyTrend[index].date.substring(5),
-                        style: const TextStyle(fontSize: 9, color: Colors.white70),
+                        style: GlassTypeScale.caption.copyWith(
+                          fontSize: 9,
+                          color: tokens.textLow,
+                        ),
                       ),
                     ),
                   );
@@ -480,12 +468,12 @@ class _AnalyticsDashboardState extends ConsumerState<AnalyticsDashboard>
             LineChartBarData(
               spots: spots,
               isCurved: true,
-              color: Theme.of(context).colorScheme.primary,
+              color: tokens.accent,
               barWidth: 3,
-              dotData: FlDotData(show: false),
+              dotData: const FlDotData(show: false),
               belowBarData: BarAreaData(
                 show: true,
-                color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                color: tokens.accent.withValues(alpha: 0.12),
               ),
             ),
           ],
@@ -495,10 +483,15 @@ class _AnalyticsDashboardState extends ConsumerState<AnalyticsDashboard>
   }
 
   Future<void> _exportAnalytics() async {
-    await ref.read(exportAnalyticsProvider.future);
-
-    if (mounted) {
-      context.showSuccessSnackBar('Analytics data exported successfully');
+    try {
+      await ref.read(exportAnalyticsProvider.future);
+      if (mounted) {
+        context.showSuccessSnackBar('Analytics data exported successfully');
+      }
+    } catch (e) {
+      if (mounted) {
+        context.showErrorSnackBar('Failed to export analytics: $e');
+      }
     }
   }
 }

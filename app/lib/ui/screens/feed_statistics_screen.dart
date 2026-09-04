@@ -1,19 +1,18 @@
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:fl_chart/fl_chart.dart';
 import '../../core/models/feed_statistics.dart';
-import '../../core/services/statistics_service.dart';
 import '../../providers/statistics_provider.dart';
-import '../glass_theme.dart';
-import '../components/glass_container.dart';
 import '../components/glass_card.dart';
-import '../animations/loading_animation.dart';
+import '../components/glass_container.dart';
+import '../tokens/glass_tokens.dart';
+import 'glass_screen.dart';
 
 /// Feed statistics dashboard screen
 class FeedStatisticsScreen extends ConsumerStatefulWidget {
   final String? feedId;
   final String? categoryId;
-  
+
   const FeedStatisticsScreen({
     super.key,
     this.feedId,
@@ -21,84 +20,88 @@ class FeedStatisticsScreen extends ConsumerStatefulWidget {
   });
 
   @override
-  ConsumerState<FeedStatisticsScreen> createState() => _FeedStatisticsScreenState();
+  ConsumerState<FeedStatisticsScreen> createState() =>
+      _FeedStatisticsScreenState();
 }
 
 class _FeedStatisticsScreenState extends ConsumerState<FeedStatisticsScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  
+
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 4, vsync: this);
   }
-  
+
   @override
   void dispose() {
     _tabController.dispose();
     super.dispose();
   }
-  
+
   @override
   Widget build(BuildContext context) {
-    final theme = GlassTheme.of(context);
     final statisticsAsync = widget.feedId != null
         ? ref.watch(feedStatisticsProvider(widget.feedId!))
         : ref.watch(aggregatedStatisticsProvider(widget.categoryId));
-    
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        title: Text(widget.feedId != null ? 'Feed Statistics' : 'Overall Statistics'),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        bottom: TabBar(
-          controller: _tabController,
-          tabs: const [
-            Tab(text: 'Overview', icon: Icon(Icons.dashboard)),
-            Tab(text: 'Trends', icon: Icon(Icons.trending_up)),
-            Tab(text: 'Performance', icon: Icon(Icons.speed)),
-            Tab(text: 'Reading', icon: Icon(Icons.chrome_reader_mode)),
-          ],
-          indicatorColor: theme.accentColor,
-        ),
+    final tokens = screenTokensOf(context, ref);
+
+    return GlassScreen(
+      title: widget.feedId != null ? 'Feed Statistics' : 'Overall Statistics',
+      appBarBottom: TabBar(
+        controller: _tabController,
+        tabs: const [
+          Tab(text: 'Overview', icon: Icon(Icons.dashboard)),
+          Tab(text: 'Trends', icon: Icon(Icons.trending_up)),
+          Tab(text: 'Performance', icon: Icon(Icons.speed)),
+          Tab(text: 'Reading', icon: Icon(Icons.chrome_reader_mode)),
+        ],
+        indicatorColor: tokens.accent,
+        labelColor: tokens.textHigh,
+        unselectedLabelColor: tokens.textMedium,
       ),
       body: statisticsAsync.when(
         data: (statistics) => TabBarView(
           controller: _tabController,
           children: [
-            _buildOverviewTab(statistics, theme),
-            _buildTrendsTab(statistics, theme),
-            _buildPerformanceTab(statistics, theme),
-            _buildReadingTab(theme),
+            _buildOverviewTab(statistics, tokens),
+            _buildTrendsTab(statistics, tokens),
+            _buildPerformanceTab(statistics, tokens),
+            _buildReadingTab(tokens),
           ],
         ),
-        loading: () => const Center(child: LoadingAnimation()),
-        error: (error, stack) => Center(
-          child: Text(
-            'Failed to load statistics: $error',
-            style: TextStyle(color: Colors.red),
-          ),
+        loading: () => ScreenSkeleton(tokens: tokens),
+        error: (error, stack) => ScreenErrorState(
+          message: error.toString(),
+          onRetry: () {
+            if (widget.feedId != null) {
+              ref.invalidate(feedStatisticsProvider(widget.feedId!));
+            } else {
+              ref.invalidate(
+                  aggregatedStatisticsProvider(widget.categoryId));
+            }
+          },
+          tokens: tokens,
         ),
       ),
     );
   }
-  
-  Widget _buildOverviewTab(dynamic statistics, GlassThemeData theme) {
+
+  Widget _buildOverviewTab(dynamic statistics, GlassColorTokens tokens) {
     if (statistics is FeedStatistics) {
-      return _buildFeedOverview(statistics, theme);
+      return _buildFeedOverview(statistics, tokens);
     } else if (statistics is AggregatedStatistics) {
-      return _buildAggregatedOverview(statistics, theme);
+      return _buildAggregatedOverview(statistics, tokens);
     }
     return const SizedBox();
   }
-  
-  Widget _buildFeedOverview(FeedStatistics stats, GlassThemeData theme) {
+
+  Widget _buildFeedOverview(
+      FeedStatistics stats, GlassColorTokens tokens) {
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(GlassSpacing.lg),
       children: [
-        // Key metrics
         Row(
           children: [
             Expanded(
@@ -106,23 +109,23 @@ class _FeedStatisticsScreenState extends ConsumerState<FeedStatisticsScreen>
                 'Total Articles',
                 stats.totalArticles.toString(),
                 Icons.article,
-                theme.primaryColor,
-                theme,
+                tokens.primary,
+                tokens,
               ),
             ),
-            const SizedBox(width: 16),
+            const SizedBox(width: GlassSpacing.lg),
             Expanded(
               child: _buildMetricCard(
                 'Unread',
                 stats.unreadArticles.toString(),
                 Icons.mark_email_unread,
-                Colors.orange,
-                theme,
+                tokens.warning,
+                tokens,
               ),
             ),
           ],
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: GlassSpacing.lg),
         Row(
           children: [
             Expanded(
@@ -130,114 +133,129 @@ class _FeedStatisticsScreenState extends ConsumerState<FeedStatisticsScreen>
                 'Articles/Day',
                 stats.articlesPerDay.toStringAsFixed(1),
                 Icons.calendar_today,
-                Colors.blue,
-                theme,
+                tokens.accent,
+                tokens,
               ),
             ),
-            const SizedBox(width: 16),
+            const SizedBox(width: GlassSpacing.lg),
             Expanded(
               child: _buildMetricCard(
                 'Read Rate',
                 '${(stats.readRate * 100).toStringAsFixed(0)}%',
                 Icons.check_circle,
-                Colors.green,
-                theme,
+                tokens.success,
+                tokens,
               ),
             ),
           ],
         ),
-        const SizedBox(height: 24),
-        
-        // Articles by time
+        const SizedBox(height: GlassSpacing.xl),
+
         GlassCard(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(GlassSpacing.lg),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 'Articles by Hour',
-                style: theme.titleMedium,
+                style:
+                    GlassTypeScale.label.copyWith(color: tokens.textHigh),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: GlassSpacing.lg),
               SizedBox(
                 height: 200,
-                child: _buildHourlyChart(stats.articlesByHour, theme),
+                child: _buildHourlyChart(stats.articlesByHour, tokens),
               ),
             ],
           ),
         ),
-        const SizedBox(height: 16),
-        
-        // Articles by day of week
+        const SizedBox(height: GlassSpacing.lg),
+
         GlassCard(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(GlassSpacing.lg),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 'Articles by Day of Week',
-                style: theme.titleMedium,
+                style:
+                    GlassTypeScale.label.copyWith(color: tokens.textHigh),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: GlassSpacing.lg),
               SizedBox(
                 height: 200,
-                child: _buildDayOfWeekChart(stats.articlesByDayOfWeek, theme),
+                child:
+                    _buildDayOfWeekChart(stats.articlesByDayOfWeek, tokens),
               ),
             ],
           ),
         ),
-        const SizedBox(height: 16),
-        
-        // Top keywords
+        const SizedBox(height: GlassSpacing.lg),
+
         if (stats.topKeywords.isNotEmpty) ...[
           GlassCard(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(GlassSpacing.lg),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   'Top Keywords',
-                  style: theme.titleMedium,
+                  style: GlassTypeScale.label
+                      .copyWith(color: tokens.textHigh),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: GlassSpacing.lg),
                 Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
+                  spacing: GlassSpacing.sm,
+                  runSpacing: GlassSpacing.sm,
                   children: stats.topKeywords.map((keyword) {
                     return Chip(
-                      label: Text(keyword),
-                      backgroundColor: theme.primaryColor.withOpacity(0.2),
+                      label: Text(
+                        keyword,
+                        style: GlassTypeScale.caption
+                            .copyWith(color: tokens.textHigh),
+                      ),
+                      backgroundColor:
+                          tokens.primary.withValues(alpha: 0.2),
                     );
                   }).toList(),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: GlassSpacing.lg),
         ],
-        
-        // Top authors
+
         if (stats.topAuthors.isNotEmpty) ...[
           GlassCard(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(GlassSpacing.lg),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   'Top Authors',
-                  style: theme.titleMedium,
+                  style: GlassTypeScale.label
+                      .copyWith(color: tokens.textHigh),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: GlassSpacing.lg),
                 ...stats.topAuthors.map((author) {
                   return ListTile(
                     leading: CircleAvatar(
-                      child: Text(author[0].toUpperCase()),
-                      backgroundColor: theme.accentColor.withOpacity(0.3),
+                      backgroundColor:
+                          tokens.accent.withValues(alpha: 0.3),
+                      child: Text(
+                        author[0].toUpperCase(),
+                        style: GlassTypeScale.caption
+                            .copyWith(color: tokens.textHigh),
+                      ),
                     ),
-                    title: Text(author),
+                    title: Text(
+                      author,
+                      style: GlassTypeScale.body
+                          .copyWith(color: tokens.textHigh),
+                    ),
                     contentPadding: EdgeInsets.zero,
                   );
-                }).toList(),
+                }),
               ],
             ),
           ),
@@ -245,12 +263,12 @@ class _FeedStatisticsScreenState extends ConsumerState<FeedStatisticsScreen>
       ],
     );
   }
-  
-  Widget _buildAggregatedOverview(AggregatedStatistics stats, GlassThemeData theme) {
+
+  Widget _buildAggregatedOverview(
+      AggregatedStatistics stats, GlassColorTokens tokens) {
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(GlassSpacing.lg),
       children: [
-        // Key metrics
         Row(
           children: [
             Expanded(
@@ -258,23 +276,23 @@ class _FeedStatisticsScreenState extends ConsumerState<FeedStatisticsScreen>
                 'Total Feeds',
                 stats.totalFeeds.toString(),
                 Icons.rss_feed,
-                theme.primaryColor,
-                theme,
+                tokens.primary,
+                tokens,
               ),
             ),
-            const SizedBox(width: 16),
+            const SizedBox(width: GlassSpacing.lg),
             Expanded(
               child: _buildMetricCard(
                 'Active Feeds',
                 stats.activeFeeds.toString(),
                 Icons.play_circle,
-                Colors.green,
-                theme,
+                tokens.success,
+                tokens,
               ),
             ),
           ],
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: GlassSpacing.lg),
         Row(
           children: [
             Expanded(
@@ -282,116 +300,141 @@ class _FeedStatisticsScreenState extends ConsumerState<FeedStatisticsScreen>
                 'Total Articles',
                 _formatNumber(stats.totalArticles),
                 Icons.article,
-                Colors.blue,
-                theme,
+                tokens.accent,
+                tokens,
               ),
             ),
-            const SizedBox(width: 16),
+            const SizedBox(width: GlassSpacing.lg),
             Expanded(
               child: _buildMetricCard(
                 'Unread',
                 _formatNumber(stats.unreadArticles),
                 Icons.mark_email_unread,
-                Colors.orange,
-                theme,
+                tokens.warning,
+                tokens,
               ),
             ),
           ],
         ),
-        const SizedBox(height: 24),
-        
-        // Articles by category
+        const SizedBox(height: GlassSpacing.xl),
+
         if (stats.articlesByCategory.isNotEmpty) ...[
           GlassCard(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(GlassSpacing.lg),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   'Articles by Category',
-                  style: theme.titleMedium,
+                  style: GlassTypeScale.label
+                      .copyWith(color: tokens.textHigh),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: GlassSpacing.lg),
                 SizedBox(
                   height: 200,
-                  child: _buildPieChart(stats.articlesByCategory.map((k, v) => MapEntry(k, v.toDouble())), theme),
+                  child: _buildPieChart(
+                      stats.articlesByCategory
+                          .map((k, v) => MapEntry(k, v.toDouble())),
+                      tokens),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: GlassSpacing.lg),
         ],
-        
-        // Top performing feeds
+
         if (stats.topPerformingFeeds.isNotEmpty) ...[
           GlassCard(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(GlassSpacing.lg),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   'Top Performing Feeds',
-                  style: theme.titleMedium,
+                  style: GlassTypeScale.label
+                      .copyWith(color: tokens.textHigh),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: GlassSpacing.lg),
                 ...stats.topPerformingFeeds.map((feed) {
                   return ListTile(
-                    title: Text(feed.feedTitle),
-                    subtitle: Text('${feed.articlesPerDay.toStringAsFixed(1)} articles/day'),
+                    title: Text(
+                      feed.feedTitle,
+                      style: GlassTypeScale.body
+                          .copyWith(color: tokens.textHigh),
+                    ),
+                    subtitle: Text(
+                      '${feed.articlesPerDay.toStringAsFixed(1)} articles/day',
+                      style: GlassTypeScale.label
+                          .copyWith(color: tokens.textMedium),
+                    ),
                     trailing: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: GlassSpacing.sm,
+                          vertical: GlassSpacing.xs),
                       decoration: BoxDecoration(
-                        color: Colors.green.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(12),
+                        color: tokens.success.withValues(alpha: 0.2),
+                        borderRadius:
+                            BorderRadius.circular(GlassRadii.md),
                       ),
                       child: Text(
                         '${(feed.healthScore * 100).toStringAsFixed(0)}%',
-                        style: TextStyle(color: Colors.green),
+                        style: GlassTypeScale.label
+                            .copyWith(color: tokens.success),
                       ),
                     ),
                     contentPadding: EdgeInsets.zero,
                   );
-                }).toList(),
+                }),
               ],
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: GlassSpacing.lg),
         ],
-        
-        // Worst performing feeds
+
         if (stats.worstPerformingFeeds.isNotEmpty) ...[
           GlassCard(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(GlassSpacing.lg),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   'Feeds Needing Attention',
-                  style: theme.titleMedium,
+                  style: GlassTypeScale.label
+                      .copyWith(color: tokens.textHigh),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: GlassSpacing.lg),
                 ...stats.worstPerformingFeeds.map((feed) {
                   return ListTile(
-                    title: Text(feed.feedTitle),
+                    title: Text(
+                      feed.feedTitle,
+                      style: GlassTypeScale.body
+                          .copyWith(color: tokens.textHigh),
+                    ),
                     subtitle: Text(
                       feed.lastSuccessfulUpdate != null
                           ? 'Last updated ${_formatRelativeTime(feed.lastSuccessfulUpdate!)}'
                           : 'Never updated successfully',
+                      style: GlassTypeScale.label
+                          .copyWith(color: tokens.textMedium),
                     ),
                     trailing: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: GlassSpacing.sm,
+                          vertical: GlassSpacing.xs),
                       decoration: BoxDecoration(
-                        color: Colors.red.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(12),
+                        color: tokens.error.withValues(alpha: 0.2),
+                        borderRadius:
+                            BorderRadius.circular(GlassRadii.md),
                       ),
                       child: Text(
                         '${(feed.healthScore * 100).toStringAsFixed(0)}%',
-                        style: TextStyle(color: Colors.red),
+                        style: GlassTypeScale.label
+                            .copyWith(color: tokens.error),
                       ),
                     ),
                     contentPadding: EdgeInsets.zero,
                   );
-                }).toList(),
+                }),
               ],
             ),
           ),
@@ -399,12 +442,11 @@ class _FeedStatisticsScreenState extends ConsumerState<FeedStatisticsScreen>
       ],
     );
   }
-  
-  Widget _buildTrendsTab(dynamic statistics, GlassThemeData theme) {
+
+  Widget _buildTrendsTab(dynamic statistics, GlassColorTokens tokens) {
     final Map<DateTime, int> articlesOverTime;
-    
+
     if (statistics is FeedStatistics) {
-      // Convert monthly data to daily for consistent display
       articlesOverTime = {};
       statistics.articlesByMonth.forEach((monthKey, count) {
         final parts = monthKey.split('-');
@@ -416,284 +458,377 @@ class _FeedStatisticsScreenState extends ConsumerState<FeedStatisticsScreen>
     } else {
       articlesOverTime = {};
     }
-    
+
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(GlassSpacing.lg),
       children: [
         GlassCard(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(GlassSpacing.lg),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 'Articles Over Time',
-                style: theme.titleMedium,
+                style:
+                    GlassTypeScale.label.copyWith(color: tokens.textHigh),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: GlassSpacing.lg),
               SizedBox(
                 height: 300,
-                child: _buildTimelineChart(articlesOverTime, theme),
+                child: articlesOverTime.isEmpty
+                    ? ScreenEmptyState(
+                        icon: Icons.show_chart_outlined,
+                        title: 'No trend data yet',
+                        subtitle:
+                            'Trends appear once your feeds publish new articles',
+                        tokens: tokens,
+                      )
+                    : _buildTimelineChart(articlesOverTime, tokens),
               ),
             ],
           ),
         ),
-        const SizedBox(height: 16),
-        
-        // Read rate trend
+        const SizedBox(height: GlassSpacing.lg),
+
         GlassCard(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(GlassSpacing.lg),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Reading Trends',
-                style: theme.titleMedium,
+                'Current Averages',
+                style:
+                    GlassTypeScale.label.copyWith(color: tokens.textHigh),
               ),
-              const SizedBox(height: 16),
-              _buildReadingTrendIndicators(theme),
+              const SizedBox(height: GlassSpacing.lg),
+              _buildCurrentAverages(statistics, tokens),
             ],
           ),
         ),
       ],
     );
   }
-  
-  Widget _buildPerformanceTab(dynamic statistics, GlassThemeData theme) {
+
+  Widget _buildCurrentAverages(
+      dynamic statistics, GlassColorTokens tokens) {
+    final double readRate;
+    final String dailyAverage;
+
+    if (statistics is FeedStatistics) {
+      readRate = statistics.readRate;
+      dailyAverage = statistics.articlesPerDay.toStringAsFixed(1);
+    } else if (statistics is AggregatedStatistics) {
+      final total = statistics.totalArticles;
+      readRate =
+          total > 0 ? (total - statistics.unreadArticles) / total : 0;
+      dailyAverage = statistics.totalFeeds > 0
+          ? (total / statistics.totalFeeds).toStringAsFixed(1)
+          : '0.0';
+    } else {
+      readRate = 0;
+      dailyAverage = '0.0';
+    }
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceAround,
+      children: [
+        _buildTrendIndicator(
+          'Read Rate',
+          '${(readRate * 100).toStringAsFixed(0)}%',
+          Icons.visibility,
+          tokens.textMedium,
+          tokens,
+        ),
+        _buildTrendIndicator(
+          'Avg. Articles',
+          dailyAverage,
+          Icons.article_outlined,
+          tokens.textMedium,
+          tokens,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPerformanceTab(
+      dynamic statistics, GlassColorTokens tokens) {
     if (statistics is AggregatedStatistics) {
+      if (statistics.healthByCategory.isEmpty) {
+        return ScreenEmptyState(
+          icon: Icons.speed_outlined,
+          title: 'No performance data yet',
+          subtitle: 'Feed health appears after a few refresh cycles',
+          tokens: tokens,
+        );
+      }
+
       return ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(GlassSpacing.lg),
         children: [
-          // Health by category
-          if (statistics.healthByCategory.isNotEmpty) ...[
-            GlassCard(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Health by Category',
-                    style: theme.titleMedium,
-                  ),
-                  const SizedBox(height: 16),
-                  ...statistics.healthByCategory.entries.map((entry) {
-                    final health = entry.value;
-                    final color = health > 0.8
-                        ? Colors.green
-                        : health > 0.5
-                            ? Colors.orange
-                            : Colors.red;
-                    
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(entry.key),
-                              Text(
-                                '${(health * 100).toStringAsFixed(0)}%',
-                                style: TextStyle(color: color),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          LinearProgressIndicator(
-                            value: health,
-                            backgroundColor: Colors.white.withOpacity(0.1),
-                            valueColor: AlwaysStoppedAnimation<Color>(color),
-                          ),
-                        ],
-                      ),
-                    );
-                  }).toList(),
-                ],
-              ),
+          GlassCard(
+            padding: const EdgeInsets.all(GlassSpacing.lg),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Health by Category',
+                  style: GlassTypeScale.label
+                      .copyWith(color: tokens.textHigh),
+                ),
+                const SizedBox(height: GlassSpacing.lg),
+                ...statistics.healthByCategory.entries.map((entry) {
+                  final health = entry.value;
+                  final color = health > 0.8
+                      ? tokens.success
+                      : health > 0.5
+                          ? tokens.warning
+                          : tokens.error;
+
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: GlassSpacing.md),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              entry.key,
+                              style: GlassTypeScale.body
+                                  .copyWith(color: tokens.textHigh),
+                            ),
+                            Text(
+                              '${(health * 100).toStringAsFixed(0)}%',
+                              style: GlassTypeScale.label
+                                  .copyWith(color: color),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: GlassSpacing.xs),
+                        LinearProgressIndicator(
+                          value: health,
+                          backgroundColor: tokens.glassStroke,
+                          valueColor: AlwaysStoppedAnimation<Color>(color),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+              ],
             ),
-          ],
+          ),
         ],
       );
     }
-    
-    return const Center(
-      child: Text('Performance data not available for individual feeds'),
+
+    return ScreenEmptyState(
+      icon: Icons.speed_outlined,
+      title: 'Performance data not available for individual feeds',
+      subtitle: 'Open overall statistics to compare feed health',
+      tokens: tokens,
     );
   }
-  
-  Widget _buildReadingTab(GlassThemeData theme) {
+
+  Widget _buildReadingTab(GlassColorTokens tokens) {
     final readingStatsAsync = ref.watch(detailedReadingStatisticsProvider);
-    
+
     return readingStatsAsync.when(
-      data: (stats) => ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          // Today's reading
-          Row(
-            children: [
-              Expanded(
-                child: _buildMetricCard(
-                  'Read Today',
-                  stats.articlesReadToday.toString(),
-                  Icons.today,
-                  theme.primaryColor,
-                  theme,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: _buildMetricCard(
-                  'Time Today',
-                  '${stats.totalReadingTimeToday} min',
-                  Icons.timer,
-                  Colors.blue,
-                  theme,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          
-          // Reading streaks
-          if (stats.streaks.isNotEmpty) ...[
-            GlassCard(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Reading Streaks',
-                    style: theme.titleMedium,
+      data: (stats) {
+        if (stats.streaks.isEmpty &&
+            stats.readingTimeByCategory.isEmpty &&
+            stats.articlesReadToday == 0) {
+          return ScreenEmptyState(
+            icon: Icons.chrome_reader_mode_outlined,
+            title: 'No reading history yet',
+            subtitle: 'Read a few articles to build your reading profile',
+            tokens: tokens,
+          );
+        }
+
+        return ListView(
+          padding: const EdgeInsets.all(GlassSpacing.lg),
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: _buildMetricCard(
+                    'Read Today',
+                    stats.articlesReadToday.toString(),
+                    Icons.today,
+                    tokens.primary,
+                    tokens,
                   ),
-                  const SizedBox(height: 16),
-                  ...stats.streaks.take(3).map((streak) {
-                    return ListTile(
-                      leading: Icon(
-                        streak.isCurrent ? Icons.local_fire_department : Icons.check_circle,
-                        color: streak.isCurrent ? Colors.orange : Colors.green,
-                      ),
-                      title: Text('${streak.daysCount} days'),
-                      subtitle: Text(
-                        '${streak.articlesRead} articles • ${_formatDateRange(streak.startDate, streak.endDate)}',
-                      ),
-                      contentPadding: EdgeInsets.zero,
-                    );
-                  }).toList(),
-                ],
-              ),
+                ),
+                const SizedBox(width: GlassSpacing.lg),
+                Expanded(
+                  child: _buildMetricCard(
+                    'Time Today',
+                    '${stats.totalReadingTimeToday} min',
+                    Icons.timer,
+                    tokens.accent,
+                    tokens,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 16),
-          ],
-          
-          // Reading time by category
-          if (stats.readingTimeByCategory.isNotEmpty) ...[
+            const SizedBox(height: GlassSpacing.lg),
+
+            if (stats.streaks.isNotEmpty) ...[
+              GlassCard(
+                padding: const EdgeInsets.all(GlassSpacing.lg),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Reading Streaks',
+                      style: GlassTypeScale.label
+                          .copyWith(color: tokens.textHigh),
+                    ),
+                    const SizedBox(height: GlassSpacing.lg),
+                    ...stats.streaks.take(3).map((streak) {
+                      return ListTile(
+                        leading: Icon(
+                          streak.isCurrent
+                              ? Icons.local_fire_department
+                              : Icons.check_circle,
+                          color: streak.isCurrent
+                              ? tokens.warning
+                              : tokens.success,
+                        ),
+                        title: Text(
+                          '${streak.daysCount} days',
+                          style: GlassTypeScale.body
+                              .copyWith(color: tokens.textHigh),
+                        ),
+                        subtitle: Text(
+                          '${streak.articlesRead} articles • ${_formatDateRange(streak.startDate, streak.endDate)}',
+                          style: GlassTypeScale.label
+                              .copyWith(color: tokens.textMedium),
+                        ),
+                        contentPadding: EdgeInsets.zero,
+                      );
+                    }),
+                  ],
+                ),
+              ),
+              const SizedBox(height: GlassSpacing.lg),
+            ],
+
+            if (stats.readingTimeByCategory.isNotEmpty) ...[
+              GlassCard(
+                padding: const EdgeInsets.all(GlassSpacing.lg),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Reading Time by Category',
+                      style: GlassTypeScale.label
+                          .copyWith(color: tokens.textHigh),
+                    ),
+                    const SizedBox(height: GlassSpacing.lg),
+                    SizedBox(
+                      height: 200,
+                      child: _buildPieChart(
+                        stats.readingTimeByCategory
+                            .map((k, v) => MapEntry(k, v.toDouble())),
+                        tokens,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: GlassSpacing.lg),
+            ],
+
             GlassCard(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              padding: const EdgeInsets.all(GlassSpacing.lg),
+              child: Row(
                 children: [
-                  Text(
-                    'Reading Time by Category',
-                    style: theme.titleMedium,
-                  ),
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    height: 200,
-                    child: _buildPieChart(
-                      stats.readingTimeByCategory.map((k, v) => MapEntry(k, v.toDouble())),
-                      theme,
+                  Icon(Icons.speed, size: 48, color: tokens.accent),
+                  const SizedBox(width: GlassSpacing.lg),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Average Reading Speed',
+                          style: GlassTypeScale.label
+                              .copyWith(color: tokens.textHigh),
+                        ),
+                        const SizedBox(height: GlassSpacing.xs),
+                        Text(
+                          '${stats.averageReadingSpeed.toStringAsFixed(0)} words per minute',
+                          style: GlassTypeScale.body.copyWith(
+                            color: tokens.accent,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 16),
           ],
-          
-          // Reading speed
-          GlassCard(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                Icon(Icons.speed, size: 48, color: theme.accentColor),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Average Reading Speed',
-                        style: theme.titleMedium,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${stats.averageReadingSpeed.toStringAsFixed(0)} words per minute',
-                        style: theme.bodyLarge.copyWith(
-                          color: theme.accentColor,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-      loading: () => const Center(child: LoadingAnimation()),
-      error: (error, stack) => Center(
-        child: Text(
-          'Failed to load reading statistics: $error',
-          style: TextStyle(color: Colors.red),
-        ),
+        );
+      },
+      loading: () => ScreenLoading(tokens: tokens),
+      error: (error, stack) => ScreenErrorState(
+        message: error.toString(),
+        onRetry: () => ref.refresh(detailedReadingStatisticsProvider),
+        tokens: tokens,
       ),
     );
   }
-  
+
   Widget _buildMetricCard(
     String label,
     String value,
     IconData icon,
     Color color,
-    GlassThemeData theme,
+    GlassColorTokens tokens,
   ) {
     return GlassContainer(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(GlassSpacing.lg),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
               Icon(icon, color: color, size: 20),
-              const SizedBox(width: 8),
-              Text(
-                label,
-                style: theme.bodySmall.copyWith(
-                  color: Colors.white.withOpacity(0.7),
+              const SizedBox(width: GlassSpacing.sm),
+              Expanded(
+                child: Text(
+                  label,
+                  style: GlassTypeScale.caption
+                      .copyWith(color: tokens.textMedium),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: GlassSpacing.sm),
           Text(
             value,
-            style: theme.headlineMedium.copyWith(
-              fontWeight: FontWeight.bold,
+            style: GlassTypeScale.display.copyWith(
+              fontSize: 24,
+              color: tokens.textHigh,
             ),
           ),
         ],
       ),
     );
   }
-  
-  Widget _buildHourlyChart(Map<String, int> data, GlassThemeData theme) {
+
+  Widget _buildHourlyChart(
+      Map<String, int> data, GlassColorTokens tokens) {
     final spots = <FlSpot>[];
     for (int hour = 0; hour < 24; hour++) {
       final hourStr = hour.toString().padLeft(2, '0');
       spots.add(FlSpot(hour.toDouble(), (data[hourStr] ?? 0).toDouble()));
     }
-    
+
     return LineChart(
       LineChartData(
         gridData: FlGridData(
@@ -701,7 +836,7 @@ class _FeedStatisticsScreenState extends ConsumerState<FeedStatisticsScreen>
           drawVerticalLine: false,
           getDrawingHorizontalLine: (value) {
             return FlLine(
-              color: Colors.white.withOpacity(0.1),
+              color: tokens.glassStroke,
               strokeWidth: 1,
             );
           },
@@ -711,13 +846,12 @@ class _FeedStatisticsScreenState extends ConsumerState<FeedStatisticsScreen>
             sideTitles: SideTitles(
               showTitles: true,
               interval: 6,
+              reservedSize: 24,
               getTitlesWidget: (value, meta) {
                 return Text(
                   value.toInt().toString(),
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.5),
-                    fontSize: 10,
-                  ),
+                  style: GlassTypeScale.caption
+                      .copyWith(color: tokens.textLow),
                 );
               },
             ),
@@ -725,73 +859,72 @@ class _FeedStatisticsScreenState extends ConsumerState<FeedStatisticsScreen>
           leftTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,
+              reservedSize: 30,
               getTitlesWidget: (value, meta) {
                 return Text(
                   value.toInt().toString(),
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.5),
-                    fontSize: 10,
-                  ),
+                  style: GlassTypeScale.caption
+                      .copyWith(color: tokens.textLow),
                 );
               },
             ),
           ),
-          topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
         ),
         borderData: FlBorderData(show: false),
         lineBarsData: [
           LineChartBarData(
             spots: spots,
             isCurved: true,
-            color: theme.accentColor,
+            color: tokens.accent,
             barWidth: 3,
             isStrokeCapRound: true,
-            dotData: FlDotData(show: false),
+            dotData: const FlDotData(show: false),
             belowBarData: BarAreaData(
               show: true,
-              color: theme.accentColor.withOpacity(0.2),
+              color: tokens.accent.withValues(alpha: 0.2),
             ),
           ),
         ],
       ),
     );
   }
-  
-  Widget _buildDayOfWeekChart(Map<String, int> data, GlassThemeData theme) {
+
+  Widget _buildDayOfWeekChart(
+      Map<String, int> data, GlassColorTokens tokens) {
     const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    
+
     return BarChart(
       BarChartData(
         barGroups: days.asMap().entries.map((entry) {
           final index = entry.key;
           final day = entry.value;
           final value = data[day] ?? 0;
-          
+
           return BarChartGroupData(
             x: index,
             barRods: [
               BarChartRodData(
                 toY: value.toDouble(),
-                color: theme.primaryColor,
+                color: tokens.primary,
                 width: 30,
                 borderRadius: BorderRadius.circular(4),
               ),
             ],
           );
         }).toList(),
-        gridData: FlGridData(show: false),
+        gridData: const FlGridData(show: false),
         titlesData: FlTitlesData(
           bottomTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,
+              reservedSize: 24,
               getTitlesWidget: (value, meta) {
                 return Text(
                   days[value.toInt()],
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.5),
-                    fontSize: 10,
-                  ),
+                  style: GlassTypeScale.caption
+                      .copyWith(color: tokens.textLow),
                 );
               },
             ),
@@ -799,63 +932,60 @@ class _FeedStatisticsScreenState extends ConsumerState<FeedStatisticsScreen>
           leftTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,
+              reservedSize: 30,
               getTitlesWidget: (value, meta) {
                 return Text(
                   value.toInt().toString(),
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.5),
-                    fontSize: 10,
-                  ),
+                  style: GlassTypeScale.caption
+                      .copyWith(color: tokens.textLow),
                 );
               },
             ),
           ),
-          topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
         ),
         borderData: FlBorderData(show: false),
       ),
     );
   }
-  
-  Widget _buildPieChart(Map<String, double> data, GlassThemeData theme) {
+
+  Widget _buildPieChart(
+      Map<String, double> data, GlassColorTokens tokens) {
     final total = data.values.reduce((a, b) => a + b);
+    if (total <= 0) {
+      return Center(
+        child: Text(
+          'No data available',
+          style: GlassTypeScale.label.copyWith(color: tokens.textMedium),
+        ),
+      );
+    }
+
     final colors = [
-      Colors.blue,
-      Colors.green,
-      Colors.orange,
-      Colors.purple,
-      Colors.red,
-      Colors.teal,
-      Colors.amber,
-      Colors.pink,
+      tokens.primary,
+      tokens.accent,
+      tokens.secondary,
+      tokens.warning,
+      ...tokens.auroraColors,
     ];
-    
+
     return PieChart(
       PieChartData(
         sections: data.entries.toList().asMap().entries.map((entry) {
           final index = entry.key;
           final item = entry.value;
           final percentage = (item.value / total) * 100;
-          
+
           return PieChartSectionData(
             color: colors[index % colors.length],
             value: item.value,
             title: '${percentage.toStringAsFixed(0)}%',
-            radius: 80,
-            titleStyle: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.bold,
+            radius: 70,
+            titleStyle: GlassTypeScale.caption.copyWith(
+              fontWeight: FontWeight.w700,
               color: Colors.white,
             ),
-            badgeWidget: Text(
-              item.key,
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.7),
-                fontSize: 10,
-              ),
-            ),
-            badgePositionPercentageOffset: 1.3,
           );
         }).toList(),
         sectionsSpace: 2,
@@ -863,24 +993,16 @@ class _FeedStatisticsScreenState extends ConsumerState<FeedStatisticsScreen>
       ),
     );
   }
-  
-  Widget _buildTimelineChart(Map<DateTime, int> data, GlassThemeData theme) {
-    if (data.isEmpty) {
-      return Center(
-        child: Text(
-          'No data available',
-          style: TextStyle(color: Colors.white.withOpacity(0.5)),
-        ),
-      );
-    }
-    
+
+  Widget _buildTimelineChart(
+      Map<DateTime, int> data, GlassColorTokens tokens) {
     final sortedEntries = data.entries.toList()
       ..sort((a, b) => a.key.compareTo(b.key));
-    
+
     final spots = sortedEntries.asMap().entries.map((entry) {
       return FlSpot(entry.key.toDouble(), entry.value.value.toDouble());
     }).toList();
-    
+
     return LineChart(
       LineChartData(
         gridData: FlGridData(
@@ -888,7 +1010,7 @@ class _FeedStatisticsScreenState extends ConsumerState<FeedStatisticsScreen>
           drawVerticalLine: false,
           getDrawingHorizontalLine: (value) {
             return FlLine(
-              color: Colors.white.withOpacity(0.1),
+              color: tokens.glassStroke,
               strokeWidth: 1,
             );
           },
@@ -898,15 +1020,16 @@ class _FeedStatisticsScreenState extends ConsumerState<FeedStatisticsScreen>
             sideTitles: SideTitles(
               showTitles: true,
               interval: (sortedEntries.length / 5).ceilToDouble(),
+              reservedSize: 24,
               getTitlesWidget: (value, meta) {
-                if (value.toInt() >= sortedEntries.length) return const SizedBox();
+                if (value.toInt() >= sortedEntries.length) {
+                  return const SizedBox();
+                }
                 final date = sortedEntries[value.toInt()].key;
                 return Text(
                   '${date.month}/${date.day}',
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.5),
-                    fontSize: 10,
-                  ),
+                  style: GlassTypeScale.caption
+                      .copyWith(color: tokens.textLow),
                 );
               },
             ),
@@ -914,26 +1037,25 @@ class _FeedStatisticsScreenState extends ConsumerState<FeedStatisticsScreen>
           leftTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,
+              reservedSize: 30,
               getTitlesWidget: (value, meta) {
                 return Text(
                   value.toInt().toString(),
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.5),
-                    fontSize: 10,
-                  ),
+                  style: GlassTypeScale.caption
+                      .copyWith(color: tokens.textLow),
                 );
               },
             ),
           ),
-          topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
         ),
         borderData: FlBorderData(show: false),
         lineBarsData: [
           LineChartBarData(
             spots: spots,
             isCurved: true,
-            color: theme.accentColor,
+            color: tokens.accent,
             barWidth: 3,
             isStrokeCapRound: true,
             dotData: FlDotData(
@@ -941,76 +1063,45 @@ class _FeedStatisticsScreenState extends ConsumerState<FeedStatisticsScreen>
               getDotPainter: (spot, percent, barData, index) {
                 return FlDotCirclePainter(
                   radius: 3,
-                  color: theme.accentColor,
+                  color: tokens.accent,
                   strokeWidth: 1,
-                  strokeColor: Colors.white,
+                  strokeColor: tokens.bgBase,
                 );
               },
             ),
             belowBarData: BarAreaData(
               show: true,
-              color: theme.accentColor.withOpacity(0.2),
+              color: tokens.accent.withValues(alpha: 0.2),
             ),
           ),
         ],
       ),
     );
   }
-  
-  Widget _buildReadingTrendIndicators(GlassThemeData theme) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceAround,
-      children: [
-        _buildTrendIndicator(
-          'Daily Average',
-          '+12%',
-          true,
-          theme,
-        ),
-        _buildTrendIndicator(
-          'Read Rate',
-          '-5%',
-          false,
-          theme,
-        ),
-        _buildTrendIndicator(
-          'Completion',
-          '+8%',
-          true,
-          theme,
-        ),
-      ],
-    );
-  }
-  
+
   Widget _buildTrendIndicator(
     String label,
     String value,
-    bool isPositive,
-    GlassThemeData theme,
+    IconData icon,
+    Color color,
+    GlassColorTokens tokens,
   ) {
     return Column(
       children: [
         Text(
           label,
-          style: theme.bodySmall.copyWith(
-            color: Colors.white.withOpacity(0.7),
-          ),
+          style: GlassTypeScale.caption.copyWith(color: tokens.textMedium),
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: GlassSpacing.xs),
         Row(
           children: [
-            Icon(
-              isPositive ? Icons.trending_up : Icons.trending_down,
-              color: isPositive ? Colors.green : Colors.red,
-              size: 16,
-            ),
-            const SizedBox(width: 4),
+            Icon(icon, color: color, size: 16),
+            const SizedBox(width: GlassSpacing.xs),
             Text(
               value,
-              style: TextStyle(
-                color: isPositive ? Colors.green : Colors.red,
-                fontWeight: FontWeight.bold,
+              style: GlassTypeScale.label.copyWith(
+                color: tokens.textHigh,
+                fontWeight: FontWeight.w700,
               ),
             ),
           ],
@@ -1018,7 +1109,7 @@ class _FeedStatisticsScreenState extends ConsumerState<FeedStatisticsScreen>
       ],
     );
   }
-  
+
   String _formatNumber(int number) {
     if (number >= 1000000) {
       return '${(number / 1000000).toStringAsFixed(1)}M';
@@ -1027,11 +1118,11 @@ class _FeedStatisticsScreenState extends ConsumerState<FeedStatisticsScreen>
     }
     return number.toString();
   }
-  
+
   String _formatRelativeTime(DateTime dateTime) {
     final now = DateTime.now();
     final difference = now.difference(dateTime);
-    
+
     if (difference.inMinutes < 1) {
       return 'just now';
     } else if (difference.inMinutes < 60) {
@@ -1042,9 +1133,9 @@ class _FeedStatisticsScreenState extends ConsumerState<FeedStatisticsScreen>
       return '${difference.inDays}d ago';
     }
   }
-  
+
   String _formatDateRange(DateTime start, DateTime end) {
-    final formatter = (DateTime date) => '${date.month}/${date.day}';
-    return '${formatter(start)} - ${formatter(end)}';
+    String format(DateTime date) => '${date.month}/${date.day}';
+    return '${format(start)} - ${format(end)}';
   }
 }

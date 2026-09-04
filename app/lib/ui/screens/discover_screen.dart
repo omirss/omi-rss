@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-import '../components/glass_container.dart';
+import '../glass_theme.dart';
+import '../tokens/glass_tokens.dart';
 import '../components/glass_card.dart';
 import '../components/glass_button.dart';
 import '../animations/particle_background.dart';
@@ -198,69 +199,70 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> with SingleTick
 
   @override
   Widget build(BuildContext context) {
+    final tokens = GlassTheme.colorsOf(context);
     return Scaffold(
+      backgroundColor: tokens.bgBase,
       body: Stack(
         children: [
           // Particle background
-          const ParticleBackground(
+          ParticleBackground(
             particleCount: 100,
-            child: SizedBox.expand(),
+            backgroundGradient: tokens.backgroundGradient,
+            child: const SizedBox.expand(),
           ),
-          
+
           // Main content
           SafeArea(
             child: Column(
               children: [
                 // Header
                 Padding(
-                  padding: const EdgeInsets.all(24),
+                  padding: const EdgeInsets.all(GlassSpacing.xl),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
                         children: [
-                          IconButton(
-                            icon: const Icon(Icons.arrow_back),
+                          GlassButton(
+                            icon: Icons.arrow_back,
                             onPressed: () => Navigator.pop(context),
+                            variant: GlassButtonVariant.icon,
                           ),
-                          const SizedBox(width: 16),
-                          const Text(
+                          const SizedBox(width: GlassSpacing.lg),
+                          Text(
                             'Discover Feeds',
-                            style: TextStyle(
-                              fontSize: 32,
-                              fontWeight: FontWeight.bold,
-                            ),
+                            style: GlassTypeScale.display
+                                .copyWith(color: tokens.textHigh),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: GlassSpacing.sm),
                       Text(
                         'Find and subscribe to popular RSS feeds',
-                        style: TextStyle(
-                          fontSize: 16,
-                          color: Colors.white.withOpacity(0.7),
-                        ),
+                        style: GlassTypeScale.body
+                            .copyWith(color: tokens.textMedium),
                       ),
                     ],
                   ),
                 ).animate().fadeIn(duration: 300.ms).slideY(begin: -0.2, end: 0),
-                
+
                 // Tabs
                 Container(
                   height: 50,
-                  margin: const EdgeInsets.symmetric(horizontal: 24),
+                  margin: const EdgeInsets.symmetric(horizontal: GlassSpacing.xl),
                   child: TabBar(
                     controller: _tabController,
                     isScrollable: false,
                     indicator: BoxDecoration(
                       borderRadius: BorderRadius.circular(25),
                       gradient: LinearGradient(
-                        colors: [
-                          Theme.of(context).primaryColor,
-                          Theme.of(context).primaryColor.withOpacity(0.7),
-                        ],
+                        colors: tokens.primaryGradient,
                       ),
                     ),
+                    labelColor: tokens.textHigh,
+                    unselectedLabelColor: tokens.textMedium,
+                    dividerColor: Colors.transparent,
+                    indicatorColor: tokens.primary,
                     tabs: const [
                       Tab(text: 'Popular'),
                       Tab(text: 'Trending'),
@@ -268,21 +270,21 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> with SingleTick
                     ],
                   ),
                 ),
-                
+
                 // Category filters
                 Container(
                   height: 50,
-                  margin: const EdgeInsets.symmetric(vertical: 16),
+                  margin: const EdgeInsets.symmetric(vertical: GlassSpacing.lg),
                   child: ListView.builder(
                     scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    padding: const EdgeInsets.symmetric(horizontal: GlassSpacing.xl),
                     itemCount: _categories.length,
                     itemBuilder: (context, index) {
                       final category = _categories[index];
                       final isSelected = _selectedCategory == category;
-                      
+
                       return Padding(
-                        padding: const EdgeInsets.only(right: 12),
+                        padding: const EdgeInsets.only(right: GlassSpacing.md),
                         child: FilterChip(
                           label: Text(category),
                           selected: isSelected,
@@ -291,19 +293,21 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> with SingleTick
                               _selectedCategory = category;
                             });
                           },
-                          backgroundColor: Colors.white.withOpacity(0.1),
-                          selectedColor: Theme.of(context).primaryColor.withOpacity(0.3),
-                          checkmarkColor: Colors.white,
-                          labelStyle: TextStyle(
-                            color: isSelected ? Colors.white : Colors.white70,
-                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                          backgroundColor: tokens.glassFill,
+                          selectedColor: tokens.accentSoft,
+                          checkmarkColor: tokens.accent,
+                          labelStyle: GlassTypeScale.label.copyWith(
+                            color:
+                                isSelected ? tokens.textHigh : tokens.textMedium,
+                            fontWeight:
+                                isSelected ? FontWeight.w600 : FontWeight.w400,
                           ),
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(20),
+                            borderRadius: BorderRadius.circular(GlassRadii.lg),
                             side: BorderSide(
-                              color: isSelected 
-                                ? Theme.of(context).primaryColor 
-                                : Colors.white.withOpacity(0.2),
+                              color: isSelected
+                                  ? tokens.accent
+                                  : tokens.glassStroke,
                             ),
                           ),
                         ).animate().scale(
@@ -314,7 +318,7 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> with SingleTick
                     },
                   ),
                 ),
-                
+
                 // Feed list
                 Expanded(
                   child: TabBarView(
@@ -322,10 +326,10 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> with SingleTick
                     children: [
                       // Popular feeds
                       _buildFeedList(_filteredFeeds),
-                      
+
                       // Trending feeds (mock data for now)
                       _buildFeedList(_filteredFeeds.reversed.toList()),
-                      
+
                       // New feeds (mock data for now)
                       _buildFeedList(_filteredFeeds.take(5).toList()),
                     ],
@@ -340,88 +344,88 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> with SingleTick
   }
 
   Widget _buildFeedList(List<DiscoverFeed> feeds) {
+    final tokens = GlassTheme.colorsOf(context);
     return ListView.builder(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
+      padding: const EdgeInsets.symmetric(horizontal: GlassSpacing.xl),
       itemCount: feeds.length,
       itemBuilder: (context, index) {
         final feed = feeds[index];
-        
+
         return GlassCard(
-          margin: const EdgeInsets.only(bottom: 16),
+          margin: const EdgeInsets.only(bottom: GlassSpacing.lg),
           child: ListTile(
-            contentPadding: const EdgeInsets.all(16),
+            contentPadding: const EdgeInsets.all(GlassSpacing.lg),
             leading: Container(
               width: 48,
               height: 48,
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-                color: Theme.of(context).primaryColor.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(GlassRadii.md),
+                color: tokens.accentSoft,
               ),
               child: feed.imageUrl != null
                 ? ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(GlassRadii.md),
                     child: Image.network(
                       feed.imageUrl!,
                       fit: BoxFit.cover,
                       errorBuilder: (context, error, stackTrace) {
                         return Icon(
                           Icons.rss_feed,
-                          color: Theme.of(context).primaryColor,
+                          color: tokens.accent,
                         );
                       },
                     ),
                   )
                 : Icon(
                     Icons.rss_feed,
-                    color: Theme.of(context).primaryColor,
+                    color: tokens.accent,
                   ),
             ),
             title: Text(
               feed.title,
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
+              style: GlassTypeScale.body.copyWith(
+                fontWeight: FontWeight.w700,
+                color: tokens.textHigh,
               ),
             ),
             subtitle: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const SizedBox(height: 4),
+                const SizedBox(height: GlassSpacing.xs),
                 Text(
                   feed.description,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.7),
-                  ),
+                  style: GlassTypeScale.label
+                      .copyWith(color: tokens.textMedium),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: GlassSpacing.sm),
                 Row(
                   children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: GlassSpacing.sm, vertical: GlassSpacing.xs),
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(12),
+                        color: tokens.glassFill,
+                        borderRadius: BorderRadius.circular(GlassRadii.md),
                       ),
                       child: Text(
                         feed.category,
-                        style: const TextStyle(fontSize: 12),
+                        style: GlassTypeScale.caption
+                            .copyWith(color: tokens.textMedium),
                       ),
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: GlassSpacing.md),
                     Icon(
                       Icons.people,
                       size: 16,
-                      color: Colors.white.withOpacity(0.5),
+                      color: tokens.textLow,
                     ),
-                    const SizedBox(width: 4),
+                    const SizedBox(width: GlassSpacing.xs),
                     Text(
                       '${_formatNumber(feed.subscribers)} subscribers',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.white.withOpacity(0.5),
-                      ),
+                      style: GlassTypeScale.caption
+                          .copyWith(color: tokens.textLow),
                     ),
                   ],
                 ),
@@ -431,31 +435,46 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> with SingleTick
               builder: (context, ref, child) {
                 final feeds = ref.watch(feedsProvider).value ?? const <Feed>[];
                 final isSubscribed = feeds.any((f) => f.url == feed.url);
-                
+
                 return GlassButton(
                   onPressed: () async {
                     if (!isSubscribed) {
-                      final feedService = ref.read(feedServiceProvider);
-                      final database = ref.read(databaseProvider);
-                      final newFeed = await feedService.subscribeFeed(feed.url);
-                      await database.feedDao.insertFeed(newFeed);
-                      final refreshResult = await feedService.refreshFeed(newFeed);
-                      if (refreshResult.newArticles.isNotEmpty) {
-                        await database.articleDao.insertArticles(refreshResult.newArticles);
-                      }
-                      
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('Subscribed to ${feed.title}'),
-                            backgroundColor: Colors.green,
-                          ),
-                        );
+                      try {
+                        final feedService = ref.read(feedServiceProvider);
+                        final database = ref.read(databaseProvider);
+                        final newFeed =
+                            await feedService.subscribeFeed(feed.url);
+                        await database.feedDao.insertFeed(newFeed);
+                        final refreshResult =
+                            await feedService.refreshFeed(newFeed);
+                        if (refreshResult.newArticles.isNotEmpty) {
+                          await database.articleDao
+                              .insertArticles(refreshResult.newArticles);
+                        }
+
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Subscribed to ${feed.title}'),
+                            ),
+                          );
+                        }
+                      } catch (e) {
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content:
+                                  Text('Failed to subscribe: $e'),
+                            ),
+                          );
+                        }
                       }
                     }
                   },
                   child: Text(isSubscribed ? 'Subscribed' : 'Subscribe'),
-                  variant: isSubscribed ? GlassButtonVariant.secondary : GlassButtonVariant.primary,
+                  variant: isSubscribed
+                      ? GlassButtonVariant.secondary
+                      : GlassButtonVariant.primary,
                 );
               },
             ),

@@ -1,6 +1,9 @@
-import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:flutter/material.dart';
 import '../../../providers/analytics_provider.dart';
+import '../../../ui/components/glass_container.dart';
+import '../../../ui/glass_theme.dart';
+import '../../../ui/tokens/glass_tokens.dart';
 
 class ActivityHeatmap extends StatefulWidget {
   final List<ChartDataPoint> hourlyData;
@@ -34,7 +37,10 @@ class _ActivityHeatmapState extends State<ActivityHeatmap>
 
   @override
   Widget build(BuildContext context) {
-    return Card(
+    final theme = GlassTheme.of(context);
+
+    return GlassContainer(
+      padding: EdgeInsets.zero,
       child: Column(
         children: [
           TabBar(
@@ -43,6 +49,9 @@ class _ActivityHeatmapState extends State<ActivityHeatmap>
               Tab(text: 'Hourly'),
               Tab(text: 'Weekly'),
             ],
+            indicatorColor: theme.accentColor,
+            labelColor: theme.titleSmall.color,
+            unselectedLabelColor: theme.bodySmall.color,
           ),
           SizedBox(
             height: 250,
@@ -59,39 +68,46 @@ class _ActivityHeatmapState extends State<ActivityHeatmap>
     );
   }
 
+  Widget _buildEmptyChart(String message) {
+    final theme = GlassTheme.of(context);
+    return Center(
+      child: Text(message, style: theme.bodyMedium),
+    );
+  }
+
   Widget _buildHourlyChart() {
     if (widget.hourlyData.isEmpty) {
-      return const Center(
-        child: Text('No hourly data available'),
-      );
+      return _buildEmptyChart('No hourly data available');
     }
 
+    final theme = GlassTheme.of(context);
+    final axisStyle = GlassTypeScale.caption
+        .copyWith(fontSize: 10, color: theme.bodySmall.color);
     final maxValue = widget.hourlyData
         .map((e) => e.value)
         .reduce((a, b) => a > b ? a : b);
 
     return Padding(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(GlassSpacing.lg),
       child: BarChart(
         BarChartData(
           alignment: BarChartAlignment.spaceAround,
           maxY: maxValue * 1.2,
           barTouchData: BarTouchData(
             touchTooltipData: BarTouchTooltipData(
-              tooltipBgColor: Theme.of(context).colorScheme.surfaceVariant,
+              tooltipBgColor: theme.backgroundColor,
               getTooltipItem: (group, groupIndex, rod, rodIndex) {
                 return BarTooltipItem(
                   '${widget.hourlyData[groupIndex].label}\n',
-                  TextStyle(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    fontWeight: FontWeight.bold,
+                  GlassTypeScale.label.copyWith(
+                    color: theme.titleSmall.color,
+                    fontWeight: FontWeight.w700,
                   ),
                   children: [
                     TextSpan(
                       text: '${rod.toY.toInt()} articles',
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        fontWeight: FontWeight.normal,
+                      style: GlassTypeScale.label.copyWith(
+                        color: theme.bodySmall.color,
                       ),
                     ),
                   ],
@@ -101,10 +117,10 @@ class _ActivityHeatmapState extends State<ActivityHeatmap>
           ),
           titlesData: FlTitlesData(
             show: true,
-            rightTitles: AxisTitles(
+            rightTitles: const AxisTitles(
               sideTitles: SideTitles(showTitles: false),
             ),
-            topTitles: AxisTitles(
+            topTitles: const AxisTitles(
               sideTitles: SideTitles(showTitles: false),
             ),
             bottomTitles: AxisTitles(
@@ -115,10 +131,7 @@ class _ActivityHeatmapState extends State<ActivityHeatmap>
                     final hour = widget.hourlyData[value.toInt()].label;
                     // Show every 3rd hour
                     if (value.toInt() % 3 == 0) {
-                      return Text(
-                        hour,
-                        style: const TextStyle(fontSize: 10),
-                      );
+                      return Text(hour, style: axisStyle);
                     }
                   }
                   return const SizedBox.shrink();
@@ -128,13 +141,13 @@ class _ActivityHeatmapState extends State<ActivityHeatmap>
             leftTitles: AxisTitles(
               sideTitles: SideTitles(
                 showTitles: true,
+                reservedSize: 30,
                 getTitlesWidget: (value, meta) {
                   return Text(
                     value.toInt().toString(),
-                    style: const TextStyle(fontSize: 10),
+                    style: axisStyle,
                   );
                 },
-                reservedSize: 30,
               ),
             ),
           ),
@@ -165,37 +178,37 @@ class _ActivityHeatmapState extends State<ActivityHeatmap>
 
   Widget _buildWeeklyChart() {
     if (widget.weeklyData.isEmpty) {
-      return const Center(
-        child: Text('No weekly data available'),
-      );
+      return _buildEmptyChart('No weekly data available');
     }
 
+    final theme = GlassTheme.of(context);
+    final axisStyle = GlassTypeScale.caption
+        .copyWith(fontSize: 10, color: theme.bodySmall.color);
     final maxValue = widget.weeklyData
         .map((e) => e.value)
         .reduce((a, b) => a > b ? a : b);
 
     return Padding(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(GlassSpacing.lg),
       child: BarChart(
         BarChartData(
           alignment: BarChartAlignment.spaceAround,
           maxY: maxValue * 1.2,
           barTouchData: BarTouchData(
             touchTooltipData: BarTouchTooltipData(
-              tooltipBgColor: Theme.of(context).colorScheme.surfaceVariant,
+              tooltipBgColor: theme.backgroundColor,
               getTooltipItem: (group, groupIndex, rod, rodIndex) {
                 return BarTooltipItem(
                   '${widget.weeklyData[groupIndex].label}\n',
-                  TextStyle(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    fontWeight: FontWeight.bold,
+                  GlassTypeScale.label.copyWith(
+                    color: theme.titleSmall.color,
+                    fontWeight: FontWeight.w700,
                   ),
                   children: [
                     TextSpan(
                       text: '${rod.toY.toInt()} articles',
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        fontWeight: FontWeight.normal,
+                      style: GlassTypeScale.label.copyWith(
+                        color: theme.bodySmall.color,
                       ),
                     ),
                   ],
@@ -205,10 +218,10 @@ class _ActivityHeatmapState extends State<ActivityHeatmap>
           ),
           titlesData: FlTitlesData(
             show: true,
-            rightTitles: AxisTitles(
+            rightTitles: const AxisTitles(
               sideTitles: SideTitles(showTitles: false),
             ),
-            topTitles: AxisTitles(
+            topTitles: const AxisTitles(
               sideTitles: SideTitles(showTitles: false),
             ),
             bottomTitles: AxisTitles(
@@ -218,7 +231,7 @@ class _ActivityHeatmapState extends State<ActivityHeatmap>
                   if (value.toInt() < widget.weeklyData.length) {
                     return Text(
                       widget.weeklyData[value.toInt()].label,
-                      style: const TextStyle(fontSize: 12),
+                      style: axisStyle.copyWith(fontSize: 12),
                     );
                   }
                   return const SizedBox.shrink();
@@ -228,13 +241,13 @@ class _ActivityHeatmapState extends State<ActivityHeatmap>
             leftTitles: AxisTitles(
               sideTitles: SideTitles(
                 showTitles: true,
+                reservedSize: 30,
                 getTitlesWidget: (value, meta) {
                   return Text(
                     value.toInt().toString(),
-                    style: const TextStyle(fontSize: 10),
+                    style: axisStyle,
                   );
                 },
-                reservedSize: 30,
               ),
             ),
           ),
@@ -265,18 +278,18 @@ class _ActivityHeatmapState extends State<ActivityHeatmap>
 
   Color _getHeatmapColor(double value, double maxValue) {
     final ratio = value / maxValue;
-    final baseColor = Theme.of(context).colorScheme.primary;
+    final baseColor = GlassTheme.of(context).accentColor;
 
     if (ratio > 0.8) {
       return baseColor;
     } else if (ratio > 0.6) {
-      return baseColor.withOpacity(0.8);
+      return baseColor.withValues(alpha: 0.8);
     } else if (ratio > 0.4) {
-      return baseColor.withOpacity(0.6);
+      return baseColor.withValues(alpha: 0.6);
     } else if (ratio > 0.2) {
-      return baseColor.withOpacity(0.4);
+      return baseColor.withValues(alpha: 0.4);
     } else {
-      return baseColor.withOpacity(0.2);
+      return baseColor.withValues(alpha: 0.2);
     }
   }
 }

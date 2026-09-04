@@ -4,19 +4,32 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../glass_theme.dart';
+import '../tokens/glass_tokens.dart';
 import 'glass_button.dart';
 
 /// Glass snackbar types
 enum GlassSnackBarType {
-  info(Icons.info_outline, Color(0xFF2196F3)),
-  success(Icons.check_circle_outline, Color(0xFF4CAF50)),
-  warning(Icons.warning_amber_outlined, Color(0xFFFF9800)),
-  error(Icons.error_outline, Color(0xFFF44336));
+  info(Icons.info_outline),
+  success(Icons.check_circle_outline),
+  warning(Icons.warning_amber_outlined),
+  error(Icons.error_outline);
 
   final IconData icon;
-  final Color color;
 
-  const GlassSnackBarType(this.icon, this.color);
+  const GlassSnackBarType(this.icon);
+}
+
+Color _tokenColorFor(GlassSnackBarType type, GlassColorTokens tokens) {
+  switch (type) {
+    case GlassSnackBarType.info:
+      return tokens.accent;
+    case GlassSnackBarType.success:
+      return tokens.success;
+    case GlassSnackBarType.warning:
+      return tokens.warning;
+    case GlassSnackBarType.error:
+      return tokens.error;
+  }
 }
 
 /// Glass snackbar with queue management
@@ -240,10 +253,12 @@ class _GlassSnackBarState extends State<GlassSnackBar>
   }
 
   Widget _buildSnackBar(GlassThemeData theme) {
+    final tokens = GlassTheme.colorsOf(context);
+    final typeColor = _tokenColorFor(widget.type, tokens);
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      margin: const EdgeInsets.symmetric(horizontal: GlassSpacing.lg, vertical: GlassSpacing.sm),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(GlassRadii.md),
         child: BackdropFilter(
           filter: ImageFilter.blur(
             sigmaX: widget.blur ?? theme.blur,
@@ -255,18 +270,18 @@ class _GlassSnackBarState extends State<GlassSnackBar>
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: widget.gradientColors ?? [
-                  widget.type.color.withOpacity(0.2),
-                  widget.type.color.withOpacity(0.1),
+                  typeColor.withValues(alpha: 0.2),
+                  typeColor.withValues(alpha: 0.1),
                 ],
               ),
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(GlassRadii.md),
               border: Border.all(
-                color: widget.type.color.withOpacity(0.3),
+                color: typeColor.withValues(alpha: 0.3),
                 width: 1,
               ),
               boxShadow: [
                 BoxShadow(
-                  color: widget.type.color.withOpacity(0.2),
+                  color: typeColor.withValues(alpha: 0.2),
                   blurRadius: 16,
                   offset: const Offset(0, 4),
                 ),
@@ -286,7 +301,7 @@ class _GlassSnackBarState extends State<GlassSnackBar>
                         value: 1 - _progressController.value,
                         backgroundColor: Colors.transparent,
                         valueColor: AlwaysStoppedAnimation<Color>(
-                          widget.type.color.withOpacity(0.3),
+                          typeColor.withValues(alpha: 0.3),
                         ),
                         minHeight: 2,
                       );
@@ -303,17 +318,15 @@ class _GlassSnackBarState extends State<GlassSnackBar>
                     children: [
                       Icon(
                         widget.type.icon,
-                        color: Colors.white,
+                        color: typeColor,
                         size: 24,
                       ),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: GlassSpacing.md),
                       Expanded(
                         child: Text(
                           widget.message,
-                          style: TextStyle(
-                            color: Colors.white.withOpacity(0.95),
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
+                          style: GlassTypeScale.label.copyWith(
+                            color: tokens.textHigh,
                           ),
                         ),
                       ),

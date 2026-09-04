@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:rss_glassmorphism_reader/core/models/article.dart';
 import 'package:rss_glassmorphism_reader/ui/glass_theme.dart';
+import 'package:rss_glassmorphism_reader/ui/components/article_card.dart';
+import 'package:rss_glassmorphism_reader/ui/components/empty_state.dart';
+import 'package:rss_glassmorphism_reader/ui/components/error_state.dart';
 import 'package:rss_glassmorphism_reader/ui/components/glass_container.dart';
 import 'package:rss_glassmorphism_reader/ui/components/glass_button.dart';
 import 'package:rss_glassmorphism_reader/ui/components/glass_card.dart';
 import 'package:rss_glassmorphism_reader/ui/components/glass_text_field.dart';
 import 'package:rss_glassmorphism_reader/ui/components/glass_dialog.dart';
+import 'package:rss_glassmorphism_reader/ui/components/skeleton.dart';
 
 void main() {
   Widget createTestWidget(Widget child) {
@@ -365,4 +370,135 @@ void main() {
       expect(find.text('Dismissible'), findsNothing);
     });
   });
+
+Article _article({bool isRead = false, bool isStarred = false}) {
+  return Article(
+    feedId: 'feed-1',
+    guid: 'guid-1',
+    title: 'A test article title',
+    url: 'https://example.com/a',
+    isRead: isRead,
+    isStarred: isStarred,
+    feedTitle: 'Example Feed',
+    summary: 'A short summary of the article.',
+  );
+}
+
+group('ArticleCard', () {
+  testWidgets('renders canonical anatomy: title, meta, snippet', (tester) async {
+    await tester.pumpWidget(
+      createTestWidget(
+        ArticleCard(article: _article(), onTap: () {}),
+      ),
+    );
+
+    expect(find.text('A test article title'), findsOneWidget);
+    expect(find.textContaining('Example Feed'), findsOneWidget);
+    expect(find.textContaining('A short summary'), findsOneWidget);
+    expect(find.byIcon(Icons.rss_feed), findsOneWidget);
+  });
+
+  testWidgets('unread dot shown for unread, hidden for read', (tester) async {
+    await tester.pumpWidget(
+      createTestWidget(
+        SingleChildScrollView(
+          child: ArticleCard(article: _article(isRead: false)),
+        ),
+      ),
+    );
+    expect(find.byIcon(Icons.rss_feed), findsOneWidget);
+
+    await tester.pumpWidget(
+      createTestWidget(
+        SingleChildScrollView(
+          child: ArticleCard(article: _article(isRead: true)),
+        ),
+      ),
+    );
+    expect(find.text('A test article title'), findsOneWidget);
+  });
+
+  testWidgets('star indicator shown when starred', (tester) async {
+    await tester.pumpWidget(
+      createTestWidget(
+        SingleChildScrollView(
+          child: ArticleCard(article: _article(isStarred: true)),
+        ),
+      ),
+    );
+    expect(find.byIcon(Icons.star), findsOneWidget);
+  });
+
+  testWidgets('action row appears when handlers provided', (tester) async {
+    await tester.pumpWidget(
+      createTestWidget(
+        ArticleCard(
+          article: _article(),
+          onToggleRead: () {},
+          onToggleStar: () {},
+          onShare: () {},
+          onOpenExternally: () {},
+        ),
+      ),
+    );
+
+    expect(find.byIcon(Icons.mark_email_unread), findsOneWidget);
+    expect(find.byIcon(Icons.star_outline), findsOneWidget);
+    expect(find.byIcon(Icons.share), findsOneWidget);
+    expect(find.byIcon(Icons.open_in_browser), findsOneWidget);
+  });
+});
+
+group('EmptyState', () {
+  testWidgets('renders title, subtitle and action', (tester) async {
+    var actionFired = false;
+    await tester.pumpWidget(
+      createTestWidget(
+        EmptyState(
+          title: 'Nothing here',
+          subtitle: 'Add a feed to get started',
+          actionLabel: 'Add Feed',
+          onAction: () => actionFired = true,
+        ),
+      ),
+    );
+
+    expect(find.text('Nothing here'), findsOneWidget);
+    expect(find.text('Add a feed to get started'), findsOneWidget);
+
+    await tester.tap(find.text('Add Feed'));
+    expect(actionFired, true);
+  });
+});
+
+group('ErrorState', () {
+  testWidgets('renders error and retry', (tester) async {
+    var retried = false;
+    await tester.pumpWidget(
+      createTestWidget(
+        ErrorState(
+          error: 'boom',
+          onRetry: () => retried = true,
+        ),
+      ),
+    );
+
+    expect(find.text('Something went wrong'), findsOneWidget);
+    expect(find.text('boom'), findsOneWidget);
+
+    await tester.tap(find.text('Retry'));
+    expect(retried, true);
+  });
+});
+
+group('GlassSkeleton', () {
+  testWidgets('skeleton list renders article-shaped rows', (tester) async {
+    await tester.pumpWidget(
+      createTestWidget(const GlassSkeletonList(itemCount: 3)),
+    );
+
+    expect(find.byType(GlassSkeletonArticleRow), findsNWidgets(3));
+    expect(find.byType(GlassSkeleton), findsWidgets);
+  });
+});
 }

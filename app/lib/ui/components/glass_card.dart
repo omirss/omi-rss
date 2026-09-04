@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'glass_container.dart';
 import '../glass_theme.dart';
+import '../tokens/glass_tokens.dart';
 
 /// Elevated glass card with depth and interactive features
 class GlassCard extends StatefulWidget {
@@ -101,11 +102,11 @@ class _GlassCardState extends State<GlassCard> with SingleTickerProviderStateMix
               blur: theme.blur * (1 + elevationMultiplier),
               opacity: theme.opacity * (1 + elevationMultiplier),
               gradientColors: [
-                theme.gradientColors[0].withOpacity(
-                  theme.gradientColors[0].opacity * (1 + elevationMultiplier),
+                theme.gradientColors[0].withValues(alpha: 
+                  theme.gradientColors[0].a * (1 + elevationMultiplier),
                 ),
-                theme.gradientColors[1].withOpacity(
-                  theme.gradientColors[1].opacity * (1 + elevationMultiplier),
+                theme.gradientColors[1].withValues(alpha: 
+                  theme.gradientColors[1].a * (1 + elevationMultiplier),
                 ),
               ],
               onTap: widget.onTap,
@@ -125,9 +126,9 @@ class _GlassCardState extends State<GlassCard> with SingleTickerProviderStateMix
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
                             colors: [
-                              Colors.white.withOpacity(0.2 * elevationMultiplier),
-                              Colors.white.withOpacity(0.1 * elevationMultiplier),
-                              Colors.white.withOpacity(0.2 * elevationMultiplier),
+                              GlassTheme.colorsOf(context).glassStroke.withValues(alpha: 0.2 * elevationMultiplier),
+                              GlassTheme.colorsOf(context).glassStroke.withValues(alpha: 0.1 * elevationMultiplier),
+                              GlassTheme.colorsOf(context).glassStroke.withValues(alpha: 0.2 * elevationMultiplier),
                             ],
                           ),
                         ),
@@ -194,7 +195,7 @@ class _GlassCardState extends State<GlassCard> with SingleTickerProviderStateMix
       items: widget.longPressMenuItems!,
       elevation: 8,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(GlassRadii.md),
       ),
     );
   }

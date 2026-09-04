@@ -15,12 +15,12 @@ class GlassThemeData {
   final BorderRadius borderRadius;
   final Duration animationDuration;
   final Curve animationCurve;
-  
+
   // Hover properties
   final double hoverElevation;
   final double hoverScale;
   final Duration hoverDuration;
-  
+
   // Click properties
   final double clickScale;
   final Duration clickDuration;
@@ -32,6 +32,9 @@ class GlassThemeData {
   final Color backgroundColor;
   final Color surfaceColor;
   final List<Color> backgroundGradient;
+
+  // Full token set for the active preset/mode when built from a preset.
+  final GlassColorTokens? colorTokens;
 
   // Text styles
   final TextStyle headlineMedium;
@@ -49,6 +52,7 @@ class GlassThemeData {
     this.backgroundColor = GlassCoreColors.bgBase,
     this.surfaceColor = GlassCoreColors.glassFill,
     this.backgroundGradient = GlassCoreColors.backgroundGradient,
+    this.colorTokens,
     this.headlineMedium = const TextStyle(
       color: Colors.white,
       fontSize: 28,
@@ -179,6 +183,7 @@ class GlassThemeData {
       shadowColor: tokens.isDark
           ? const Color(0x591F268C)
           : const Color(0x331F268C),
+      colorTokens: tokens,
     );
   }
   
@@ -206,6 +211,7 @@ class GlassThemeData {
     Color? backgroundColor,
     Color? surfaceColor,
     List<Color>? backgroundGradient,
+    GlassColorTokens? colorTokens,
     TextStyle? headlineMedium,
     TextStyle? titleLarge,
     TextStyle? titleMedium,
@@ -237,6 +243,7 @@ class GlassThemeData {
       backgroundColor: backgroundColor ?? this.backgroundColor,
       surfaceColor: surfaceColor ?? this.surfaceColor,
       backgroundGradient: backgroundGradient ?? this.backgroundGradient,
+      colorTokens: colorTokens ?? this.colorTokens,
       headlineMedium: headlineMedium ?? this.headlineMedium,
       titleLarge: titleLarge ?? this.titleLarge,
       titleMedium: titleMedium ?? this.titleMedium,
@@ -267,6 +274,15 @@ class GlassTheme extends InheritedWidget {
     final theme = context.dependOnInheritedWidgetOfExactType<GlassTheme>();
     return theme?.data;
   }
+
+  /// Resolves the active preset's color tokens, falling back to the default
+  /// Glass dark palette when no themed shell is present.
+  static GlassColorTokens colorsOf(BuildContext context) {
+    final data = maybeOf(context)?.colorTokens;
+    return data ?? GlassPresets.glass.dark;
+  }
+
+  static GlassColorTokens get colors => GlassPresets.glass.dark;
   
   static Color get primaryColor => GlassColors.primary;
   static Color get secondaryColor => GlassColors.secondary;

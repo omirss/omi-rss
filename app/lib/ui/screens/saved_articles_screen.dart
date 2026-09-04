@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../glass_theme.dart';
+import '../tokens/glass_tokens.dart';
 import '../components/glass_container.dart';
 import '../components/glass_button.dart';
 import '../components/glass_tooltip.dart';
@@ -9,6 +10,10 @@ import '../components/glass_app_bar.dart';
 import '../components/glass_snack_bar.dart';
 import '../components/glass_dialog.dart';
 import '../components/glass_text_field.dart';
+import '../components/article_card.dart';
+import '../components/empty_state.dart';
+import '../components/error_state.dart';
+import '../components/skeleton.dart';
 import '../../providers/article_actions_provider.dart';
 import '../../providers/feed_provider.dart';
 import '../../core/models/article.dart';
@@ -24,30 +29,28 @@ class SavedArticlesScreen extends ConsumerStatefulWidget {
 class _SavedArticlesScreenState extends ConsumerState<SavedArticlesScreen> {
   String _sortBy = 'date';
   final TextEditingController _searchController = TextEditingController();
-  
+
   @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
   }
-  
+
   @override
   Widget build(BuildContext context) {
     // Get starred articles by setting the filter
     ref.read(articleFilterProvider.notifier).showStarred();
     final articlesAsync = ref.watch(articlesProvider);
-    
+    final tokens = GlassTheme.colorsOf(context);
+
     return Scaffold(
-      backgroundColor: GlassTheme.backgroundColor,
+      backgroundColor: tokens.bgBase,
       body: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [
-              GlassTheme.primaryColor.withOpacity(0.1),
-              GlassTheme.accentColor.withOpacity(0.1),
-            ],
+            colors: tokens.backgroundGradient,
           ),
         ),
         child: SafeArea(
@@ -55,7 +58,10 @@ class _SavedArticlesScreenState extends ConsumerState<SavedArticlesScreen> {
             children: [
               // App Bar
               GlassAppBar(
-                title: const Text('Saved Articles'),
+                title: Text(
+                  'Saved Articles',
+                  style: GlassTypeScale.title.copyWith(color: tokens.textHigh),
+                ),
                 leading: GlassButton(
                   icon: Icons.arrow_back,
                   onPressed: () => Navigator.of(context).pop(),
@@ -68,7 +74,7 @@ class _SavedArticlesScreenState extends ConsumerState<SavedArticlesScreen> {
                     onPressed: () => _exportSavedArticles(context),
                     variant: GlassButtonVariant.icon,
                   ).glassTooltip('Export saved articles'),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: GlassSpacing.sm),
                   // Clear all saved
                   GlassButton(
                     icon: Icons.clear_all,
@@ -77,10 +83,10 @@ class _SavedArticlesScreenState extends ConsumerState<SavedArticlesScreen> {
                   ).glassTooltip('Clear all saved'),
                 ],
               ),
-              
+
               // Search and filters
               Padding(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(GlassSpacing.lg),
                 child: Column(
                   children: [
                     // Search bar
@@ -89,90 +95,75 @@ class _SavedArticlesScreenState extends ConsumerState<SavedArticlesScreen> {
                       hintText: 'Search saved articles...',
                       prefixIcon: Icons.search,
                     ),
-                    const SizedBox(height: 12),
-                    
+                    const SizedBox(height: GlassSpacing.md),
+
                     // Sort options
                     Row(
                       children: [
                         Text(
                           'Sort by:',
-                          style: TextStyle(
-                            color: Colors.white.withOpacity(0.7),
-                            fontSize: 14,
-                          ),
+                          style: GlassTypeScale.label
+                              .copyWith(color: tokens.textMedium),
                         ),
-                        const SizedBox(width: 12),
+                        const SizedBox(width: GlassSpacing.md),
                         _buildSortChip('Date', 'date'),
-                        const SizedBox(width: 8),
+                        const SizedBox(width: GlassSpacing.sm),
                         _buildSortChip('Title', 'title'),
-                        const SizedBox(width: 8),
+                        const SizedBox(width: GlassSpacing.sm),
                         _buildSortChip('Feed', 'feed'),
                       ],
                     ),
                   ],
                 ),
               ),
-              
+
               // Articles list
               Expanded(
                 child: articlesAsync.when(
                   data: (articles) {
                     if (articles.isEmpty) {
-                      return _buildEmptyState();
+                      return EmptyState(
+                        title: 'No saved articles',
+                        subtitle: 'Articles you star will appear here',
+                        actionLabel: 'Browse articles',
+                        onAction: () => Navigator.pop(context),
+                      ).animate()
+                          .fadeIn(duration: 300.ms)
+                          .scale(
+                            begin: const Offset(0.95, 0.95),
+                            end: const Offset(1, 1),
+                          );
                     }
-                    
+
                     // Sort articles
                     final sortedArticles = _sortArticles(articles);
-                    
+
                     return ListView.builder(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: GlassSpacing.lg),
                       itemCount: sortedArticles.length,
                       itemBuilder: (context, index) {
                         final article = sortedArticles[index];
-                        return _buildArticleCard(article).animate()
-                          .fadeIn(delay: Duration(milliseconds: index * 50))
-                          .slideX(begin: 0.1, end: 0);
+                        return Padding(
+                          padding:
+                              const EdgeInsets.only(bottom: GlassSpacing.md),
+                          child: _buildArticleCard(article).animate()
+                              .fadeIn(
+                                  delay: Duration(milliseconds: index * 50))
+                              .slideX(begin: 0.1, end: 0),
+                        );
                       },
                     );
                   },
-                  loading: () => const Center(
-                    child: CircularProgressIndicator(color: Colors.white),
-                  ),
-                  error: (error, stack) => Center(
-                    child: GlassContainer(
-                      padding: const EdgeInsets.all(24),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.error_outline,
-                            color: Colors.red.withOpacity(0.8),
-                            size: 48,
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'Failed to load saved articles',
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.9),
-                              fontSize: 16,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            error.toString(),
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.6),
-                              fontSize: 14,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
-                      ),
-                    ),
+                  loading: () => const GlassSkeletonList(),
+                  error: (error, stack) => ErrorState(
+                    error: error.toString(),
+                    title: 'Failed to load saved articles',
+                    onRetry: () => ref.invalidate(articlesProvider),
                   ),
                 ),
               ),
-              
+
               // Statistics bar
               articlesAsync.maybeWhen(
                 data: (articles) => _buildStatisticsBar(articles),
@@ -184,316 +175,130 @@ class _SavedArticlesScreenState extends ConsumerState<SavedArticlesScreen> {
       ),
     );
   }
-  
+
   Widget _buildSortChip(String label, String value) {
+    final tokens = GlassTheme.colorsOf(context);
     final isSelected = _sortBy == value;
-    return GestureDetector(
-      onTap: () {
-        setState(() {
-          _sortBy = value;
-        });
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: isSelected
-            ? GlassTheme.primaryColor.withOpacity(0.3)
-            : Colors.white.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: isSelected
-              ? GlassTheme.primaryColor
-              : Colors.white.withOpacity(0.2),
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: () {
+          setState(() {
+            _sortBy = value;
+          });
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          padding: const EdgeInsets.symmetric(
+              horizontal: GlassSpacing.md, vertical: 6),
+          decoration: BoxDecoration(
+            color: isSelected ? tokens.accentSoft : tokens.glassFill,
+            borderRadius: BorderRadius.circular(GlassRadii.md),
+            border: Border.all(
+              color: isSelected ? tokens.accent : tokens.glassStroke,
+            ),
           ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: isSelected ? Colors.white : Colors.white70,
-            fontSize: 12,
-            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+          child: Text(
+            label,
+            style: GlassTypeScale.caption.copyWith(
+              color: isSelected ? tokens.textHigh : tokens.textMedium,
+              fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+            ),
           ),
         ),
       ),
     );
   }
-  
-  Widget _buildEmptyState() {
-    return Center(
-      child: GlassContainer(
-        padding: const EdgeInsets.all(48),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.bookmark_border,
-              size: 80,
-              color: Colors.white.withOpacity(0.3),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              'No saved articles',
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.9),
-                fontSize: 20,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Articles you star will appear here',
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.6),
-                fontSize: 14,
-              ),
-            ),
-            const SizedBox(height: 24),
-            GlassButton(
-              text: 'Browse Articles',
-              icon: Icons.explore,
-              onPressed: () => Navigator.pop(context),
-              variant: GlassButtonVariant.elevated,
-            ),
-          ],
-        ),
-      ),
-    ).animate()
-      .fadeIn(duration: 300.ms)
-      .scale(begin: const Offset(0.9, 0.9), end: const Offset(1, 1));
-  }
-  
+
   Widget _buildArticleCard(Article article) {
-    return GlassContainer(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: InkWell(
-        onTap: () => _openArticle(article),
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Feed name and date
-              Row(
-                children: [
-                  Icon(
-                    Icons.rss_feed,
-                    size: 16,
-                    color: GlassTheme.primaryColor,
-                  ),
-                  const SizedBox(width: 4),
-                  Expanded(
-                    child: Text(
-                      article.feedTitle ?? 'Unknown Feed',
-                      style: TextStyle(
-                        color: GlassTheme.primaryColor,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  Text(
-                    _formatDate(article.publishedAt ?? article.createdAt),
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.5),
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              
-              // Title
-              Text(
-                article.title,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-              
-              // Summary
-              if (article.summary != null) ...[
-                const SizedBox(height: 8),
-                Text(
-                  article.summary!,
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.7),
-                    fontSize: 14,
-                    height: 1.4,
-                  ),
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-              
-              // Actions
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  // Read time
-                  if (article.estimatedReadTime > 0) ...[
-                    Icon(
-                      Icons.schedule,
-                      size: 14,
-                      color: Colors.white.withOpacity(0.5),
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      '${article.estimatedReadTime} min',
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.5),
-                        fontSize: 12,
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                  ],
-                  
-                  // Tags
-                  if (article.categories?.isNotEmpty ?? false) ...[
-                    Expanded(
-                      child: Wrap(
-                        spacing: 4,
-                        runSpacing: 4,
-                        children: article.categories!.take(3).map((tag) => 
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Text(
-                              tag,
-                              style: TextStyle(
-                                color: Colors.white.withOpacity(0.7),
-                                fontSize: 11,
-                              ),
-                            ),
-                          ),
-                        ).toList(),
-                      ),
-                    ),
-                  ],
-                  
-                  const Spacer(),
-                  
-                  // Unstar button
-                  GlassButton(
-                    icon: Icons.bookmark,
-                    onPressed: () => _unstarArticle(article),
-                    variant: GlassButtonVariant.icon,
-                    width: 32,
-                    height: 32,
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
+    return ArticleCard(
+      article: article,
+      onTap: () => _openArticle(article),
+      showSnippet: false,
+      trailing: GlassButton(
+        icon: Icons.bookmark_remove_outlined,
+        onPressed: () => _unstarArticle(article),
+        variant: GlassButtonVariant.icon,
+        width: 32,
+        height: 32,
+      ).glassTooltip('Remove from saved'),
     );
   }
-  
+
   Widget _buildStatisticsBar(List<Article> articles) {
     final feedCounts = <String, int>{};
     for (final article in articles) {
       final feedName = article.feedTitle ?? 'Unknown';
       feedCounts[feedName] = (feedCounts[feedName] ?? 0) + 1;
     }
-    
+
     return GlassContainer(
-      margin: const EdgeInsets.all(16),
-      padding: const EdgeInsets.all(16),
-      child: Column(
+      margin: const EdgeInsets.all(GlassSpacing.lg),
+      padding: const EdgeInsets.all(GlassSpacing.lg),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _buildStatItem(
-                Icons.bookmark,
-                articles.length.toString(),
-                'Saved',
-              ),
-              _buildStatItem(
-                Icons.rss_feed,
-                feedCounts.length.toString(),
-                'Feeds',
-              ),
-              _buildStatItem(
-                Icons.schedule,
-                '${articles.fold(0, (sum, a) => sum + a.estimatedReadTime)} min',
-                'Read time',
-              ),
-            ],
+          _buildStatItem(
+            Icons.bookmark,
+            articles.length.toString(),
+            'Saved',
+          ),
+          _buildStatItem(
+            Icons.rss_feed,
+            feedCounts.length.toString(),
+            'Feeds',
+          ),
+          _buildStatItem(
+            Icons.schedule,
+            '${articles.fold(0, (sum, a) => sum + a.estimatedReadTime)} min',
+            'Read time',
           ),
         ],
       ),
     );
   }
-  
+
   Widget _buildStatItem(IconData icon, String value, String label) {
+    final tokens = GlassTheme.colorsOf(context);
     return Column(
       children: [
         Icon(
           icon,
-          color: GlassTheme.primaryColor,
+          color: tokens.primary,
           size: 20,
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: GlassSpacing.xs),
         Text(
           value,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
+          style: GlassTypeScale.body.copyWith(
+            fontWeight: FontWeight.w700,
+            color: tokens.textHigh,
           ),
         ),
         Text(
           label,
-          style: TextStyle(
-            color: Colors.white.withOpacity(0.6),
-            fontSize: 12,
-          ),
+          style: GlassTypeScale.caption.copyWith(color: tokens.textMedium),
         ),
       ],
     );
   }
-  
+
   List<Article> _sortArticles(List<Article> articles) {
     switch (_sortBy) {
       case 'title':
         return List.from(articles)..sort((a, b) => a.title.compareTo(b.title));
       case 'feed':
-        return List.from(articles)..sort((a, b) => 
-          (a.feedTitle ?? '').compareTo(b.feedTitle ?? ''));
+        return List.from(articles)
+          ..sort((a, b) =>
+              (a.feedTitle ?? '').compareTo(b.feedTitle ?? ''));
       case 'date':
       default:
-        return List.from(articles)..sort((a, b) => 
-          (b.publishedAt ?? b.createdAt).compareTo(a.publishedAt ?? a.createdAt));
+        return List.from(articles)
+          ..sort((a, b) => (b.publishedAt ?? b.createdAt)
+              .compareTo(a.publishedAt ?? a.createdAt));
     }
   }
-  
-  String _formatDate(DateTime date) {
-    final now = DateTime.now();
-    final difference = now.difference(date);
-    
-    if (difference.inDays == 0) {
-      return 'Today';
-    } else if (difference.inDays == 1) {
-      return 'Yesterday';
-    } else if (difference.inDays < 7) {
-      return '${difference.inDays} days ago';
-    } else if (difference.inDays < 30) {
-      return '${(difference.inDays / 7).floor()} weeks ago';
-    } else {
-      return '${date.day}/${date.month}/${date.year}';
-    }
-  }
-  
+
   void _openArticle(Article article) {
     Navigator.push(
       context,
@@ -502,24 +307,26 @@ class _SavedArticlesScreenState extends ConsumerState<SavedArticlesScreen> {
       ),
     );
   }
-  
+
   void _unstarArticle(Article article) async {
     await ref.read(articleActionsProvider).toggleStarred(article.id);
     if (mounted) {
       context.showSuccessSnackBar('Article removed from saved');
     }
   }
-  
+
   void _exportSavedArticles(BuildContext context) {
     Navigator.pushNamed(context, '/export');
   }
-  
+
   void _confirmClearAll(BuildContext context) {
+    final tokens = GlassTheme.colorsOf(context);
     showGlassDialog(
       context: context,
       title: const Text('Clear All Saved Articles'),
-      content: const Text(
+      content: Text(
         'Are you sure you want to remove all saved articles? This action cannot be undone.',
+        style: GlassThemeData.fromTokens(tokens).bodyLarge,
       ),
       actions: [
         GlassButton(
@@ -534,19 +341,19 @@ class _SavedArticlesScreenState extends ConsumerState<SavedArticlesScreen> {
             // Get all starred articles and unstar them
             ref.read(articleFilterProvider.notifier).showStarred();
             final articles = await ref.read(articlesProvider.future);
-            
+
             for (final article in articles) {
               await ref.read(articleActionsProvider).toggleStarred(article.id);
             }
-            
+
             if (mounted) {
               context.showSuccessSnackBar('All saved articles cleared');
             }
           },
           variant: GlassButtonVariant.elevated,
           gradientColors: [
-            Colors.red.withOpacity(0.8),
-            Colors.red.withOpacity(0.6),
+            tokens.error.withValues(alpha: 0.8),
+            tokens.error.withValues(alpha: 0.6),
           ],
         ),
       ],

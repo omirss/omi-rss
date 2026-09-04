@@ -2,8 +2,14 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../glass_theme.dart';
+import '../tokens/glass_tokens.dart';
 
-/// Glass drawer with blur overlay and nested menus
+/// Glass drawer with blur overlay and nested menus.
+///
+/// The panel's backdrop blur uses a reduced sigma while the drawer is in
+/// motion and ramps back to full sigma once the slide settles, so the web
+/// compositor does not re-rasterize a full-strength blur for the moving
+/// 280px column every frame.
 class GlassDrawer extends StatefulWidget {
   final Widget? header;
   final List<GlassDrawerItem> items;
@@ -34,25 +40,43 @@ class _GlassDrawerState extends State<GlassDrawer>
     with TickerProviderStateMixin {
   late AnimationController _slideController;
   late AnimationController _fadeController;
+  late AnimationController _blurRampController;
   late Animation<Offset> _slideAnimation;
   late Animation<double> _fadeAnimation;
-  
+
+  static const double _motionBlurSigma = 4;
+
   final Map<String, AnimationController> _expansionControllers = {};
   final Map<String, bool> _expandedItems = {};
 
   @override
   void initState() {
     super.initState();
-    
+
     _slideController = AnimationController(
       duration: const Duration(milliseconds: 350),
       vsync: this,
     );
-    
+
     _fadeController = AnimationController(
       duration: const Duration(milliseconds: 200),
       vsync: this,
     );
+
+    // Ramps the panel blur from the cheap motion sigma back to full after
+    // the slide animation settles.
+    _blurRampController = AnimationController(
+      duration: const Duration(milliseconds: 200),
+      vsync: this,
+    );
+
+    _slideController.addStatusListener((status) {
+      if (status == AnimationStatus.completed) {
+        _blurRampController.forward();
+      } else {
+        _blurRampController.reset();
+      }
+    });
 
     _slideAnimation = Tween<Offset>(
       begin: const Offset(-1, 0),
@@ -73,7 +97,7 @@ class _GlassDrawerState extends State<GlassDrawer>
     // Start animations
     _slideController.forward();
     _fadeController.forward();
-    
+
     // Initialize expansion controllers for nested items
     for (final item in widget.items) {
       if (item.children != null && item.children!.isNotEmpty) {
@@ -84,7 +108,7 @@ class _GlassDrawerState extends State<GlassDrawer>
         _expandedItems[item.id] = false;
       }
     }
-    
+
     HapticFeedback.lightImpact();
   }
 
@@ -92,6 +116,7 @@ class _GlassDrawerState extends State<GlassDrawer>
   void dispose() {
     _slideController.dispose();
     _fadeController.dispose();
+    _blurRampController.dispose();
     for (final controller in _expansionControllers.values) {
       controller.dispose();
     }
@@ -120,7 +145,8 @@ class _GlassDrawerState extends State<GlassDrawer>
   @override
   Widget build(BuildContext context) {
     final theme = widget.theme ?? GlassTheme.of(context);
-    
+    final tokens = GlassTheme.colorsOf(context);
+
     return Material(
       color: Colors.transparent,
       child: Stack(
@@ -132,14 +158,19 @@ class _GlassDrawerState extends State<GlassDrawer>
               animation: _fadeAnimation,
               builder: (context, child) {
                 return Container(
-                  color: Colors.black.withOpacity(0.5 * _fadeAnimation.value),
+                  color: tokens.overlay.withValues(
+                    alpha: tokens.overlay.a * _fadeAnimation.value,
+                  ),
                   child: child,
                 );
               },
               // Fixed blur sigma: animating it re-rasterizes the
               // full-screen blur every frame, which stalls the slide on web.
               child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
+                filter: ImageFilter.blur(
+                  sigmaX: _motionBlurSigma,
+                  sigmaY: _motionBlurSigma,
+                ),
                 child: const SizedBox.expand(),
               ),
             ),
@@ -152,7 +183,7 @@ class _GlassDrawerState extends State<GlassDrawer>
               child: Container(
                 width: widget.width,
                 height: double.infinity,
-                child: _buildDrawerContent(theme),
+                child: _buildDrawerContent(theme, tokens),
               ),
             ),
           ),
@@ -161,42 +192,47 @@ class _GlassDrawerState extends State<GlassDrawer>
     );
   }
 
-  Widget _buildDrawerContent(GlassThemeData theme) {
+  Widget _buildDrawerContent(
+      GlassThemeData theme, GlassColorTokens tokens) {
+    final fullBlur = widget.blur ?? theme.blur;
+    final panelRadius = const BorderRadius.only(
+      topRight: Radius.circular(GlassRadii.xl),
+      bottomRight: Radius.circular(GlassRadii.xl),
+    );
+
     return ClipRRect(
-      borderRadius: const BorderRadius.only(
-        topRight: Radius.circular(24),
-        bottomRight: Radius.circular(24),
-      ),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(
-          sigmaX: widget.blur ?? theme.blur,
-          sigmaY: widget.blur ?? theme.blur,
-        ),
+      borderRadius: panelRadius,
+      child: AnimatedBuilder(
+        animation: _blurRampController,
+        builder: (context, child) {
+          final sigma = _slideController.isCompleted
+              ? (_motionBlurSigma +
+                  (fullBlur - _motionBlurSigma) * _blurRampController.value)
+              : _motionBlurSigma;
+          return BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
+            child: child,
+          );
+        },
         child: Container(
           decoration: BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: widget.gradientColors ?? [
-                Colors.white.withOpacity(0.15),
-                Colors.white.withOpacity(0.08),
-              ],
+              colors: widget.gradientColors ?? theme.gradientColors,
             ),
-            borderRadius: const BorderRadius.only(
-              topRight: Radius.circular(24),
-              bottomRight: Radius.circular(24),
-            ),
+            borderRadius: panelRadius,
             border: Border(
               right: BorderSide(
-                color: Colors.white.withOpacity(0.2),
+                color: theme.borderColor,
                 width: 1,
               ),
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.3),
-                blurRadius: 24,
-                offset: const Offset(8, 0),
+                color: tokens.overlay.withValues(alpha: 0.3),
+                blurRadius: GlassSpacing.xl,
+                offset: const Offset(GlassSpacing.sm, 0),
               ),
             ],
           ),
@@ -205,10 +241,10 @@ class _GlassDrawerState extends State<GlassDrawer>
               if (widget.header != null) widget.header!,
               Expanded(
                 child: ListView(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  padding: const EdgeInsets.symmetric(vertical: GlassSpacing.sm),
                   children: [
                     for (final item in widget.items)
-                      _buildDrawerItem(item, theme),
+                      _buildDrawerItem(item, theme, tokens),
                   ],
                 ),
               ),
@@ -220,9 +256,11 @@ class _GlassDrawerState extends State<GlassDrawer>
     );
   }
 
-  Widget _buildDrawerItem(GlassDrawerItem item, GlassThemeData theme, {int depth = 0}) {
+  Widget _buildDrawerItem(
+      GlassDrawerItem item, GlassThemeData theme, GlassColorTokens tokens,
+      {int depth = 0}) {
     final hasChildren = item.children != null && item.children!.isNotEmpty;
-    
+
     return Column(
       children: [
         Material(
@@ -238,55 +276,54 @@ class _GlassDrawerState extends State<GlassDrawer>
                 }
               }
             },
-            borderRadius: BorderRadius.circular(8),
+            hoverColor: tokens.hoverFill,
+            focusColor: tokens.accentSoft,
+            borderRadius: BorderRadius.circular(GlassRadii.sm),
             child: Container(
               padding: EdgeInsets.only(
-                left: 16 + (depth * 16),
-                right: 12,
-                top: 12,
-                bottom: 12,
+                left: GlassSpacing.lg + (depth * GlassSpacing.lg),
+                right: GlassSpacing.md,
+                top: GlassSpacing.md,
+                bottom: GlassSpacing.md,
               ),
               child: Row(
                 children: [
                   if (item.icon != null)
                     Icon(
                       item.icon,
-                      color: item.selected 
-                          ? Colors.white 
-                          : Colors.white.withOpacity(0.7),
+                      color: item.selected ? tokens.accent : tokens.textMedium,
                       size: 20,
                     ),
-                  if (item.icon != null) const SizedBox(width: 12),
+                  if (item.icon != null) const SizedBox(width: GlassSpacing.md),
                   Expanded(
                     child: Text(
                       item.title,
-                      style: TextStyle(
-                        color: item.selected 
-                            ? Colors.white 
-                            : Colors.white.withOpacity(0.9),
-                        fontSize: 14,
-                        fontWeight: item.selected 
-                            ? FontWeight.w600 
-                            : FontWeight.normal,
+                      style: GlassTypeScale.label.copyWith(
+                        color: item.selected
+                            ? tokens.textHigh
+                            : tokens.textMedium,
+                        fontWeight: item.selected
+                            ? FontWeight.w600
+                            : FontWeight.w400,
                       ),
                     ),
                   ),
                   if (item.badge != null)
                     Container(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
+                        horizontal: GlassSpacing.sm,
                         vertical: 2,
                       ),
                       decoration: BoxDecoration(
-                        color: item.badgeColor?.withOpacity(0.2) ??
-                            theme.accentColor.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(12),
+                        color: item.badgeColor?.withValues(
+                                alpha: GlassOpacity.faint) ??
+                            tokens.accentSoft,
+                        borderRadius: BorderRadius.circular(GlassRadii.md),
                       ),
                       child: Text(
                         item.badge!,
-                        style: TextStyle(
-                          color: item.badgeColor ?? theme.accentColor,
-                          fontSize: 12,
+                        style: GlassTypeScale.caption.copyWith(
+                          color: item.badgeColor ?? tokens.accent,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
@@ -296,10 +333,11 @@ class _GlassDrawerState extends State<GlassDrawer>
                       animation: _expansionControllers[item.id]!,
                       builder: (context, child) {
                         return Transform.rotate(
-                          angle: _expansionControllers[item.id]!.value * 0.5 * 3.14159,
+                          angle:
+                              _expansionControllers[item.id]!.value * 0.5 * 3.14159,
                           child: Icon(
                             Icons.chevron_right,
-                            color: Colors.white.withOpacity(0.5),
+                            color: tokens.textLow,
                             size: 20,
                           ),
                         );
@@ -320,7 +358,7 @@ class _GlassDrawerState extends State<GlassDrawer>
                   child: Column(
                     children: [
                       for (final child in item.children!)
-                        _buildDrawerItem(child, theme, depth: depth + 1),
+                        _buildDrawerItem(child, theme, tokens, depth: depth + 1),
                     ],
                   ),
                 ),
@@ -374,12 +412,15 @@ class GlassDrawerHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = GlassTheme.colorsOf(context);
+
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 48, 16, 16),
+      padding: const EdgeInsets.fromLTRB(
+          GlassSpacing.lg, 48, GlassSpacing.lg, GlassSpacing.lg),
       decoration: BoxDecoration(
         border: Border(
           bottom: BorderSide(
-            color: Colors.white.withOpacity(0.1),
+            color: tokens.divider,
             width: 1,
           ),
         ),
@@ -390,9 +431,10 @@ class GlassDrawerHeader extends StatelessWidget {
           color: Colors.transparent,
           child: InkWell(
             onTap: onProfileTap,
-            borderRadius: BorderRadius.circular(8),
+            hoverColor: tokens.hoverFill,
+            borderRadius: BorderRadius.circular(GlassRadii.sm),
             child: Padding(
-              padding: const EdgeInsets.all(8),
+              padding: const EdgeInsets.all(GlassSpacing.sm),
               child: Row(
                 children: [
                   // Avatar
@@ -402,15 +444,12 @@ class GlassDrawerHeader extends StatelessWidget {
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       gradient: LinearGradient(
-                        colors: [
-                          Colors.purple.withOpacity(0.8),
-                          Colors.blue.withOpacity(0.8),
-                        ],
+                        colors: tokens.primaryGradient,
                       ),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.purple.withOpacity(0.3),
-                          blurRadius: 12,
+                          color: tokens.primary.withValues(alpha: 0.3),
+                          blurRadius: GlassSpacing.md,
                           offset: const Offset(0, 4),
                         ),
                       ],
@@ -418,15 +457,14 @@ class GlassDrawerHeader extends StatelessWidget {
                     child: Center(
                       child: Text(
                         userName.isNotEmpty ? userName[0].toUpperCase() : 'U',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
+                        style: GlassTypeScale.title.copyWith(
+                          color: tokens.textHigh,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: GlassSpacing.md),
                   // User info
                   Expanded(
                     child: Column(
@@ -434,26 +472,23 @@ class GlassDrawerHeader extends StatelessWidget {
                       children: [
                         Text(
                           userName,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
+                          style: GlassTypeScale.label.copyWith(
+                            color: tokens.textHigh,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
                         if (userEmail != null)
                           Text(
                             userEmail!,
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.7),
-                              fontSize: 12,
-                            ),
+                            style: GlassTypeScale.caption
+                                .copyWith(color: tokens.textMedium),
                           ),
                       ],
                     ),
                   ),
                   Icon(
                     Icons.chevron_right,
-                    color: Colors.white.withOpacity(0.5),
+                    color: tokens.textLow,
                     size: 20,
                   ),
                 ],

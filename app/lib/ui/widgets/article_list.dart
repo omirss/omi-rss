@@ -7,6 +7,7 @@ import '../components/glass_card.dart';
 import '../components/glass_container.dart';
 import '../components/glass_button.dart';
 import '../glass_theme.dart';
+import '../tokens/glass_tokens.dart';
 
 enum ArticleViewMode {
   card,
@@ -162,6 +163,7 @@ class _ArticleListState extends ConsumerState<ArticleList> {
   }
   
   Widget _buildEmptyState() {
+    final tokens = GlassTheme.colorsOf(context);
     return Center(
       child: GlassContainer(
         width: 300,
@@ -172,14 +174,14 @@ class _ArticleListState extends ConsumerState<ArticleList> {
             Icon(
               Icons.article_outlined,
               size: 48,
-              color: Colors.white.withOpacity(0.5),
+              color: tokens.textLow,
             ),
             const SizedBox(height: 16),
             Text(
               'No articles found',
               style: TextStyle(
                 fontSize: 18,
-                color: Colors.white.withOpacity(0.8),
+                color: tokens.textMedium,
               ),
             ),
             const SizedBox(height: 8),
@@ -187,7 +189,7 @@ class _ArticleListState extends ConsumerState<ArticleList> {
               'Try adjusting your filters',
               style: TextStyle(
                 fontSize: 14,
-                color: Colors.white.withOpacity(0.6),
+                color: tokens.textLow,
               ),
             ),
           ],
@@ -218,6 +220,7 @@ class _ArticleListState extends ConsumerState<ArticleList> {
   }
   
   Widget _buildCardView(Article article, int index) {
+    final tokens = GlassTheme.colorsOf(context);
     final feed = widget.feeds[article.feedId];
     final isSelected = _selectedArticleIds.contains(article.id);
     
@@ -226,7 +229,7 @@ class _ArticleListState extends ConsumerState<ArticleList> {
       child: GlassCard(
         onTap: () => _handleArticleTap(article),
         onLongPress: widget.enableSelection ? () => _toggleSelection(article) : null,
-        borderColor: isSelected ? Theme.of(context).primaryColor : null,
+        borderColor: isSelected ? tokens.primary : null,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -252,14 +255,14 @@ class _ArticleListState extends ConsumerState<ArticleList> {
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.1),
+                            color: tokens.glassFill,
                             borderRadius: BorderRadius.circular(4),
                           ),
                           child: Text(
                             feed.title,
                             style: TextStyle(
                               fontSize: 12,
-                              color: Colors.white.withOpacity(0.8),
+                              color: tokens.textMedium,
                             ),
                           ),
                         ),
@@ -269,7 +272,7 @@ class _ArticleListState extends ConsumerState<ArticleList> {
                         _formatDate(article.publishedAt ?? article.createdAt),
                         style: TextStyle(
                           fontSize: 12,
-                          color: Colors.white.withOpacity(0.6),
+                          color: tokens.textLow,
                         ),
                       ),
                       const Spacer(),
@@ -278,7 +281,7 @@ class _ArticleListState extends ConsumerState<ArticleList> {
                           width: 8,
                           height: 8,
                           decoration: BoxDecoration(
-                            color: Theme.of(context).primaryColor,
+                            color: tokens.primary,
                             shape: BoxShape.circle,
                           ),
                         ),
@@ -291,8 +294,8 @@ class _ArticleListState extends ConsumerState<ArticleList> {
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
                       color: article.isRead
-                          ? Colors.white.withOpacity(0.7)
-                          : Colors.white,
+                          ? tokens.textMedium
+                          : tokens.textHigh,
                     ),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
@@ -303,7 +306,7 @@ class _ArticleListState extends ConsumerState<ArticleList> {
                       article.description,
                       style: TextStyle(
                         fontSize: 14,
-                        color: Colors.white.withOpacity(0.7),
+                        color: tokens.textMedium,
                         height: 1.4,
                       ),
                       maxLines: 3,
@@ -322,6 +325,7 @@ class _ArticleListState extends ConsumerState<ArticleList> {
   }
   
   Widget _buildListView(Article article, int index) {
+    final tokens = GlassTheme.colorsOf(context);
     final feed = widget.feeds[article.feedId];
     final isSelected = _selectedArticleIds.contains(article.id);
     
@@ -340,7 +344,7 @@ class _ArticleListState extends ConsumerState<ArticleList> {
       child: GlassContainer(
         margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         padding: const EdgeInsets.all(12),
-        borderColor: isSelected ? Theme.of(context).primaryColor : null,
+        borderColor: isSelected ? tokens.primary : null,
         onTap: () => _handleArticleTap(article),
         onLongPress: widget.enableSelection ? () => _toggleSelection(article) : null,
         child: Row(
@@ -357,8 +361,8 @@ class _ArticleListState extends ConsumerState<ArticleList> {
                   errorBuilder: (context, error, stackTrace) => Container(
                     width: 80,
                     height: 80,
-                    color: Colors.white.withOpacity(0.1),
-                    child: const Icon(Icons.image, color: Colors.white30),
+                    color: tokens.glassFill,
+                    child: Icon(Icons.image, color: tokens.textLow),
                   ),
                 ),
               ),
@@ -375,7 +379,7 @@ class _ArticleListState extends ConsumerState<ArticleList> {
                           feed.title,
                           style: TextStyle(
                             fontSize: 12,
-                            color: Theme.of(context).primaryColor,
+                            color: tokens.primary,
                           ),
                         ),
                       const Spacer(),
@@ -383,7 +387,7 @@ class _ArticleListState extends ConsumerState<ArticleList> {
                         _formatDate(article.publishedAt ?? article.createdAt),
                         style: TextStyle(
                           fontSize: 12,
-                          color: Colors.white.withOpacity(0.6),
+                          color: tokens.textLow,
                         ),
                       ),
                     ],
@@ -395,8 +399,8 @@ class _ArticleListState extends ConsumerState<ArticleList> {
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
                       color: article.isRead
-                          ? Colors.white.withOpacity(0.7)
-                          : Colors.white,
+                          ? tokens.textMedium
+                          : tokens.textHigh,
                     ),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
@@ -407,7 +411,7 @@ class _ArticleListState extends ConsumerState<ArticleList> {
                       article.description,
                       style: TextStyle(
                         fontSize: 13,
-                        color: Colors.white.withOpacity(0.6),
+                        color: tokens.textLow,
                       ),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
@@ -424,7 +428,7 @@ class _ArticleListState extends ConsumerState<ArticleList> {
                     width: 8,
                     height: 8,
                     decoration: BoxDecoration(
-                      color: Theme.of(context).primaryColor,
+                      color: tokens.primary,
                       shape: BoxShape.circle,
                     ),
                   ),
@@ -433,7 +437,7 @@ class _ArticleListState extends ConsumerState<ArticleList> {
                   Icon(
                     Icons.star,
                     size: 16,
-                    color: Colors.amber,
+                    color: tokens.warning,
                   ),
               ],
             ),
@@ -444,6 +448,7 @@ class _ArticleListState extends ConsumerState<ArticleList> {
   }
   
   Widget _buildMagazineView(Article article, int index) {
+    final tokens = GlassTheme.colorsOf(context);
     final feed = widget.feeds[article.feedId];
     final isSelected = _selectedArticleIds.contains(article.id);
     
@@ -460,7 +465,7 @@ class _ArticleListState extends ConsumerState<ArticleList> {
       child: GlassCard(
         onTap: () => _handleArticleTap(article),
         onLongPress: widget.enableSelection ? () => _toggleSelection(article) : null,
-        borderColor: isSelected ? Theme.of(context).primaryColor : null,
+        borderColor: isSelected ? tokens.primary : null,
         child: isLarge
             ? _buildLargeMagazineCard(article, feed)
             : _buildSmallMagazineCard(article, feed),
@@ -469,6 +474,7 @@ class _ArticleListState extends ConsumerState<ArticleList> {
   }
   
   Widget _buildLargeMagazineCard(Article article, Feed? feed) {
+    final tokens = GlassTheme.colorsOf(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -495,18 +501,13 @@ class _ArticleListState extends ConsumerState<ArticleList> {
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
                     letterSpacing: 1.2,
-                    color: Theme.of(context).primaryColor,
+                    color: tokens.primary,
                   ),
                 ),
               const SizedBox(height: 8),
               Text(
                 article.title,
-                style: const TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                  height: 1.2,
-                ),
+                style: GlassTypeScale.displaySmall.copyWith(color: tokens.textHigh),
               ),
               const SizedBox(height: 12),
               Row(
@@ -516,7 +517,7 @@ class _ArticleListState extends ConsumerState<ArticleList> {
                       'By ${article.author}',
                       style: TextStyle(
                         fontSize: 14,
-                        color: Colors.white.withOpacity(0.8),
+                        color: tokens.textMedium,
                       ),
                     ),
                     const SizedBox(width: 16),
@@ -525,7 +526,7 @@ class _ArticleListState extends ConsumerState<ArticleList> {
                     _formatDate(article.publishedAt ?? article.createdAt),
                     style: TextStyle(
                       fontSize: 14,
-                      color: Colors.white.withOpacity(0.6),
+                      color: tokens.textLow,
                     ),
                   ),
                 ],
@@ -536,7 +537,7 @@ class _ArticleListState extends ConsumerState<ArticleList> {
                   article.description,
                   style: TextStyle(
                     fontSize: 16,
-                    color: Colors.white.withOpacity(0.8),
+                    color: tokens.textMedium,
                     height: 1.5,
                   ),
                   maxLines: 3,
@@ -551,6 +552,7 @@ class _ArticleListState extends ConsumerState<ArticleList> {
   }
   
   Widget _buildSmallMagazineCard(Article article, Feed? feed) {
+    final tokens = GlassTheme.colorsOf(context);
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -565,8 +567,8 @@ class _ArticleListState extends ConsumerState<ArticleList> {
               errorBuilder: (context, error, stackTrace) => Container(
                 width: 120,
                 height: 120,
-                color: Colors.white.withOpacity(0.1),
-                child: const Icon(Icons.image, color: Colors.white30),
+                color: tokens.glassFill,
+                child: Icon(Icons.image, color: tokens.textLow),
               ),
             ),
           ),
@@ -585,16 +587,14 @@ class _ArticleListState extends ConsumerState<ArticleList> {
                       fontSize: 11,
                       fontWeight: FontWeight.bold,
                       letterSpacing: 1,
-                      color: Theme.of(context).primaryColor,
+                      color: tokens.primary,
                     ),
                   ),
                 const SizedBox(height: 4),
                 Text(
                   article.title,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
+                  style: GlassTypeScale.heading.copyWith(
+                    color: tokens.textHigh,
                   ),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
@@ -604,7 +604,7 @@ class _ArticleListState extends ConsumerState<ArticleList> {
                   _formatDate(article.publishedAt ?? article.createdAt),
                   style: TextStyle(
                     fontSize: 12,
-                    color: Colors.white.withOpacity(0.6),
+                    color: tokens.textLow,
                   ),
                 ),
               ],
@@ -616,6 +616,7 @@ class _ArticleListState extends ConsumerState<ArticleList> {
   }
   
   Widget _buildCompactView(Article article, int index) {
+    final tokens = GlassTheme.colorsOf(context);
     final feed = widget.feeds[article.feedId];
     final isSelected = _selectedArticleIds.contains(article.id);
     
@@ -627,11 +628,11 @@ class _ArticleListState extends ConsumerState<ArticleList> {
         decoration: BoxDecoration(
           border: Border(
             bottom: BorderSide(
-              color: Colors.white.withOpacity(0.1),
+              color: tokens.glassFill,
               width: 0.5,
             ),
           ),
-          color: isSelected ? Colors.white.withOpacity(0.05) : null,
+          color: isSelected ? tokens.glassFill : null,
         ),
         child: Row(
           children: [
@@ -641,7 +642,7 @@ class _ArticleListState extends ConsumerState<ArticleList> {
                 height: 6,
                 margin: const EdgeInsets.only(right: 8),
                 decoration: BoxDecoration(
-                  color: Theme.of(context).primaryColor,
+                  color: tokens.primary,
                   shape: BoxShape.circle,
                 ),
               ),
@@ -654,8 +655,8 @@ class _ArticleListState extends ConsumerState<ArticleList> {
                     style: TextStyle(
                       fontSize: 14,
                       color: article.isRead
-                          ? Colors.white.withOpacity(0.7)
-                          : Colors.white,
+                          ? tokens.textMedium
+                          : tokens.textHigh,
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -668,7 +669,7 @@ class _ArticleListState extends ConsumerState<ArticleList> {
                           feed.title,
                           style: TextStyle(
                             fontSize: 12,
-                            color: Colors.white.withOpacity(0.5),
+                            color: tokens.textLow,
                           ),
                         ),
                         const SizedBox(width: 8),
@@ -676,7 +677,7 @@ class _ArticleListState extends ConsumerState<ArticleList> {
                           '•',
                           style: TextStyle(
                             fontSize: 12,
-                            color: Colors.white.withOpacity(0.3),
+                            color: tokens.textLow,
                           ),
                         ),
                         const SizedBox(width: 8),
@@ -685,7 +686,7 @@ class _ArticleListState extends ConsumerState<ArticleList> {
                         _formatDate(article.publishedAt ?? article.createdAt),
                         style: TextStyle(
                           fontSize: 12,
-                          color: Colors.white.withOpacity(0.5),
+                          color: tokens.textLow,
                         ),
                       ),
                     ],
@@ -697,7 +698,7 @@ class _ArticleListState extends ConsumerState<ArticleList> {
               Icon(
                 Icons.star,
                 size: 16,
-                color: Colors.amber.withOpacity(0.8),
+                color: tokens.warning.withValues(alpha: 0.8),
               ),
           ],
         ),
@@ -706,6 +707,7 @@ class _ArticleListState extends ConsumerState<ArticleList> {
   }
   
   Widget _buildActionRow(Article article) {
+    final tokens = GlassTheme.colorsOf(context);
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -735,8 +737,8 @@ class _ArticleListState extends ConsumerState<ArticleList> {
           Checkbox(
             value: _selectedArticleIds.contains(article.id),
             onChanged: (_) => _toggleSelection(article),
-            fillColor: MaterialStateProperty.all(
-              Theme.of(context).primaryColor.withOpacity(0.8),
+            fillColor: WidgetStateProperty.all(
+              tokens.primary.withValues(alpha: 0.8),
             ),
           ),
       ],
@@ -749,6 +751,7 @@ class _ArticleListState extends ConsumerState<ArticleList> {
     required String tooltip,
     Color? color,
   }) {
+    final tokens = GlassTheme.colorsOf(context);
     return Tooltip(
       message: tooltip,
       child: InkWell(
@@ -762,7 +765,7 @@ class _ArticleListState extends ConsumerState<ArticleList> {
           child: Icon(
             icon,
             size: 20,
-            color: color ?? Colors.white.withOpacity(0.7),
+            color: color ?? tokens.textMedium,
           ),
         ),
       ),
@@ -770,13 +773,14 @@ class _ArticleListState extends ConsumerState<ArticleList> {
   }
   
   Widget _buildSwipeBackground(bool isLeft) {
+    final tokens = GlassTheme.colorsOf(context);
     return Container(
-      color: isLeft ? Colors.green.withOpacity(0.3) : Colors.amber.withOpacity(0.3),
+      color: isLeft ? tokens.success.withValues(alpha: 0.25) : tokens.warning.withValues(alpha: 0.25),
       alignment: isLeft ? Alignment.centerLeft : Alignment.centerRight,
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Icon(
         isLeft ? Icons.done : Icons.star,
-        color: Colors.white,
+        color: tokens.textHigh,
         size: 28,
       ),
     );
@@ -883,6 +887,7 @@ class ArticleViewModeSelector extends StatelessWidget {
     IconData icon,
     String tooltip,
   ) {
+    final tokens = GlassTheme.colorsOf(context);
     final isSelected = currentMode == mode;
     
     return Tooltip(
@@ -893,13 +898,13 @@ class ArticleViewModeSelector extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
-            color: isSelected ? Colors.white.withOpacity(0.2) : null,
+            color: isSelected ? tokens.glassStroke : null,
             borderRadius: BorderRadius.circular(8),
           ),
           child: Icon(
             icon,
             size: 20,
-            color: isSelected ? Colors.white : Colors.white.withOpacity(0.6),
+            color: isSelected ? tokens.textHigh : tokens.textLow,
           ),
         ),
       ),
@@ -924,6 +929,7 @@ class ArticleSortSelector extends StatelessWidget {
   
   @override
   Widget build(BuildContext context) {
+    final tokens = GlassTheme.colorsOf(context);
     return GlassButton(
       onPressed: () => _showSortMenu(context),
       child: Row(
@@ -932,21 +938,21 @@ class ArticleSortSelector extends StatelessWidget {
           Icon(
             Icons.sort,
             size: 18,
-            color: Colors.white.withOpacity(0.8),
+            color: tokens.textMedium,
           ),
           const SizedBox(width: 4),
           Text(
             _getSortLabel(currentSort),
             style: TextStyle(
               fontSize: 14,
-              color: Colors.white.withOpacity(0.8),
+              color: tokens.textMedium,
             ),
           ),
           const SizedBox(width: 4),
           Icon(
             ascending ? Icons.arrow_upward : Icons.arrow_downward,
             size: 16,
-            color: Colors.white.withOpacity(0.6),
+            color: tokens.textLow,
           ),
         ],
       ),
@@ -954,6 +960,7 @@ class ArticleSortSelector extends StatelessWidget {
   }
   
   void _showSortMenu(BuildContext context) {
+    final tokens = GlassTheme.colorsOf(context);
     showMenu(
       context: context,
       position: RelativeRect.fromLTRB(100, 100, 0, 0),
@@ -966,16 +973,16 @@ class ArticleSortSelector extends StatelessWidget {
                 _getSortIcon(option),
                 size: 20,
                 color: currentSort == option
-                    ? Theme.of(context).primaryColor
-                    : Colors.white70,
+                    ? tokens.primary
+                    : tokens.textMedium,
               ),
               const SizedBox(width: 12),
               Text(
                 _getSortLabel(option),
                 style: TextStyle(
                   color: currentSort == option
-                      ? Theme.of(context).primaryColor
-                      : Colors.white,
+                      ? tokens.primary
+                      : tokens.textHigh,
                 ),
               ),
             ],
@@ -996,21 +1003,21 @@ class ArticleSortSelector extends StatelessWidget {
                 Icon(
                   ascending ? Icons.arrow_upward : Icons.arrow_downward,
                   size: 20,
-                  color: Colors.white70,
+                  color: tokens.textMedium,
                 ),
                 const SizedBox(width: 12),
                 Text(
                   ascending ? 'Ascending' : 'Descending',
-                  style: const TextStyle(color: Colors.white),
+                  style: TextStyle(color: tokens.textHigh),
                 ),
               ],
             ),
           ),
         ),
-      color: Colors.grey[900],
+      color: tokens.bgBase,
       elevation: 8,
     ).then((value) {
-      if (value != null && value is ArticleSortOption) {
+      if (value is ArticleSortOption) {
         onSortChanged(value);
       }
     });

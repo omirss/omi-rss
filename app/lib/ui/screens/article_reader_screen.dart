@@ -14,6 +14,9 @@ import '../../providers/analytics_provider.dart';
 import '../../features/gestures/gesture_detector_wrapper.dart';
 import '../../providers/offline_provider.dart';
 import '../../providers/article_actions_provider.dart';
+import '../glass_theme.dart';
+import '../tokens/glass_tokens.dart';
+import '../components/empty_state.dart';
 
 // Reader settings provider
 final readerSettingsProvider = StateNotifierProvider<ReaderSettingsNotifier, ReaderSettings>((ref) {
@@ -24,29 +27,25 @@ class ReaderSettings {
   final double fontSize;
   final String fontFamily;
   final double lineHeight;
-  final bool isDarkMode;
   final bool showImages;
-  
+
   ReaderSettings({
     this.fontSize = 16,
     this.fontFamily = 'Inter',
     this.lineHeight = 1.6,
-    this.isDarkMode = true,
     this.showImages = true,
   });
-  
+
   ReaderSettings copyWith({
     double? fontSize,
     String? fontFamily,
     double? lineHeight,
-    bool? isDarkMode,
     bool? showImages,
   }) {
     return ReaderSettings(
       fontSize: fontSize ?? this.fontSize,
       fontFamily: fontFamily ?? this.fontFamily,
       lineHeight: lineHeight ?? this.lineHeight,
-      isDarkMode: isDarkMode ?? this.isDarkMode,
       showImages: showImages ?? this.showImages,
     );
   }
@@ -77,10 +76,6 @@ class ReaderSettingsNotifier extends StateNotifier<ReaderSettings> {
   
   void setLineHeight(double height) {
     state = state.copyWith(lineHeight: height);
-  }
-  
-  void toggleDarkMode() {
-    state = state.copyWith(isDarkMode: !state.isDarkMode);
   }
   
   void toggleImages() {
@@ -195,11 +190,12 @@ class _ArticleReaderScreenState extends ConsumerState<ArticleReaderScreen> {
   @override
   Widget build(BuildContext context) {
     final settings = ref.watch(readerSettingsProvider);
-    final content = widget.article.fullContent ?? 
-                   widget.article.content ?? 
-                   widget.article.summary ?? 
-                   'No content available';
-    
+    final tokens = GlassTheme.colorsOf(context);
+    final content = widget.article.fullContent ??
+        widget.article.content ??
+        widget.article.summary ??
+        '';
+
     return ArticleGestureWrapper(
       onPreviousArticle: () {
         // TODO: Navigate to previous article
@@ -219,7 +215,7 @@ class _ArticleReaderScreenState extends ConsumerState<ArticleReaderScreen> {
       },
       onClose: () => Navigator.of(context).pop(),
       child: Scaffold(
-        backgroundColor: settings.isDarkMode ? const Color(0xFF1a1a1a) : Colors.white,
+        backgroundColor: tokens.bgBase,
         body: Stack(
         children: [
           // Article content
@@ -240,16 +236,16 @@ class _ArticleReaderScreenState extends ConsumerState<ArticleReaderScreen> {
                     Text(
                       widget.article.title,
                       style: TextStyle(
-                        color: settings.isDarkMode ? Colors.white : Colors.black,
+                        color: tokens.textHigh,
                         fontSize: settings.fontSize + 8,
                         fontWeight: FontWeight.bold,
                         fontFamily: settings.fontFamily,
                         height: 1.3,
                       ),
                     ).animate().fadeIn(duration: 300.ms),
-                    
-                    const SizedBox(height: 16),
-                    
+
+                    const SizedBox(height: GlassSpacing.lg),
+
                     // Metadata
                     Row(
                       children: [
@@ -257,75 +253,64 @@ class _ArticleReaderScreenState extends ConsumerState<ArticleReaderScreen> {
                           Icon(
                             Icons.person,
                             size: 16,
-                            color: settings.isDarkMode 
-                              ? Colors.white.withOpacity(0.6)
-                              : Colors.black.withOpacity(0.6),
+                            color: tokens.textMedium,
                           ),
                           const SizedBox(width: 4),
                           Text(
                             widget.article.author!,
-                            style: TextStyle(
-                              color: settings.isDarkMode 
-                                ? Colors.white.withOpacity(0.6)
-                                : Colors.black.withOpacity(0.6),
-                              fontSize: 14,
-                            ),
+                            style: GlassTypeScale.label
+                                .copyWith(color: tokens.textMedium),
                           ),
-                          const SizedBox(width: 16),
+                          const SizedBox(width: GlassSpacing.lg),
                         ],
                         Icon(
                           Icons.access_time,
                           size: 16,
-                          color: settings.isDarkMode 
-                            ? Colors.white.withOpacity(0.6)
-                            : Colors.black.withOpacity(0.6),
+                          color: tokens.textMedium,
                         ),
                         const SizedBox(width: 4),
                         Text(
                           _formatDate(widget.article.publishedAt),
-                          style: TextStyle(
-                            color: settings.isDarkMode 
-                              ? Colors.white.withOpacity(0.6)
-                              : Colors.black.withOpacity(0.6),
-                            fontSize: 14,
-                          ),
+                          style: GlassTypeScale.label
+                              .copyWith(color: tokens.textMedium),
                         ),
                         const Spacer(),
                         // Reading time
                         Icon(
                           Icons.timer,
                           size: 16,
-                          color: settings.isDarkMode 
-                            ? Colors.white.withOpacity(0.6)
-                            : Colors.black.withOpacity(0.6),
+                          color: tokens.textMedium,
                         ),
                         const SizedBox(width: 4),
                         Text(
                           '${widget.article.estimatedReadTime} min read',
-                          style: TextStyle(
-                            color: settings.isDarkMode 
-                              ? Colors.white.withOpacity(0.6)
-                              : Colors.black.withOpacity(0.6),
-                            fontSize: 14,
-                          ),
+                          style: GlassTypeScale.label
+                              .copyWith(color: tokens.textMedium),
                         ),
                       ],
                     ).animate().fadeIn(duration: 300.ms, delay: 100.ms),
-                    
-                    const SizedBox(height: 32),
-                    
+
+                    const SizedBox(height: GlassSpacing.xxl),
+
                     // Content
-                    SelectableText(
-                      _stripHtml(content),
-                      style: TextStyle(
-                        color: settings.isDarkMode 
-                          ? Colors.white.withOpacity(0.9)
-                          : Colors.black.withOpacity(0.9),
-                        fontSize: settings.fontSize,
-                        fontFamily: settings.fontFamily,
-                        height: settings.lineHeight,
-                      ),
-                    ).animate().fadeIn(duration: 300.ms, delay: 200.ms),
+                    if (content.trim().isEmpty)
+                      EmptyState(
+                        title: 'No article content',
+                        subtitle:
+                            'This article has no extracted text to display.',
+                        actionLabel: 'Open original',
+                        onAction: _openInBrowser,
+                      )
+                    else
+                      SelectableText(
+                        _stripHtml(content),
+                        style: TextStyle(
+                          color: tokens.textHigh,
+                          fontSize: settings.fontSize,
+                          fontFamily: settings.fontFamily,
+                          height: settings.lineHeight,
+                        ),
+                      ).animate().fadeIn(duration: 300.ms, delay: 200.ms),
                   ],
                 ),
               ),
@@ -429,11 +414,6 @@ class _ArticleReaderScreenState extends ConsumerState<ArticleReaderScreen> {
                         variant: GlassButtonVariant.text,
                       ),
                       GlassButton(
-                        icon: settings.isDarkMode ? Icons.light_mode : Icons.dark_mode,
-                        onPressed: () => ref.read(readerSettingsProvider.notifier).toggleDarkMode(),
-                        variant: GlassButtonVariant.icon,
-                      ),
-                      GlassButton(
                         icon: Icons.settings,
                         onPressed: () => _showReaderSettings(context),
                         variant: GlassButtonVariant.icon,
@@ -510,6 +490,7 @@ class _ArticleReaderScreenState extends ConsumerState<ArticleReaderScreen> {
   }
   
   void _showReaderSettings(BuildContext context) {
+    final tokens = GlassTheme.colorsOf(context);
     showGlassDialog(
       context: context,
       title: const Text('Reader Settings'),
@@ -525,7 +506,7 @@ class _ArticleReaderScreenState extends ConsumerState<ArticleReaderScreen> {
                   Row(
                     children: [
                       IconButton(
-                        icon: const Icon(Icons.remove, color: Colors.white),
+                        icon: Icon(Icons.remove, color: tokens.textHigh),
                         onPressed: () {
                           ref.read(readerSettingsProvider.notifier).decreaseFontSize();
                           setState(() {});
@@ -533,10 +514,10 @@ class _ArticleReaderScreenState extends ConsumerState<ArticleReaderScreen> {
                       ),
                       Text(
                         '${ref.watch(readerSettingsProvider).fontSize.round()}',
-                        style: const TextStyle(color: Colors.white),
+                        style: GlassTypeScale.label.copyWith(color: tokens.textHigh),
                       ),
                       IconButton(
-                        icon: const Icon(Icons.add, color: Colors.white),
+                        icon: Icon(Icons.add, color: tokens.textHigh),
                         onPressed: () {
                           ref.read(readerSettingsProvider.notifier).increaseFontSize();
                           setState(() {});

@@ -17,9 +17,12 @@ class GlassSwitch extends StatelessWidget {
   
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () => onChanged(!value),
-      child: AnimatedContainer(
+    final tokens = GlassTheme.colorsOf(context);
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: () => onChanged(!value),
+        child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         width: width,
         height: height,
@@ -27,21 +30,21 @@ class GlassSwitch extends StatelessWidget {
           borderRadius: BorderRadius.circular(height / 2),
           gradient: value
               ? LinearGradient(
-                  colors: GlassColors.primaryGradient,
+                  colors: tokens.primaryGradient,
                   begin: Alignment.centerLeft,
                   end: Alignment.centerRight,
                 )
               : null,
-          color: value ? null : Colors.white.withOpacity(0.1),
+          color: value ? null : tokens.glassFill,
           border: Border.all(
-            color: Colors.white.withOpacity(0.2),
+            color: tokens.glassStroke,
             width: 1,
           ),
           boxShadow: [
             BoxShadow(
               color: value
-                  ? GlassColors.primaryGradient[0].withOpacity(0.3)
-                  : Colors.black.withOpacity(0.1),
+                  ? tokens.primary.withValues(alpha: 0.3)
+                  : tokens.overlay.withValues(alpha: 0.1),
               blurRadius: 8,
               offset: const Offset(0, 2),
             ),
@@ -58,11 +61,11 @@ class GlassSwitch extends StatelessWidget {
                 width: height - 4,
                 height: height - 4,
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: tokens.textHigh,
                   borderRadius: BorderRadius.circular((height - 4) / 2),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.2),
+                      color: tokens.overlay.withValues(alpha: 0.2),
                       blurRadius: 4,
                       offset: const Offset(0, 2),
                     ),
@@ -73,6 +76,7 @@ class GlassSwitch extends StatelessWidget {
           ],
         ),
       ),
+    ),
     );
   }
 }

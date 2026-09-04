@@ -2,6 +2,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../glass_theme.dart';
+import '../tokens/glass_tokens.dart';
 
 /// Glass button variants
 enum GlassButtonVariant {
@@ -30,7 +31,7 @@ class GlassButton extends StatefulWidget {
   final GlassThemeData? theme;
   final Widget? child;
   final List<Color>? gradientColors;
-  
+
   const GlassButton({
     super.key,
     this.text,
@@ -47,7 +48,7 @@ class GlassButton extends StatefulWidget {
     this.theme,
     this.child,
     this.gradientColors,
-  }) : assert(text != null || icon != null || child != null, 
+  }) : assert(text != null || icon != null || child != null,
        'Either text, icon, or child must be provided');
 
   @override
@@ -60,8 +61,9 @@ class _GlassButtonState extends State<GlassButton>
   late AnimationController _pressController;
   late Animation<double> _shimmerAnimation;
   late Animation<double> _scaleAnimation;
-  
+
   bool _isHovered = false;
+  bool _isFocused = false;
 
   @override
   void initState() {
@@ -113,60 +115,67 @@ class _GlassButtonState extends State<GlassButton>
   @override
   Widget build(BuildContext context) {
     final theme = widget.theme ?? GlassTheme.of(context);
+    final tokens = GlassTheme.colorsOf(context);
     final isDisabled = widget.onPressed == null || widget.isLoading;
-    
-    return MouseRegion(
-      onEnter: (_) => setState(() => _isHovered = true),
-      onExit: (_) => setState(() => _isHovered = false),
-      cursor: isDisabled ? SystemMouseCursors.forbidden : SystemMouseCursors.click,
-      child: GestureDetector(
-        onTapDown: isDisabled ? null : (_) => _handleTapDown(),
-        onTapUp: isDisabled ? null : (_) => _handleTapUp(),
-        onTapCancel: () => _handleTapCancel(),
-        child: AnimatedBuilder(
-          animation: _scaleAnimation,
-          builder: (context, child) {
-            return Transform.scale(
-              scale: _scaleAnimation.value,
-              child: _buildButton(theme, isDisabled),
-            );
-          },
+
+    return Focus(
+      canRequestFocus: !isDisabled,
+      onFocusChange: (focused) => setState(() => _isFocused = focused),
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _isHovered = true),
+        onExit: (_) => setState(() => _isHovered = false),
+        cursor: isDisabled ? SystemMouseCursors.forbidden : SystemMouseCursors.click,
+        child: GestureDetector(
+          onTapDown: isDisabled ? null : (_) => _handleTapDown(),
+          onTapUp: isDisabled ? null : (_) => _handleTapUp(),
+          onTapCancel: () => _handleTapCancel(),
+          child: AnimatedBuilder(
+            animation: _scaleAnimation,
+            builder: (context, child) {
+              return Transform.scale(
+                scale: _scaleAnimation.value,
+                child: _buildButton(theme, tokens, isDisabled),
+              );
+            },
+          ),
         ),
       ),
     );
   }
-  
-  Widget _buildButton(GlassThemeData theme, bool isDisabled) {
+
+  Widget _buildButton(
+      GlassThemeData theme, GlassColorTokens tokens, bool isDisabled) {
     switch (widget.variant) {
       case GlassButtonVariant.elevated:
       case GlassButtonVariant.primary:
       case GlassButtonVariant.secondary:
-        return _buildElevatedButton(theme, isDisabled);
+        return _buildElevatedButton(theme, tokens, isDisabled);
       case GlassButtonVariant.outlined:
-        return _buildOutlinedButton(theme, isDisabled);
+        return _buildOutlinedButton(theme, tokens, isDisabled);
       case GlassButtonVariant.text:
-        return _buildTextButton(theme, isDisabled);
+        return _buildTextButton(theme, tokens, isDisabled);
       case GlassButtonVariant.icon:
-        return _buildIconButton(theme, isDisabled);
+        return _buildIconButton(theme, tokens, isDisabled);
       case GlassButtonVariant.fab:
-        return _buildFabButton(theme, isDisabled);
+        return _buildFabButton(theme, tokens, isDisabled);
     }
   }
-  
-  List<Color> _effectiveGradient(GlassThemeData theme) {
+
+  List<Color> _effectiveGradient(GlassThemeData theme, GlassColorTokens tokens) {
     if (widget.gradientColors != null) return widget.gradientColors!;
     switch (widget.variant) {
       case GlassButtonVariant.primary:
-        return const [Color(0xFF667EEA), Color(0xFF764BA2)];
+        return tokens.primaryGradient;
       case GlassButtonVariant.secondary:
-        return const [Color(0xFFF093FB), Color(0xFFF5576C)];
+        return tokens.accentGradient;
       default:
         return theme.gradientColors;
     }
   }
 
-  Widget _buildElevatedButton(GlassThemeData theme, bool isDisabled) {
-    final gradient = _effectiveGradient(theme);
+  Widget _buildElevatedButton(
+      GlassThemeData theme, GlassColorTokens tokens, bool isDisabled) {
+    final gradient = _effectiveGradient(theme, tokens);
     return Container(
       width: widget.width,
       height: widget.height,
@@ -187,28 +196,30 @@ class _GlassButtonState extends State<GlassButton>
                     end: Alignment.bottomRight,
                     colors: isDisabled
                         ? [
-                            Colors.grey.withOpacity(0.2),
-                            Colors.grey.withOpacity(0.1),
+                            tokens.textLow.withValues(alpha: 0.2),
+                            tokens.textLow.withValues(alpha: 0.1),
                           ]
                         : _isHovered
                             ? [
-                                gradient[0].withOpacity(0.3),
-                                gradient[1].withOpacity(0.2),
+                                gradient[0].withValues(alpha: 0.75),
+                                gradient[1].withValues(alpha: 0.65),
                               ]
                             : gradient,
                   ),
                   borderRadius: theme.borderRadius,
                   border: Border.all(
-                    color: isDisabled
-                        ? Colors.grey.withOpacity(0.3)
-                        : theme.borderColor,
-                    width: theme.borderWidth,
+                    color: _isFocused
+                        ? tokens.accent
+                        : isDisabled
+                            ? tokens.textLow.withValues(alpha: 0.3)
+                            : theme.borderColor,
+                    width: _isFocused ? 2 : theme.borderWidth,
                   ),
                   boxShadow: isDisabled
                       ? []
                       : [
                           BoxShadow(
-                            color: theme.shadowColor.withOpacity(0.3),
+                            color: theme.shadowColor.withValues(alpha: 0.3),
                             blurRadius: 16,
                             offset: const Offset(0, 4),
                           ),
@@ -231,7 +242,7 @@ class _GlassButtonState extends State<GlassButton>
                         end: Alignment.bottomRight,
                         colors: [
                           Colors.transparent,
-                          Colors.white.withOpacity(0.3),
+                          tokens.textHigh.withValues(alpha: 0.3),
                           Colors.transparent,
                         ],
                         stops: const [0.0, 0.5, 1.0],
@@ -239,7 +250,7 @@ class _GlassButtonState extends State<GlassButton>
                       ).createShader(rect);
                     },
                     child: Container(
-                      color: Colors.white,
+                      color: tokens.textHigh,
                     ),
                   ),
                 );
@@ -249,56 +260,63 @@ class _GlassButtonState extends State<GlassButton>
           Center(
             child: Padding(
               padding: widget.padding ?? const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-              child: _buildContent(theme, isDisabled),
+              child: _buildContent(theme, tokens, isDisabled),
             ),
           ),
         ],
       ),
     );
   }
-  
-  Widget _buildOutlinedButton(GlassThemeData theme, bool isDisabled) {
+
+  Widget _buildOutlinedButton(
+      GlassThemeData theme, GlassColorTokens tokens, bool isDisabled) {
     return Container(
       width: widget.width,
       height: widget.height,
       decoration: BoxDecoration(
         borderRadius: theme.borderRadius,
         border: Border.all(
-          color: isDisabled
-              ? Colors.grey.withOpacity(0.3)
-              : _isHovered
-                  ? theme.borderColor.withOpacity(0.5)
-                  : theme.borderColor,
-          width: 2,
+          color: _isFocused
+              ? tokens.accent
+              : isDisabled
+                  ? tokens.textLow.withValues(alpha: 0.3)
+                  : _isHovered
+                      ? theme.borderColor.withValues(alpha: 0.5)
+                      : theme.borderColor,
+          width: _isFocused ? 2 : 2,
         ),
       ),
       child: Center(
         child: Padding(
           padding: widget.padding ?? const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-          child: _buildContent(theme, isDisabled),
+          child: _buildContent(theme, tokens, isDisabled),
         ),
       ),
     );
   }
-  
-  Widget _buildTextButton(GlassThemeData theme, bool isDisabled) {
+
+  Widget _buildTextButton(
+      GlassThemeData theme, GlassColorTokens tokens, bool isDisabled) {
     return Container(
       width: widget.width,
       height: widget.height,
       decoration: BoxDecoration(
         borderRadius: theme.borderRadius,
-        color: _isHovered ? Colors.white.withOpacity(0.1) : Colors.transparent,
+        color: _isHovered && !isDisabled
+            ? tokens.hoverFill
+            : Colors.transparent,
       ),
       child: Center(
         child: Padding(
           padding: widget.padding ?? const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: _buildContent(theme, isDisabled),
+          child: _buildContent(theme, tokens, isDisabled),
         ),
       ),
     );
   }
-  
-  Widget _buildIconButton(GlassThemeData theme, bool isDisabled) {
+
+  Widget _buildIconButton(
+      GlassThemeData theme, GlassColorTokens tokens, bool isDisabled) {
     return Container(
       width: widget.width ?? 48,
       height: widget.height ?? 48,
@@ -309,16 +327,18 @@ class _GlassButtonState extends State<GlassButton>
           end: Alignment.bottomRight,
           colors: isDisabled
               ? [
-                  Colors.grey.withOpacity(0.2),
-                  Colors.grey.withOpacity(0.1),
+                  tokens.textLow.withValues(alpha: 0.2),
+                  tokens.textLow.withValues(alpha: 0.1),
                 ]
               : theme.gradientColors,
         ),
         border: Border.all(
-          color: isDisabled
-              ? Colors.grey.withOpacity(0.3)
-              : theme.borderColor,
-          width: theme.borderWidth,
+          color: _isFocused
+              ? tokens.accent
+              : isDisabled
+                  ? tokens.textLow.withValues(alpha: 0.3)
+                  : theme.borderColor,
+          width: _isFocused ? 2 : theme.borderWidth,
         ),
       ),
       child: ClipOval(
@@ -328,14 +348,15 @@ class _GlassButtonState extends State<GlassButton>
             sigmaY: theme.blur,
           ),
           child: Center(
-            child: _buildContent(theme, isDisabled),
+            child: _buildContent(theme, tokens, isDisabled),
           ),
         ),
       ),
     );
   }
-  
-  Widget _buildFabButton(GlassThemeData theme, bool isDisabled) {
+
+  Widget _buildFabButton(
+      GlassThemeData theme, GlassColorTokens tokens, bool isDisabled) {
     return Container(
       width: widget.width ?? 56,
       height: widget.height ?? 56,
@@ -345,7 +366,7 @@ class _GlassButtonState extends State<GlassButton>
             ? []
             : [
                 BoxShadow(
-                  color: theme.shadowColor.withOpacity(0.4),
+                  color: theme.shadowColor.withValues(alpha: 0.4),
                   blurRadius: 24,
                   offset: const Offset(0, 8),
                 ),
@@ -364,49 +385,52 @@ class _GlassButtonState extends State<GlassButton>
                 end: Alignment.bottomRight,
                 colors: isDisabled
                     ? [
-                        Colors.grey.withOpacity(0.3),
-                        Colors.grey.withOpacity(0.2),
+                        tokens.textLow.withValues(alpha: 0.3),
+                        tokens.textLow.withValues(alpha: 0.2),
                       ]
                     : [
-                        theme.gradientColors[0].withOpacity(0.4),
-                        theme.gradientColors[1].withOpacity(0.3),
+                        theme.gradientColors[0].withValues(alpha: 0.4),
+                        theme.gradientColors[1].withValues(alpha: 0.3),
                       ],
               ),
               border: Border.all(
-                color: isDisabled
-                    ? Colors.grey.withOpacity(0.3)
-                    : theme.borderColor.withOpacity(0.5),
-                width: theme.borderWidth,
+                color: _isFocused
+                    ? tokens.accent
+                    : isDisabled
+                        ? tokens.textLow.withValues(alpha: 0.3)
+                        : theme.borderColor.withValues(alpha: 0.5),
+                width: _isFocused ? 2 : theme.borderWidth,
               ),
             ),
             child: Center(
-              child: _buildContent(theme, isDisabled),
+              child: _buildContent(theme, tokens, isDisabled),
             ),
           ),
         ),
       ),
     );
   }
-  
-  Widget _buildContent(GlassThemeData theme, bool isDisabled) {
+
+  Widget _buildContent(
+      GlassThemeData theme, GlassColorTokens tokens, bool isDisabled) {
     if (widget.isLoading) {
       return SizedBox(
         width: 24,
         height: 24,
         child: CircularProgressIndicator(
-          color: widget.textColor ?? Colors.white,
+          color: widget.textColor ?? tokens.textHigh,
           strokeWidth: 2,
         ),
       );
     }
-    
+
     if (widget.child != null) {
       return widget.child!;
     }
-    
-    final color = widget.textColor ?? 
-        (isDisabled ? Colors.grey : Colors.white);
-    
+
+    final color = widget.textColor ??
+        (isDisabled ? tokens.textLow : tokens.textHigh);
+
     if (widget.icon != null && widget.text != null) {
       return Row(
         mainAxisSize: MainAxisSize.min,

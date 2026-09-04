@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import '../../../ui/components/glass_container.dart';
+import '../../../ui/glass_theme.dart';
+import '../../../ui/tokens/glass_tokens.dart';
 import '../analytics_service.dart';
 
 class ReadingStatsCard extends StatelessWidget {
@@ -11,69 +14,61 @@ class ReadingStatsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = GlassTheme.of(context);
     final reading = analytics.reading;
     if (reading == null) {
       return const SizedBox.shrink();
     }
 
-    return Card(
-      elevation: 4,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  Icons.auto_stories,
-                  color: Theme.of(context).colorScheme.primary,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  'Reading Statistics',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                _buildStatColumn(
-                  context,
-                  Icons.article,
-                  'Articles Read',
-                  reading.totalArticlesRead.toString(),
-                  Theme.of(context).colorScheme.primary,
-                ),
-                _buildStatColumn(
-                  context,
-                  Icons.timer,
-                  'Total Minutes',
-                  reading.totalReadingTime.toString(),
-                  Theme.of(context).colorScheme.secondary,
-                ),
-                _buildStatColumn(
-                  context,
-                  Icons.speed,
-                  'Avg Minutes',
-                  reading.averageReadingTime.toString(),
-                  Theme.of(context).colorScheme.tertiary,
-                ),
-              ],
-            ),
-            if ((analytics.patterns?.monthlyTrend ?? []).isNotEmpty) ...[
-              const SizedBox(height: 24),
-              Text(
-                'Daily Reading Trend',
-                style: Theme.of(context).textTheme.titleMedium,
+    return GlassContainer(
+      padding: const EdgeInsets.all(GlassSpacing.lg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.auto_stories,
+                color: theme.accentColor,
               ),
-              const SizedBox(height: 12),
-              _buildDailyTrend(context, analytics.patterns!.monthlyTrend),
+              const SizedBox(width: GlassSpacing.sm),
+              Text('Reading Statistics', style: theme.titleMedium),
             ],
+          ),
+          const SizedBox(height: GlassSpacing.lg),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _buildStatColumn(
+                context,
+                Icons.article,
+                'Articles Read',
+                reading.totalArticlesRead.toString(),
+                theme.primaryColor,
+              ),
+              _buildStatColumn(
+                context,
+                Icons.timer,
+                'Total Minutes',
+                reading.totalReadingTime.toString(),
+                theme.secondaryColor,
+              ),
+              _buildStatColumn(
+                context,
+                Icons.speed,
+                'Avg Minutes',
+                reading.averageReadingTime.toString(),
+                theme.accentColor,
+              ),
+            ],
+          ),
+          if ((analytics.patterns?.monthlyTrend ?? []).isNotEmpty) ...[
+            const SizedBox(height: GlassSpacing.xl),
+            Text('Daily Reading Trend', style: theme.titleSmall),
+            const SizedBox(height: GlassSpacing.md),
+            _buildDailyTrend(context, analytics.patterns!.monthlyTrend),
           ],
-        ),
+        ],
       ),
     );
   }
@@ -85,28 +80,27 @@ class ReadingStatsCard extends StatelessWidget {
     String value,
     Color color,
   ) {
+    final theme = GlassTheme.of(context);
     return Column(
       children: [
         Container(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.all(GlassSpacing.md),
           decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
+            color: color.withValues(alpha: 0.15),
             shape: BoxShape.circle,
           ),
           child: Icon(icon, color: color, size: 32),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: GlassSpacing.sm),
         Text(
           value,
-          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: color,
-              ),
+          style: GlassTypeScale.title.copyWith(
+            fontSize: 22,
+            fontWeight: FontWeight.w700,
+            color: color,
+          ),
         ),
-        Text(
-          label,
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
+        Text(label, style: theme.bodySmall),
       ],
     );
   }
@@ -115,6 +109,7 @@ class ReadingStatsCard extends StatelessWidget {
     BuildContext context,
     List<DateCount> monthlyTrend,
   ) {
+    final theme = GlassTheme.of(context);
     final entries = monthlyTrend.length > 30
         ? monthlyTrend.sublist(monthlyTrend.length - 30)
         : monthlyTrend;
@@ -138,7 +133,7 @@ class ReadingStatsCard extends StatelessWidget {
                 child: Container(
                   height: height,
                   decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.primary,
+                    color: theme.primaryColor,
                     borderRadius: BorderRadius.circular(4),
                   ),
                 ),

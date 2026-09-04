@@ -1,5 +1,4 @@
 import 'dart:ui';
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../glass_theme.dart';
@@ -21,8 +20,10 @@ class GlassContainer extends StatefulWidget {
   final bool enableHover;
   final bool enableMagneticHover;
   final double magneticRange;
+  final bool selected;
+  final bool enableFocus;
   final GlassThemeData? theme;
-  
+
   const GlassContainer({
     super.key,
     required this.child,
@@ -40,6 +41,8 @@ class GlassContainer extends StatefulWidget {
     this.enableHover = true,
     this.enableMagneticHover = false,
     this.magneticRange = 50.0,
+    this.selected = false,
+    this.enableFocus = false,
     this.theme,
   });
 
@@ -54,11 +57,10 @@ class _GlassContainerState extends State<GlassContainer>
   late AnimationController _rippleController;
   late Animation<double> _scaleAnimation;
   late Animation<double> _elevationAnimation;
-  late Animation<double> _rippleAnimation;
   
   bool _isHovered = false;
   bool _isPressed = false;
-  Offset _localPosition = Offset.zero;
+  bool _isFocused = false;
   Offset _magneticOffset = Offset.zero;
   
   // Ripple effect
@@ -112,104 +114,115 @@ class _GlassContainerState extends State<GlassContainer>
       curve: theme.animationCurve,
     ));
     
-    _rippleAnimation = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _rippleController,
-      curve: Curves.easeOut,
-    ));
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = widget.theme ?? GlassTheme.of(context);
-    
+    final tokens = GlassTheme.colorsOf(context);
+
     return MouseRegion(
+      cursor: widget.onTap != null
+          ? SystemMouseCursors.click
+          : MouseCursor.defer,
       onEnter: widget.enableHover ? (_) => _onHover(true) : null,
       onExit: widget.enableHover ? (_) => _onHover(false) : null,
       onHover: widget.enableMagneticHover ? _onMouseMove : null,
-      child: GestureDetector(
-        onTap: widget.onTap,
-        onLongPress: widget.onLongPress,
-        onTapDown: (details) => _onTapDown(details),
-        onTapUp: (_) => _onTapUp(),
-        onTapCancel: () => _onTapCancel(),
-        child: AnimatedBuilder(
-          animation: Listenable.merge([
-            _scaleController,
-            _elevationController,
-            _rippleController,
-          ]),
-          builder: (context, child) {
-            return Transform.translate(
-              offset: _magneticOffset,
-              child: Transform.scale(
-                scale: _isPressed 
-                    ? theme.clickScale 
-                    : _scaleAnimation.value,
-                child: Container(
-                  width: widget.width,
-                  height: widget.height,
-                  margin: widget.margin,
-                  child: Stack(
-                    children: [
-                      // Main glass container
-                      ClipRRect(
-                        borderRadius: widget.borderRadius ?? theme.borderRadius,
-                        child: BackdropFilter(
-                          filter: ImageFilter.blur(
-                            sigmaX: widget.blur ?? theme.blur,
-                            sigmaY: widget.blur ?? theme.blur,
-                          ),
-                          child: Container(
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: widget.gradientColors ?? theme.gradientColors,
-                              ),
-                              borderRadius: widget.borderRadius ?? theme.borderRadius,
-                              border: Border.all(
-                                color: widget.borderColor ?? theme.borderColor,
-                                width: theme.borderWidth,
-                              ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: theme.shadowColor.withOpacity(0.37),
-                                  blurRadius: theme.shadowBlurRadius + _elevationAnimation.value,
-                                  offset: Offset(
-                                    theme.shadowOffset.dx,
-                                    theme.shadowOffset.dy + _elevationAnimation.value,
-                                  ),
-                                ),
-                                // Inner shadow for depth
-                                BoxShadow(
-                                  color: Colors.white.withOpacity(0.1),
-                                  blurRadius: 1,
-                                  offset: const Offset(0, -1),
-                                  spreadRadius: -1,
-                                ),
-                              ],
+      child: Focus(
+        canRequestFocus: widget.enableFocus && widget.onTap != null,
+        onFocusChange: (focused) => setState(() => _isFocused = focused),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          onLongPress: widget.onLongPress,
+          onTapDown: (details) => _onTapDown(details),
+          onTapUp: (_) => _onTapUp(),
+          onTapCancel: () => _onTapCancel(),
+          child: AnimatedBuilder(
+            animation: Listenable.merge([
+              _scaleController,
+              _elevationController,
+              _rippleController,
+            ]),
+            builder: (context, child) {
+              return Transform.translate(
+                offset: _magneticOffset,
+                child: Transform.scale(
+                  scale: _isPressed
+                      ? theme.clickScale
+                      : _scaleAnimation.value,
+                  child: Container(
+                    width: widget.width,
+                    height: widget.height,
+                    margin: widget.margin,
+                    child: Stack(
+                      children: [
+                        // Main glass container
+                        ClipRRect(
+                          borderRadius: widget.borderRadius ?? theme.borderRadius,
+                          child: BackdropFilter(
+                            filter: ImageFilter.blur(
+                              sigmaX: widget.blur ?? theme.blur,
+                              sigmaY: widget.blur ?? theme.blur,
                             ),
-                            padding: widget.padding,
-                            child: widget.child,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  colors: widget.gradientColors ??
+                                      (widget.selected
+                                          ? [
+                                              tokens.accentSoft,
+                                              tokens.glassFill,
+                                            ]
+                                          : theme.gradientColors),
+                                ),
+                                borderRadius: widget.borderRadius ?? theme.borderRadius,
+                                border: Border.all(
+                                  color: _isFocused
+                                      ? tokens.accent
+                                      : widget.selected
+                                          ? tokens.accent
+                                          : widget.borderColor ?? theme.borderColor,
+                                  width: widget.selected || _isFocused ? 2 : theme.borderWidth,
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: theme.shadowColor.withValues(alpha: 0.37),
+                                    blurRadius: theme.shadowBlurRadius + _elevationAnimation.value,
+                                    offset: Offset(
+                                      theme.shadowOffset.dx,
+                                      theme.shadowOffset.dy + _elevationAnimation.value,
+                                    ),
+                                  ),
+                                  // Inner highlight for depth
+                                  BoxShadow(
+                                    color: tokens.glassFill,
+                                    blurRadius: 1,
+                                    offset: const Offset(0, -1),
+                                    spreadRadius: -1,
+                                  ),
+                                ],
+                              ),
+                              padding: widget.padding,
+                              child: widget.child,
+                            ),
                           ),
                         ),
-                      ),
-                      // Ripple effects
-                      ..._ripples.map((ripple) => _buildRipple(ripple)),
-                    ],
+                        // Ripple effects
+                        ..._ripples.map((ripple) => _buildRipple(ripple)),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-            );
-          },
+              );
+            },
+          ),
         ),
       ),
     );
   }
-  
+
   Widget _buildRipple(_RippleAnimation ripple) {
     return Positioned(
       left: ripple.position.dx - ripple.radius,
@@ -222,8 +235,8 @@ class _GlassContainerState extends State<GlassContainer>
             height: ripple.radius * 2,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: Colors.white.withOpacity(
-                0.3 * (1 - ripple.controller.value),
+              color: GlassTheme.colorsOf(context).glassStroke.withValues(alpha: 
+                1 - ripple.controller.value,
               ),
             ),
           );
@@ -271,7 +284,6 @@ class _GlassContainerState extends State<GlassContainer>
   void _onTapDown(TapDownDetails details) {
     setState(() {
       _isPressed = true;
-      _localPosition = details.localPosition;
     });
     
     // Create ripple effect

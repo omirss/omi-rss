@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import '../../../ui/components/glass_container.dart';
+import '../../../ui/glass_theme.dart';
+import '../../../ui/tokens/glass_tokens.dart';
 
 class StreakIndicator extends StatelessWidget {
   final String title;
@@ -16,74 +19,68 @@ class StreakIndicator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
+    final theme = GlassTheme.of(context);
+
+    return GlassContainer(
+      padding: const EdgeInsets.all(GlassSpacing.lg),
       child: InkWell(
         onTap: () => _showStreakDetails(context),
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(icon, color: color, size: 24),
-                  const SizedBox(width: 8),
-                  Text(
-                    title,
-                    style: Theme.of(context).textTheme.titleMedium,
+        borderRadius: BorderRadius.circular(GlassRadii.md),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, color: color, size: 24),
+                const SizedBox(width: GlassSpacing.sm),
+                Expanded(
+                  child: Text(title, style: theme.titleSmall),
+                ),
+              ],
+            ),
+            const SizedBox(height: GlassSpacing.md),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  days.toString(),
+                  style: GlassTypeScale.display.copyWith(
+                    color: color,
                   ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    days.toString(),
-                    style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: color,
-                        ),
-                  ),
-                  const SizedBox(width: 8),
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 4),
-                    child: Text(
-                      'days',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Consecutive days with reading activity',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-              ),
-            ],
-          ),
+                ),
+                const SizedBox(width: GlassSpacing.sm),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text('days', style: theme.titleSmall),
+                ),
+              ],
+            ),
+            const SizedBox(height: GlassSpacing.sm),
+            Text(
+              'Consecutive days with reading activity',
+              style: theme.bodySmall,
+            ),
+          ],
         ),
       ),
     );
   }
 
   void _showStreakDetails(BuildContext context) {
+    final theme = GlassTheme.of(context);
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: Row(
           children: [
             Icon(icon, color: color),
-            const SizedBox(width: 8),
+            const SizedBox(width: GlassSpacing.sm),
             Text(title),
           ],
         ),
         content: Text(
           '$days consecutive days',
-          style: Theme.of(context).textTheme.headlineSmall,
+          style: theme.titleLarge,
         ),
         actions: [
           TextButton(

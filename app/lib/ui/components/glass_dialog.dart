@@ -2,6 +2,8 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../glass_theme.dart';
+import '../tokens/glass_tokens.dart';
+import '../tokens/glass_presets.dart';
 import 'glass_button.dart';
 
 /// Glass dialog sizes
@@ -64,7 +66,7 @@ class GlassDialog extends StatefulWidget {
       context: context,
       barrierDismissible: dismissible,
       barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
-      barrierColor: Colors.black.withOpacity(0.5),
+      barrierColor: GlassPresets.glass.dark.overlay,
       transitionDuration: const Duration(milliseconds: 350),
       pageBuilder: (context, animation, secondaryAnimation) {
         return GlassDialog(
@@ -126,11 +128,7 @@ class GlassDialog extends StatefulWidget {
       title: Text(title),
       content: Text(
         content,
-        style: TextStyle(
-          color: Colors.white.withOpacity(0.9),
-          fontSize: 16,
-          height: 1.5,
-        ),
+        style: GlassThemeData.fromTokens(GlassTheme.colorsOf(context)).bodyLarge,
       ),
       actions: [
         GlassButton(
@@ -143,7 +141,7 @@ class GlassDialog extends StatefulWidget {
           onPressed: () => Navigator.of(context).pop(true),
           variant: GlassButtonVariant.elevated,
           gradientColors: confirmColor != null
-              ? [confirmColor.withOpacity(0.8), confirmColor.withOpacity(0.6)]
+              ? [confirmColor.withValues(alpha: 0.8), confirmColor.withValues(alpha: 0.6)]
               : null,
         ),
       ],
@@ -230,7 +228,8 @@ class _GlassDialogState extends State<GlassDialog>
                       sigmaY: _blurAnimation.value,
                     ),
                     child: Container(
-                      color: Colors.black.withOpacity(0.3 * _animationController.value),
+                      color: GlassTheme.colorsOf(context).overlay
+                          .withValues(alpha: 0.3 * _animationController.value),
                     ),
                   ),
                 ),
@@ -261,8 +260,9 @@ class _GlassDialogState extends State<GlassDialog>
   }
 
   Widget _buildDialogContent(GlassThemeData theme) {
+    final tokens = GlassTheme.colorsOf(context);
     return ClipRRect(
-      borderRadius: widget.borderRadius ?? BorderRadius.circular(24),
+      borderRadius: widget.borderRadius ?? BorderRadius.circular(GlassRadii.xl),
       child: BackdropFilter(
         filter: ImageFilter.blur(
           sigmaX: widget.blur ?? theme.blur,
@@ -273,20 +273,17 @@ class _GlassDialogState extends State<GlassDialog>
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: widget.gradientColors ?? [
-                Colors.white.withOpacity(0.2),
-                Colors.white.withOpacity(0.1),
-              ],
+              colors: widget.gradientColors ?? theme.gradientColors,
             ),
-            borderRadius: widget.borderRadius ?? BorderRadius.circular(24),
+            borderRadius: widget.borderRadius ?? BorderRadius.circular(GlassRadii.xl),
             border: Border.all(
-              color: Colors.white.withOpacity(0.2),
+              color: tokens.glassStroke,
               width: 1.5,
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.2),
-                blurRadius: 24,
+                color: tokens.overlay.withValues(alpha: 0.2),
+                blurRadius: GlassSpacing.xl,
                 offset: const Offset(0, 8),
               ),
             ],
@@ -312,22 +309,19 @@ class _GlassDialogState extends State<GlassDialog>
   }
 
   Widget _buildTitle() {
+    final tokens = GlassTheme.colorsOf(context);
     return Container(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.all(GlassSpacing.xl),
       decoration: BoxDecoration(
         border: Border(
           bottom: BorderSide(
-            color: Colors.white.withOpacity(0.1),
+            color: tokens.divider,
             width: 1,
           ),
         ),
       ),
       child: DefaultTextStyle(
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 20,
-          fontWeight: FontWeight.bold,
-        ),
+        style: GlassTypeScale.title.copyWith(color: tokens.textHigh),
         child: widget.title!,
       ),
     );
@@ -335,11 +329,11 @@ class _GlassDialogState extends State<GlassDialog>
 
   Widget _buildActions() {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(GlassSpacing.lg),
       decoration: BoxDecoration(
         border: Border(
           top: BorderSide(
-            color: Colors.white.withOpacity(0.1),
+            color: GlassTheme.colorsOf(context).divider,
             width: 1,
           ),
         ),
@@ -401,11 +395,7 @@ Future<bool?> showGlassConfirmDialog({
     title: Text(title),
     content: Text(
       message,
-      style: TextStyle(
-        color: Colors.white.withOpacity(0.9),
-        fontSize: 16,
-        height: 1.5,
-      ),
+      style: GlassThemeData.fromTokens(GlassTheme.colorsOf(context)).bodyLarge,
     ),
     actions: [
       GlassButton(
@@ -421,8 +411,8 @@ Future<bool?> showGlassConfirmDialog({
             : GlassButtonVariant.elevated,
         gradientColors: destructive
             ? [
-                Colors.red.withOpacity(0.8),
-                Colors.red.withOpacity(0.6),
+                Colors.red.withValues(alpha: 0.8),
+                Colors.red.withValues(alpha: 0.6),
               ]
             : null,
       ),
@@ -461,17 +451,15 @@ class GlassLoadingDialog extends StatelessWidget {
           width: 48,
           height: 48,
           child: CircularProgressIndicator(
-            color: Colors.white,
             strokeWidth: 3,
           ),
         ),
         if (message != null) ...[
-          const SizedBox(height: 24),
+          const SizedBox(height: GlassSpacing.xl),
           Text(
             message!,
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.9),
-              fontSize: 16,
+            style: GlassTypeScale.body.copyWith(
+              color: GlassTheme.colorsOf(context).textHigh,
             ),
             textAlign: TextAlign.center,
           ),

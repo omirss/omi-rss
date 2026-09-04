@@ -2,6 +2,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../glass_theme.dart';
+import '../tokens/glass_tokens.dart';
 
 /// Glass text field states
 enum GlassTextFieldState {
@@ -181,7 +182,7 @@ class _GlassTextFieldState extends State<GlassTextField>
                   boxShadow: _currentState != GlassTextFieldState.normal
                       ? [
                           BoxShadow(
-                            color: glowColor.withOpacity(
+                            color: glowColor.withValues(alpha: 
                               _glowAnimation.value * 0.4,
                             ),
                             blurRadius: 16,
@@ -205,8 +206,8 @@ class _GlassTextFieldState extends State<GlassTextField>
                           colors: widget.enabled
                               ? theme.gradientColors
                               : [
-                                  Colors.grey.withOpacity(0.1),
-                                  Colors.grey.withOpacity(0.05),
+                                  GlassTheme.colorsOf(context).textLow.withValues(alpha: 0.1),
+                                  GlassTheme.colorsOf(context).textLow.withValues(alpha: 0.05),
                                 ],
                         ),
                         borderRadius: theme.borderRadius,
@@ -227,11 +228,10 @@ class _GlassTextFieldState extends State<GlassTextField>
               padding: const EdgeInsets.only(top: 8, left: 16),
               child: Text(
                 widget.errorText ?? widget.helperText!,
-                style: TextStyle(
-                  fontSize: 12,
+                style: GlassTypeScale.caption.copyWith(
                   color: widget.errorText != null
-                      ? Colors.red[400]
-                      : Colors.white.withOpacity(0.7),
+                      ? GlassTheme.colorsOf(context).error
+                      : GlassTheme.colorsOf(context).textMedium,
                 ),
               ),
             ),
@@ -241,6 +241,7 @@ class _GlassTextFieldState extends State<GlassTextField>
   }
   
   Widget _buildTextField(GlassThemeData theme) {
+    final tokens = GlassTheme.colorsOf(context);
     return TextField(
       controller: _controller,
       focusNode: _focusNode,
@@ -253,20 +254,20 @@ class _GlassTextFieldState extends State<GlassTextField>
       onEditingComplete: widget.onEditingComplete,
       onSubmitted: widget.onSubmitted,
       style: widget.textStyle ??
-          TextStyle(
-            color: widget.enabled ? Colors.white : Colors.white.withOpacity(0.5),
-            fontSize: 16,
+          GlassTypeScale.body.copyWith(
+            color: widget.enabled ? tokens.textHigh : tokens.textLow,
           ),
       decoration: InputDecoration(
         labelText: widget.labelText,
         hintText: widget.hintText,
-        labelStyle: TextStyle(
-          color: _isFocused 
-              ? _getGlowColor() 
-              : Colors.white.withOpacity(0.7),
+        labelStyle: GlassTypeScale.label.copyWith(
+          color: _isFocused
+              ? _getGlowColor()
+              : tokens.textMedium,
         ),
-        hintStyle: TextStyle(
-          color: Colors.white.withOpacity(0.5),
+        hintStyle: GlassTypeScale.caption.copyWith(
+          color: tokens.textLow,
+          fontSize: GlassTypeScale.body.fontSize,
         ),
         contentPadding: const EdgeInsets.all(16),
         border: InputBorder.none,
@@ -278,15 +279,16 @@ class _GlassTextFieldState extends State<GlassTextField>
   }
   
   Widget? _buildPrefixIcon() {
+    final tokens = GlassTheme.colorsOf(context);
     final icon = widget.prefixIcon;
     if (icon is Widget) return icon;
     if (icon is IconData) {
-      return Icon(icon, color: Colors.white.withOpacity(0.7));
+      return Icon(icon, color: tokens.textMedium);
     }
     if (widget.isSearch) {
       return Icon(
         Icons.search,
-        color: Colors.white.withOpacity(0.7),
+        color: tokens.textMedium,
       );
     }
     return null;
@@ -301,7 +303,7 @@ class _GlassTextFieldState extends State<GlassTextField>
         IconButton(
           icon: Icon(
             _obscureText ? Icons.visibility : Icons.visibility_off,
-            color: Colors.white.withOpacity(0.7),
+            color: GlassTheme.colorsOf(context).textMedium,
           ),
           onPressed: () {
             setState(() {
@@ -318,7 +320,7 @@ class _GlassTextFieldState extends State<GlassTextField>
         IconButton(
           icon: Icon(
             Icons.clear,
-            color: Colors.white.withOpacity(0.7),
+            color: GlassTheme.colorsOf(context).textMedium,
           ),
           onPressed: () {
             _controller.clear();
@@ -337,7 +339,7 @@ class _GlassTextFieldState extends State<GlassTextField>
         icons.add(
           Icon(
             suffix,
-            color: Colors.white.withOpacity(0.7),
+            color: GlassTheme.colorsOf(context).textMedium,
           ),
         );
       }
@@ -356,7 +358,7 @@ class _GlassTextFieldState extends State<GlassTextField>
     switch (_currentState) {
       case GlassTextFieldState.normal:
         return _isHovered
-            ? theme.borderColor.withOpacity(0.5)
+            ? theme.borderColor.withValues(alpha: 0.5)
             : theme.borderColor;
       case GlassTextFieldState.focused:
         return GlassColors.accentGradient[0];

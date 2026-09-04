@@ -63,7 +63,7 @@ class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
                       gradient: LinearGradient(
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
-                        colors: colors.map((c) => c.withOpacity(opacity)).toList(),
+                        colors: colors.map((c) => c.withValues(alpha: opacity)).toList(),
                       ),
                     ),
                   ),
@@ -81,9 +81,9 @@ class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: [
-                      Colors.white.withOpacity(0.0),
-                      Colors.white.withOpacity(0.18),
-                      Colors.white.withOpacity(0.0),
+                      theme.borderColor.withValues(alpha: 0.0),
+                      theme.borderColor,
+                      theme.borderColor.withValues(alpha: 0.0),
                     ],
                   ),
                 ),
@@ -128,8 +128,8 @@ class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
                       begin: Alignment.topCenter,
                       end: Alignment.bottomCenter,
                       colors: [
-                        theme.shadowColor.withOpacity(0.15),
-                        theme.shadowColor.withOpacity(0),
+                        theme.shadowColor.withValues(alpha: 0.15),
+                        theme.shadowColor.withValues(alpha: 0),
                       ],
                     ),
                   ),
@@ -201,7 +201,7 @@ class SliverGlassAppBar extends StatelessWidget {
                     gradient: LinearGradient(
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
-                      colors: colors.map((c) => c.withOpacity(opacity)).toList(),
+                      colors: colors.map((c) => c.withValues(alpha: opacity)).toList(),
                     ),
                   ),
                 ),
@@ -225,9 +225,9 @@ class SliverGlassAppBar extends StatelessWidget {
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [
-                    Colors.white.withOpacity(0.0),
-                    Colors.white.withOpacity(0.18),
-                    Colors.white.withOpacity(0.0),
+                    theme.borderColor.withValues(alpha: 0.0),
+                    theme.borderColor,
+                    theme.borderColor.withValues(alpha: 0.0),
                   ],
                 ),
               ),

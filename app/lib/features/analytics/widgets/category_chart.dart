@@ -1,6 +1,9 @@
-import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:flutter/material.dart';
 import '../../../providers/analytics_provider.dart';
+import '../../../ui/components/glass_container.dart';
+import '../../../ui/glass_theme.dart';
+import '../../../ui/tokens/glass_tokens.dart';
 
 class CategoryChart extends StatefulWidget {
   final List<ChartDataPoint> data;
@@ -19,25 +22,44 @@ class _CategoryChartState extends State<CategoryChart> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = GlassTheme.of(context);
+
     if (widget.data.isEmpty) {
-      return Card(
-        child: Container(
-          height: 300,
-          padding: const EdgeInsets.all(16),
+      return GlassContainer(
+        padding: const EdgeInsets.all(GlassSpacing.xl),
+        child: SizedBox(
+          height: 220,
           child: Center(
-            child: Text(
-              'No category data available',
-              style: Theme.of(context).textTheme.bodyLarge,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.pie_chart_outline,
+                  size: 48,
+                  color: theme.bodySmall.color,
+                ),
+                const SizedBox(height: GlassSpacing.md),
+                Text(
+                  'No category data available',
+                  style: theme.bodyMedium,
+                ),
+                const SizedBox(height: GlassSpacing.xs),
+                Text(
+                  'Categories appear once you read across several feeds',
+                  style: theme.bodySmall,
+                  textAlign: TextAlign.center,
+                ),
+              ],
             ),
           ),
         ),
       );
     }
 
-    return Card(
-      child: Container(
+    return GlassContainer(
+      padding: const EdgeInsets.all(GlassSpacing.lg),
+      child: SizedBox(
         height: 300,
-        padding: const EdgeInsets.all(16),
         child: PieChart(
           PieChartData(
             pieTouchData: PieTouchData(
@@ -66,11 +88,9 @@ class _CategoryChartState extends State<CategoryChart> {
 
   List<PieChartSectionData> _buildSections() {
     final colors = [
-      Theme.of(context).colorScheme.primary,
-      Theme.of(context).colorScheme.secondary,
-      Theme.of(context).colorScheme.tertiary,
-      Theme.of(context).colorScheme.error,
-      Theme.of(context).colorScheme.inversePrimary,
+      GlassTheme.of(context).primaryColor,
+      GlassTheme.of(context).secondaryColor,
+      GlassTheme.of(context).accentColor,
     ];
 
     return widget.data.asMap().entries.map((entry) {
@@ -85,9 +105,9 @@ class _CategoryChartState extends State<CategoryChart> {
         value: data.value,
         title: '${data.value.toInt()}',
         radius: radius,
-        titleStyle: TextStyle(
+        titleStyle: GlassTypeScale.label.copyWith(
           fontSize: fontSize,
-          fontWeight: FontWeight.bold,
+          fontWeight: FontWeight.w700,
           color: Colors.white,
         ),
         badgeWidget: isTouched
@@ -113,25 +133,20 @@ class _Badge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = GlassTheme.of(context);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(
+          horizontal: GlassSpacing.sm, vertical: GlassSpacing.xs),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 4,
-            offset: const Offset(0, 2),
-          ),
-        ],
+        color: theme.backgroundColor,
+        borderRadius: BorderRadius.circular(GlassRadii.sm),
+        border: Border.all(color: theme.borderColor),
       ),
       child: Text(
         label,
-        style: TextStyle(
+        style: GlassTypeScale.caption.copyWith(
           color: color,
-          fontSize: 12,
-          fontWeight: FontWeight.bold,
+          fontWeight: FontWeight.w700,
         ),
       ),
     );

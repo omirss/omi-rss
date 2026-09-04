@@ -2,6 +2,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../glass_theme.dart';
+import '../tokens/glass_tokens.dart';
 
 /// Glass tooltip with auto-positioning
 class GlassTooltip extends StatefulWidget {
@@ -192,7 +193,7 @@ class _TooltipOverlay extends StatelessWidget {
               opacity: fadeAnimation,
               child: ScaleTransition(
                 scale: scaleAnimation,
-                child: _buildTooltip(),
+                child: _buildTooltip(context),
               ),
             );
           },
@@ -201,15 +202,16 @@ class _TooltipOverlay extends StatelessWidget {
     );
   }
 
-  Widget _buildTooltip() {
+  Widget _buildTooltip(BuildContext context) {
+    final tokens = GlassTheme.colorsOf(context);
     return CustomPaint(
       painter: _TooltipPainter(
         target: targetContext,
         preferBelow: preferBelow,
-        color: Colors.white.withOpacity(0.1),
+        color: tokens.glassFill,
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(GlassRadii.sm),
         child: BackdropFilter(
           filter: ImageFilter.blur(
             sigmaX: blur,
@@ -221,30 +223,24 @@ class _TooltipOverlay extends StatelessWidget {
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
-                colors: gradientColors ?? [
-                  Colors.white.withOpacity(0.2),
-                  Colors.white.withOpacity(0.1),
-                ],
+                colors: gradientColors ?? theme.gradientColors,
               ),
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(GlassRadii.sm),
               border: Border.all(
-                color: Colors.white.withOpacity(0.2),
+                color: tokens.glassStroke,
                 width: 1,
               ),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.2),
-                  blurRadius: 12,
+                  color: tokens.overlay.withValues(alpha: 0.2),
+                  blurRadius: GlassSpacing.md,
                   offset: const Offset(0, 4),
                 ),
               ],
             ),
             child: Text(
               message,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 14,
-              ),
+              style: GlassTypeScale.label.copyWith(color: tokens.textHigh),
             ),
           ),
         ),

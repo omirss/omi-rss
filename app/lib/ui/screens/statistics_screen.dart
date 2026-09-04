@@ -1,140 +1,142 @@
-import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:fl_chart/fl_chart.dart';
-import '../glass_theme.dart';
-import '../components/glass_container.dart';
-import '../components/glass_card.dart';
-import '../../providers/statistics_provider.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/models/reading_statistics.dart';
+import '../../providers/statistics_provider.dart';
+import '../components/glass_card.dart';
+import '../components/glass_container.dart';
+import '../tokens/glass_tokens.dart';
+import 'glass_screen.dart';
 
 class StatisticsScreen extends ConsumerWidget {
   const StatisticsScreen({super.key});
-  
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final statisticsAsync = ref.watch(readingStatisticsProvider);
-    
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        title: const Text(
-          'Reading Statistics',
-          style: TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-      ),
+    final tokens = screenTokensOf(context, ref);
+
+    return GlassScreen(
+      title: 'Reading Statistics',
       body: statisticsAsync.when(
-        data: (statistics) => _buildStatisticsContent(context, statistics),
-        loading: () => const Center(
-          child: CircularProgressIndicator(color: Colors.white),
-        ),
-        error: (error, stack) => Center(
-          child: Text(
-            'Error loading statistics',
-            style: TextStyle(color: Colors.white.withOpacity(0.6)),
-          ),
+        data: (statistics) {
+          if (statistics.totalArticlesRead == 0) {
+            return ScreenEmptyState(
+              icon: Icons.query_stats_outlined,
+              title: 'No reading data yet',
+              subtitle:
+                  'Read a few articles and your statistics will appear here',
+              tokens: tokens,
+            );
+          }
+          return _buildStatisticsContent(context, statistics, tokens);
+        },
+        loading: () => ScreenSkeleton(tokens: tokens),
+        error: (error, stack) => ScreenErrorState(
+          message: error.toString(),
+          onRetry: () => ref.refresh(readingStatisticsProvider),
+          tokens: tokens,
         ),
       ),
     );
   }
-  
-  Widget _buildStatisticsContent(BuildContext context, ReadingStatistics stats) {
+
+  Widget _buildStatisticsContent(
+      BuildContext context, ReadingStatistics stats, GlassColorTokens tokens) {
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.all(GlassSpacing.xl),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Overview Cards
-          _buildOverviewSection(stats),
-          
-          const SizedBox(height: 32),
-          
-          // Reading Activity Chart
-          _buildSectionHeader('Reading Activity'),
+          _buildOverviewSection(stats, tokens),
+
+          const SizedBox(height: GlassSpacing.xxl),
+
+          ScreenSectionHeader(title: 'Reading Activity', tokens: tokens),
           GlassContainer(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.all(GlassSpacing.xl),
             child: SizedBox(
               height: 250,
-              child: _buildReadingActivityChart(stats),
+              child: _buildReadingActivityChart(stats, tokens),
             ),
           ).animate().fadeIn(duration: 300.ms, delay: 100.ms),
-          
-          const SizedBox(height: 32),
-          
-          // Top Sources
-          _buildSectionHeader('Top Sources'),
-          _buildTopSourcesList(stats),
-          
-          const SizedBox(height: 32),
-          
-          // Reading Time Distribution
-          _buildSectionHeader('Reading Time Distribution'),
+
+          const SizedBox(height: GlassSpacing.xxl),
+
+          ScreenSectionHeader(title: 'Top Sources', tokens: tokens),
+          _buildTopSourcesList(stats, tokens),
+
+          const SizedBox(height: GlassSpacing.xxl),
+
+          ScreenSectionHeader(
+              title: 'Reading Time Distribution', tokens: tokens),
           GlassContainer(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.all(GlassSpacing.xl),
             child: SizedBox(
               height: 250,
-              child: _buildTimeDistributionChart(stats),
+              child: _buildTimeDistributionChart(stats, tokens),
             ),
           ).animate().fadeIn(duration: 300.ms, delay: 300.ms),
-          
-          const SizedBox(height: 32),
-          
-          // Reading Habits
-          _buildSectionHeader('Reading Habits'),
-          _buildReadingHabits(stats),
+
+          const SizedBox(height: GlassSpacing.xxl),
+
+          ScreenSectionHeader(title: 'Reading Habits', tokens: tokens),
+          _buildReadingHabits(stats, tokens),
         ],
       ),
     );
   }
-  
-  Widget _buildOverviewSection(ReadingStatistics stats) {
+
+  Widget _buildOverviewSection(
+      ReadingStatistics stats, GlassColorTokens tokens) {
     return GridView.count(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       crossAxisCount: 2,
-      mainAxisSpacing: 16,
-      crossAxisSpacing: 16,
+      mainAxisSpacing: GlassSpacing.lg,
+      crossAxisSpacing: GlassSpacing.lg,
       childAspectRatio: 1.5,
       children: [
         _buildStatCard(
           'Articles Read',
           stats.totalArticlesRead.toString(),
           Icons.article,
-          GlassColors.primaryGradient,
+          tokens.primaryGradient,
+          tokens,
         ).animate().fadeIn(duration: 300.ms),
         _buildStatCard(
           'Reading Streak',
           '${stats.currentStreak} days',
           Icons.local_fire_department,
-          stats.currentStreak > 0 
-            ? [Colors.orange, Colors.red]
-            : [Colors.grey, Colors.grey.shade700],
+          stats.currentStreak > 0
+              ? [tokens.warning, tokens.error]
+              : [tokens.textLow, tokens.textMedium],
+          tokens,
         ).animate().fadeIn(duration: 300.ms, delay: 50.ms),
         _buildStatCard(
           'Avg. Daily',
           stats.averageArticlesPerDay.toStringAsFixed(1),
           Icons.trending_up,
-          GlassColors.secondaryGradient,
+          [tokens.primary, tokens.secondary],
+          tokens,
         ).animate().fadeIn(duration: 300.ms, delay: 100.ms),
         _buildStatCard(
           'Total Time',
           _formatReadingTime(stats.totalReadingTime),
           Icons.timer,
-          GlassColors.accentGradient,
+          tokens.accentGradient,
+          tokens,
         ).animate().fadeIn(duration: 300.ms, delay: 150.ms),
       ],
     );
   }
-  
-  Widget _buildStatCard(String title, String value, IconData icon, List<Color> gradient) {
+
+  Widget _buildStatCard(String title, String value, IconData icon,
+      List<Color> gradient, GlassColorTokens tokens) {
     return GlassCard(
       elevation: 2,
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(GlassSpacing.lg),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
@@ -147,54 +149,37 @@ class StatisticsScreen extends ConsumerWidget {
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(GlassRadii.md),
             ),
-            child: Icon(icon, color: Colors.white, size: 24),
+            child: Icon(icon, color: tokens.textHigh, size: 24),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: GlassSpacing.md),
           Text(
             value,
-            style: const TextStyle(
-              color: Colors.white,
+            style: GlassTypeScale.display.copyWith(
               fontSize: 24,
-              fontWeight: FontWeight.bold,
+              color: tokens.textHigh,
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: GlassSpacing.xs),
           Text(
             title,
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.7),
-              fontSize: 14,
-            ),
+            style:
+                GlassTypeScale.label.copyWith(color: tokens.textMedium),
           ),
         ],
       ),
     );
   }
-  
-  Widget _buildSectionHeader(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(left: 8, bottom: 12),
-      child: Text(
-        title,
-        style: const TextStyle(
-          color: Colors.white70,
-          fontSize: 18,
-          fontWeight: FontWeight.w600,
-          letterSpacing: 0.5,
-        ),
-      ),
-    );
-  }
-  
-  Widget _buildReadingActivityChart(ReadingStatistics stats) {
+
+  Widget _buildReadingActivityChart(
+      ReadingStatistics stats, GlassColorTokens tokens) {
     final spots = stats.dailyReadingData
         .asMap()
         .entries
         .map((entry) => FlSpot(entry.key.toDouble(), entry.value.toDouble()))
         .toList();
-    
+
     return LineChart(
       LineChartData(
         gridData: FlGridData(
@@ -203,7 +188,7 @@ class StatisticsScreen extends ConsumerWidget {
           horizontalInterval: 5,
           getDrawingHorizontalLine: (value) {
             return FlLine(
-              color: Colors.white.withOpacity(0.1),
+              color: tokens.glassStroke,
               strokeWidth: 1,
             );
           },
@@ -213,13 +198,12 @@ class StatisticsScreen extends ConsumerWidget {
             sideTitles: SideTitles(
               showTitles: true,
               interval: 10,
+              reservedSize: 32,
               getTitlesWidget: (value, meta) {
                 return Text(
                   value.toInt().toString(),
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.5),
-                    fontSize: 12,
-                  ),
+                  style: GlassTypeScale.caption
+                      .copyWith(color: tokens.textLow),
                 );
               },
             ),
@@ -232,29 +216,25 @@ class StatisticsScreen extends ConsumerWidget {
                 final days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
                 final index = value.toInt() % 7;
                 return Padding(
-                  padding: const EdgeInsets.only(top: 8),
+                  padding: const EdgeInsets.only(top: GlassSpacing.sm),
                   child: Text(
                     days[index],
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.5),
-                      fontSize: 12,
-                    ),
+                    style: GlassTypeScale.caption
+                        .copyWith(color: tokens.textLow),
                   ),
                 );
               },
             ),
           ),
-          rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
         ),
         borderData: FlBorderData(show: false),
         lineBarsData: [
           LineChartBarData(
             spots: spots,
             isCurved: true,
-            gradient: LinearGradient(
-              colors: GlassColors.primaryGradient,
-            ),
+            gradient: LinearGradient(colors: tokens.primaryGradient),
             barWidth: 3,
             isStrokeCapRound: true,
             dotData: FlDotData(
@@ -262,17 +242,17 @@ class StatisticsScreen extends ConsumerWidget {
               getDotPainter: (spot, percent, barData, index) {
                 return FlDotCirclePainter(
                   radius: 4,
-                  color: Colors.white,
+                  color: tokens.bgBase,
                   strokeWidth: 2,
-                  strokeColor: GlassColors.primaryGradient[0],
+                  strokeColor: tokens.primaryGradient[0],
                 );
               },
             ),
             belowBarData: BarAreaData(
               show: true,
               gradient: LinearGradient(
-                colors: GlassColors.primaryGradient
-                    .map((color) => color.withOpacity(0.1))
+                colors: tokens.primaryGradient
+                    .map((color) => color.withValues(alpha: 0.15))
                     .toList(),
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
@@ -283,48 +263,56 @@ class StatisticsScreen extends ConsumerWidget {
       ),
     );
   }
-  
-  Widget _buildTopSourcesList(ReadingStatistics stats) {
+
+  Widget _buildTopSourcesList(
+      ReadingStatistics stats, GlassColorTokens tokens) {
+    if (stats.topSources.isEmpty) {
+      return GlassContainer(
+        padding: const EdgeInsets.all(GlassSpacing.xl),
+        child: Text(
+          'Read articles from your feeds to rank them here',
+          style: GlassTypeScale.label.copyWith(color: tokens.textMedium),
+        ),
+      );
+    }
+
     return Column(
       children: stats.topSources
           .take(5)
           .map((source) => GlassContainer(
-                margin: const EdgeInsets.only(bottom: 12),
-                padding: const EdgeInsets.all(16),
+                margin: const EdgeInsets.only(bottom: GlassSpacing.md),
+                padding: const EdgeInsets.all(GlassSpacing.lg),
                 child: Row(
                   children: [
                     Container(
                       width: 40,
                       height: 40,
                       decoration: BoxDecoration(
-                        color: GlassColors.primaryGradient[0].withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(8),
+                        color: tokens.primary.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(GlassRadii.sm),
                       ),
-                      child: const Icon(
+                      child: Icon(
                         Icons.rss_feed,
-                        color: Colors.white70,
+                        color: tokens.textMedium,
                         size: 20,
                       ),
                     ),
-                    const SizedBox(width: 16),
+                    const SizedBox(width: GlassSpacing.lg),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
                             source.feedTitle,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w500,
+                            style: GlassTypeScale.body.copyWith(
+                              color: tokens.textHigh,
                             ),
                           ),
-                          const SizedBox(height: 4),
+                          const SizedBox(height: GlassSpacing.xs),
                           Text(
                             '${source.articlesRead} articles • ${source.readingTime} min',
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.6),
-                              fontSize: 14,
+                            style: GlassTypeScale.label.copyWith(
+                              color: tokens.textMedium,
                             ),
                           ),
                         ],
@@ -335,15 +323,14 @@ class StatisticsScreen extends ConsumerWidget {
                       height: 30,
                       alignment: Alignment.center,
                       decoration: BoxDecoration(
-                        color: GlassColors.primaryGradient[0].withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(15),
+                        color: tokens.accentSoft,
+                        borderRadius: BorderRadius.circular(GlassRadii.md),
                       ),
                       child: Text(
                         '${source.percentage}%',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
+                        style: GlassTypeScale.label.copyWith(
+                          color: tokens.textHigh,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
                     ),
@@ -355,22 +342,32 @@ class StatisticsScreen extends ConsumerWidget {
           .fadeIn(duration: 300.ms),
     );
   }
-  
-  Widget _buildTimeDistributionChart(ReadingStatistics stats) {
+
+  Widget _buildTimeDistributionChart(
+      ReadingStatistics stats, GlassColorTokens tokens) {
+    final hasDistribution = stats.timeDistribution.values.any((v) => v > 0);
+    if (!hasDistribution) {
+      return Center(
+        child: Text(
+          'No reading time recorded yet',
+          style: GlassTypeScale.label.copyWith(color: tokens.textMedium),
+        ),
+      );
+    }
+
     final sections = stats.timeDistribution.entries
         .map((entry) => PieChartSectionData(
-              color: _getColorForTimeSlot(entry.key),
+              color: _getColorForTimeSlot(entry.key, tokens),
               value: entry.value.toDouble(),
               title: '${entry.value}%',
               radius: 80,
-              titleStyle: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
+              titleStyle: GlassTypeScale.label.copyWith(
                 color: Colors.white,
+                fontWeight: FontWeight.w700,
               ),
             ))
         .toList();
-    
+
     return Row(
       children: [
         Expanded(
@@ -382,29 +379,28 @@ class StatisticsScreen extends ConsumerWidget {
             ),
           ),
         ),
-        const SizedBox(width: 24),
+        const SizedBox(width: GlassSpacing.xl),
         Column(
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: stats.timeDistribution.entries.map((entry) {
             return Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
+              padding: const EdgeInsets.symmetric(vertical: GlassSpacing.xs),
               child: Row(
                 children: [
                   Container(
                     width: 16,
                     height: 16,
                     decoration: BoxDecoration(
-                      color: _getColorForTimeSlot(entry.key),
+                      color: _getColorForTimeSlot(entry.key, tokens),
                       borderRadius: BorderRadius.circular(4),
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: GlassSpacing.sm),
                   Text(
                     entry.key,
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.8),
-                      fontSize: 14,
+                    style: GlassTypeScale.label.copyWith(
+                      color: tokens.textMedium,
                     ),
                   ),
                 ],
@@ -415,74 +411,45 @@ class StatisticsScreen extends ConsumerWidget {
       ],
     );
   }
-  
-  Widget _buildReadingHabits(ReadingStatistics stats) {
+
+  Widget _buildReadingHabits(
+      ReadingStatistics stats, GlassColorTokens tokens) {
     return GlassContainer(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(GlassSpacing.xl),
       child: Column(
         children: [
-          _buildHabitRow(
-            'Most Active Day',
-            stats.mostActiveDay,
-            Icons.calendar_today,
+          ScreenListRow(
+            icon: Icons.calendar_today,
+            title: 'Most Active Day',
+            subtitle: stats.mostActiveDay,
+            tokens: tokens,
           ),
-          const Divider(color: Colors.white24, height: 32),
-          _buildHabitRow(
-            'Peak Reading Time',
-            stats.peakReadingTime,
-            Icons.access_time,
+          Divider(color: tokens.glassStroke, height: GlassSpacing.xxl),
+          ScreenListRow(
+            icon: Icons.access_time,
+            title: 'Peak Reading Time',
+            subtitle: stats.peakReadingTime,
+            tokens: tokens,
           ),
-          const Divider(color: Colors.white24, height: 32),
-          _buildHabitRow(
-            'Avg. Article Length',
-            '${stats.averageArticleLength} words',
-            Icons.format_size,
+          Divider(color: tokens.glassStroke, height: GlassSpacing.xxl),
+          ScreenListRow(
+            icon: Icons.format_size,
+            title: 'Avg. Article Length',
+            subtitle: '${stats.averageArticleLength} words',
+            tokens: tokens,
           ),
-          const Divider(color: Colors.white24, height: 32),
-          _buildHabitRow(
-            'Reading Speed',
-            '${stats.readingSpeed} wpm',
-            Icons.speed,
+          Divider(color: tokens.glassStroke, height: GlassSpacing.xxl),
+          ScreenListRow(
+            icon: Icons.speed,
+            title: 'Reading Speed',
+            subtitle: '${stats.readingSpeed} wpm',
+            tokens: tokens,
           ),
         ],
       ),
     ).animate().fadeIn(duration: 300.ms, delay: 400.ms);
   }
-  
-  Widget _buildHabitRow(String label, String value, IconData icon) {
-    return Row(
-      children: [
-        Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: GlassColors.primaryGradient[0].withOpacity(0.2),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Icon(icon, color: Colors.white70, size: 20),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: Text(
-            label,
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.7),
-              fontSize: 16,
-            ),
-          ),
-        ),
-        Text(
-          value,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 16,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-      ],
-    );
-  }
-  
+
   String _formatReadingTime(int minutes) {
     if (minutes < 60) {
       return '$minutes min';
@@ -492,19 +459,19 @@ class StatisticsScreen extends ConsumerWidget {
       return '$hours h ${mins > 0 ? '$mins min' : ''}';
     }
   }
-  
-  Color _getColorForTimeSlot(String timeSlot) {
+
+  Color _getColorForTimeSlot(String timeSlot, GlassColorTokens tokens) {
     switch (timeSlot) {
       case 'Morning':
-        return Colors.orange;
+        return tokens.warning;
       case 'Afternoon':
-        return Colors.blue;
+        return tokens.accent;
       case 'Evening':
-        return Colors.purple;
+        return tokens.secondary;
       case 'Night':
-        return Colors.indigo;
+        return tokens.primary;
       default:
-        return Colors.grey;
+        return tokens.textLow;
     }
   }
 }
