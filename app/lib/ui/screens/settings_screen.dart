@@ -9,6 +9,8 @@ import '../components/glass_switch.dart';
 import '../components/glass_snack_bar.dart';
 import '../components/glass_dialog.dart';
 import '../../providers/opml_provider.dart';
+import '../../providers/theme_settings_provider.dart';
+import '../../ui/tokens/glass_presets.dart';
 import '../../services/api_service.dart';
 import '../../config/api_config.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -23,7 +25,6 @@ class AppSettings {
   final int updateInterval; // minutes
   final bool showNotifications;
   final bool enableSync;
-  final bool useDarkTheme;
   final bool showReadArticles;
   final int articlesPerFeed;
   final bool enableOfflineMode;
@@ -36,7 +37,6 @@ class AppSettings {
     this.updateInterval = 30,
     this.showNotifications = true,
     this.enableSync = true,
-    this.useDarkTheme = true,
     this.showReadArticles = true,
     this.articlesPerFeed = 50,
     this.enableOfflineMode = true,
@@ -50,7 +50,6 @@ class AppSettings {
     int? updateInterval,
     bool? showNotifications,
     bool? enableSync,
-    bool? useDarkTheme,
     bool? showReadArticles,
     int? articlesPerFeed,
     bool? enableOfflineMode,
@@ -63,7 +62,6 @@ class AppSettings {
       updateInterval: updateInterval ?? this.updateInterval,
       showNotifications: showNotifications ?? this.showNotifications,
       enableSync: enableSync ?? this.enableSync,
-      useDarkTheme: useDarkTheme ?? this.useDarkTheme,
       showReadArticles: showReadArticles ?? this.showReadArticles,
       articlesPerFeed: articlesPerFeed ?? this.articlesPerFeed,
       enableOfflineMode: enableOfflineMode ?? this.enableOfflineMode,
@@ -83,12 +81,12 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
   
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('useDarkTheme');
     state = AppSettings(
       autoUpdateFeeds: prefs.getBool('autoUpdateFeeds') ?? true,
       updateInterval: prefs.getInt('updateInterval') ?? 30,
       showNotifications: prefs.getBool('showNotifications') ?? true,
       enableSync: prefs.getBool('enableSync') ?? true,
-      useDarkTheme: prefs.getBool('useDarkTheme') ?? true,
       showReadArticles: prefs.getBool('showReadArticles') ?? true,
       articlesPerFeed: prefs.getInt('articlesPerFeed') ?? 50,
       enableOfflineMode: prefs.getBool('enableOfflineMode') ?? true,
@@ -104,7 +102,6 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
     await prefs.setInt('updateInterval', state.updateInterval);
     await prefs.setBool('showNotifications', state.showNotifications);
     await prefs.setBool('enableSync', state.enableSync);
-    await prefs.setBool('useDarkTheme', state.useDarkTheme);
     await prefs.setBool('showReadArticles', state.showReadArticles);
     await prefs.setInt('articlesPerFeed', state.articlesPerFeed);
     await prefs.setBool('enableOfflineMode', state.enableOfflineMode);
@@ -129,11 +126,6 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
   
   void setEnableSync(bool value) {
     state = state.copyWith(enableSync: value);
-    _saveSettings();
-  }
-  
-  void setUseDarkTheme(bool value) {
-    state = state.copyWith(useDarkTheme: value);
     _saveSettings();
   }
   
@@ -194,20 +186,17 @@ class SettingsScreen extends ConsumerWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Theme Settings
+            _buildSectionHeader('Theme'),
+            _buildThemeSection(ref),
+            const SizedBox(height: 24),
+
             // General Settings
             _buildSectionHeader('General Settings'),
             GlassContainer(
               padding: const EdgeInsets.all(20),
               child: Column(
                 children: [
-                  _buildSwitchTile(
-                    'Dark Theme',
-                    'Use dark theme throughout the app',
-                    Icons.dark_mode,
-                    settings.useDarkTheme,
-                    (value) => ref.read(settingsProvider.notifier).setUseDarkTheme(value),
-                  ),
-                  const Divider(color: Colors.white24, height: 32),
                   _buildSwitchTile(
                     'Show Read Articles',
                     'Display articles marked as read',
@@ -430,6 +419,223 @@ class SettingsScreen extends ConsumerWidget {
           fontSize: 18,
           fontWeight: FontWeight.w600,
           letterSpacing: 0.5,
+        ),
+      ),
+    );
+  }
+  
+  Widget _buildThemeSection(WidgetRef ref) {
+    final themeSettings = ref.watch(themeSettingsProvider);
+
+    return GlassContainer(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Preset',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 104,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: GlassPresets.all.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 12),
+              itemBuilder: (context, index) {
+                final preset = GlassPresets.all[index];
+                return _buildPresetCard(
+                  context,
+                  ref,
+                  preset,
+                  preset.id == themeSettings.presetId,
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 20),
+          const Text(
+            'Mode',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _buildModeChip(
+                  ref,
+                  'System',
+                  Icons.brightness_auto,
+                  themeSettings.mode == AppThemeMode.system,
+                  () => ref
+                      .read(themeSettingsProvider.notifier)
+                      .setMode(AppThemeMode.system),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildModeChip(
+                  ref,
+                  'Light',
+                  Icons.light_mode,
+                  themeSettings.mode == AppThemeMode.light,
+                  () => ref
+                      .read(themeSettingsProvider.notifier)
+                      .setMode(AppThemeMode.light),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildModeChip(
+                  ref,
+                  'Dark',
+                  Icons.dark_mode,
+                  themeSettings.mode == AppThemeMode.dark,
+                  () => ref
+                      .read(themeSettingsProvider.notifier)
+                      .setMode(AppThemeMode.dark),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    ).animate().fadeIn(duration: 300.ms);
+  }
+
+  Widget _buildPresetCard(
+    BuildContext context,
+    WidgetRef ref,
+    GlassThemePreset preset,
+    bool isSelected,
+  ) {
+    final tokens = preset.dark;
+
+    return InkWell(
+      onTap: () =>
+          ref.read(themeSettingsProvider.notifier).setPreset(preset.id),
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        width: 96,
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isSelected
+                ? tokens.accent
+                : Colors.white.withValues(alpha: 0.15),
+            width: isSelected ? 2 : 1,
+          ),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 56,
+              height: 40,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: tokens.backgroundGradient,
+                ),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.2),
+                ),
+              ),
+              child: Center(
+                child: Container(
+                  width: 24,
+                  height: 24,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: tokens.primaryGradient,
+                    ),
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.4),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              preset.name,
+              style: TextStyle(
+                color: isSelected ? Colors.white : Colors.white70,
+                fontSize: 13,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildModeChip(
+    WidgetRef ref,
+    String label,
+    IconData icon,
+    bool isSelected,
+    VoidCallback onTap,
+  ) {
+    final accent = ref.watch(themePresetProvider).dark.accent;
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? accent.withValues(alpha: 0.2)
+              : Colors.white.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected
+                ? accent.withValues(alpha: 0.6)
+                : Colors.white.withValues(alpha: 0.15),
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              icon,
+              size: 16,
+              color: isSelected ? Colors.white : Colors.white70,
+            ),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                label,
+                style: TextStyle(
+                  color: isSelected ? Colors.white : Colors.white70,
+                  fontSize: 13,
+                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
         ),
       ),
     );

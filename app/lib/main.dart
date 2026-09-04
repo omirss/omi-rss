@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'config/api_config.dart';
 import 'core/models/article.dart';
 import 'ui/glass_theme.dart';
+import '../providers/theme_settings_provider.dart';
 import 'ui/animations/particle_background.dart';
 import 'ui/layouts/three_column_layout.dart';
 import 'ui/components/glass_container.dart';
@@ -61,28 +62,59 @@ class _RSSGlassmorphismReaderAppState
 
   @override
   Widget build(BuildContext context) {
+    final materialThemes = ref.watch(materialThemesProvider);
+    final themeMode = ref.watch(materialThemeModeProvider);
+
     return MaterialApp(
       title: 'RSS Glassmorphism Reader',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-        useMaterial3: true,
-        fontFamily: 'Inter',
-      ),
+      theme: materialThemes.light,
+      darkTheme: materialThemes.dark,
+      themeMode: themeMode,
       debugShowCheckedModeBanner: false,
       initialRoute: '/',
       routes: {
         '/': (context) => const AuthenticationWrapper(),
-        '/login': (context) => const GlassTheme(
-              data: GlassThemeData.defaultTheme,
+        '/login': (context) => const GlassThemeShell(
               child: LoginScreen(),
             ),
-        '/home': (context) => const GlassTheme(
-              data: GlassThemeData.defaultTheme,
+        '/home': (context) => const GlassThemeShell(
               child: GlassSnackBarManager(
                 child: HomePage(),
               ),
             ),
       },
+    );
+  }
+}
+
+/// Resolves the brightness the user's mode selection implies, following the
+/// platform brightness when set to system.
+Brightness resolvedBrightness(AppThemeMode mode, BuildContext context) {
+  switch (mode) {
+    case AppThemeMode.system:
+      return MediaQuery.platformBrightnessOf(context);
+    case AppThemeMode.light:
+      return Brightness.light;
+    case AppThemeMode.dark:
+      return Brightness.dark;
+  }
+}
+
+/// Wraps a subtree in GlassTheme data built from the active preset and mode.
+class GlassThemeShell extends ConsumerWidget {
+  final Widget child;
+
+  const GlassThemeShell({super.key, required this.child});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final settings = ref.watch(themeSettingsProvider);
+    final preset = ref.watch(themePresetProvider);
+    final tokens = preset.resolve(resolvedBrightness(settings.mode, context));
+
+    return GlassTheme(
+      data: GlassThemeData.fromTokens(tokens),
+      child: child,
     );
   }
 }
@@ -95,15 +127,13 @@ class AuthenticationWrapper extends ConsumerWidget {
     final authState = ref.watch(authProvider);
 
     if (authState.isAuthenticated || ref.watch(localModeProvider)) {
-      return const GlassTheme(
-        data: GlassThemeData.defaultTheme,
+      return const GlassThemeShell(
         child: GlassSnackBarManager(
           child: HomePage(),
         ),
       );
     } else {
-      return const GlassTheme(
-        data: GlassThemeData.defaultTheme,
+      return const GlassThemeShell(
         child: LoginScreen(),
       );
     }
@@ -125,8 +155,7 @@ class _HomePageState extends ConsumerState<HomePage> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => const GlassTheme(
-          data: GlassThemeData.defaultTheme,
+        builder: (context) => const GlassThemeShell(
           child: SearchPage(),
         ),
       ),
@@ -151,15 +180,15 @@ class _HomePageState extends ConsumerState<HomePage> {
     // alive while the home shell is on screen.
     ref.watch(feedSyncProvider);
 
+    final settings = ref.watch(themeSettingsProvider);
+    final preset = ref.watch(themePresetProvider);
+    final tokens = preset.resolve(resolvedBrightness(settings.mode, context));
+
     return Scaffold(
+      backgroundColor: tokens.bgBase,
       body: ParticleBackground(
         particleCount: 60,
-        backgroundGradient: const [
-          Color(0xFF667eea),
-          Color(0xFF764ba2),
-          Color(0xFFf093fb),
-          Color(0xFFf5576c),
-        ],
+        backgroundGradient: tokens.backgroundGradient,
         child: ThreeColumnLayout(
           leftPanel: _buildLeftPanel(),
           middlePanel: _buildMiddlePanel(),
@@ -581,13 +610,12 @@ class _HomePageState extends ConsumerState<HomePage> {
                               onTap: () {
                                 Navigator.push(
                                   context,
-                                  MaterialPageRoute(
-                                    builder: (context) => GlassTheme(
-                                      data: GlassThemeData.defaultTheme,
-                                      child: ArticleReaderScreen(
-                                          article: articles[index]),
-                                    ),
+                                MaterialPageRoute(
+                                  builder: (context) => GlassThemeShell(
+                                    child: ArticleReaderScreen(
+                                        article: articles[index]),
                                   ),
+                                ),
                                 );
                               },
                               child: Column(
@@ -1011,8 +1039,7 @@ class _HomePageState extends ConsumerState<HomePage> {
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (context) => const GlassTheme(
-                  data: GlassThemeData.defaultTheme,
+                builder: (context) => const GlassThemeShell(
                   child: SavedArticlesScreen(),
                 ),
               ),
@@ -1027,8 +1054,7 @@ class _HomePageState extends ConsumerState<HomePage> {
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (context) => const GlassTheme(
-                  data: GlassThemeData.defaultTheme,
+                builder: (context) => const GlassThemeShell(
                   child: SearchPage(),
                 ),
               ),
@@ -1130,8 +1156,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (context) => const GlassTheme(
-                      data: GlassThemeData.defaultTheme,
+                    builder: (context) => const GlassThemeShell(
                       child: StatisticsScreen(),
                     ),
                   ),
@@ -1156,8 +1181,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (context) => const GlassTheme(
-                      data: GlassThemeData.defaultTheme,
+                    builder: (context) => const GlassThemeShell(
                       child: SettingsScreen(),
                     ),
                   ),

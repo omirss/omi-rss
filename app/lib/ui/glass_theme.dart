@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'tokens/glass_tokens.dart';
+import 'tokens/glass_presets.dart';
 
 /// Comprehensive glass theme configuration
 class GlassThemeData {
@@ -41,16 +43,12 @@ class GlassThemeData {
   final TextStyle bodySmall;
 
   const GlassThemeData({
-    this.primaryColor = const Color(0xFF667EEA),
-    this.secondaryColor = const Color(0xFF764BA2),
-    this.accentColor = const Color(0xFF4FACFE),
-    this.backgroundColor = const Color(0xFF0A0E21),
-    this.surfaceColor = const Color(0x1AFFFFFF),
-    this.backgroundGradient = const [
-      Color(0xFF0A0E21),
-      Color(0xFF1A1F3C),
-      Color(0xFF0F2027),
-    ],
+    this.primaryColor = GlassCoreColors.primary,
+    this.secondaryColor = GlassCoreColors.secondary,
+    this.accentColor = GlassCoreColors.accent,
+    this.backgroundColor = GlassCoreColors.bgBase,
+    this.surfaceColor = GlassCoreColors.glassFill,
+    this.backgroundGradient = GlassCoreColors.backgroundGradient,
     this.headlineMedium = const TextStyle(
       color: Colors.white,
       fontSize: 28,
@@ -85,13 +83,13 @@ class GlassThemeData {
       color: Colors.white60,
       fontSize: 12,
     ),
-    this.blur = 20.0,
+    this.blur = GlassBlur.md,
     this.opacity = 0.1,
     this.gradientColors = const [
       Color(0x1AFFFFFF),
       Color(0x0DFFFFFF),
     ],
-    this.borderColor = const Color(0x2DFFFFFF),
+    this.borderColor = GlassCoreColors.glassStroke,
     this.borderWidth = 1.5,
     this.shadowColor = const Color(0x591F268C),
     this.shadowBlurRadius = 32.0,
@@ -105,7 +103,7 @@ class GlassThemeData {
     this.clickScale = 0.98,
     this.clickDuration = const Duration(milliseconds: 100),
   });
-  
+
   /// Default glass theme
   static const GlassThemeData defaultTheme = GlassThemeData();
   
@@ -139,6 +137,50 @@ class GlassThemeData {
     borderColor: Color(0x40667EEA),
     shadowColor: Color(0x59667EEA),
   );
+
+  /// Builds glass theme data from a preset's token set for one brightness
+  /// mode. Used to theme screens reactively from the selected preset.
+  factory GlassThemeData.fromTokens(GlassColorTokens tokens) {
+    final textHigh = tokens.textHigh;
+    final textMedium = tokens.textMedium;
+    return GlassThemeData(
+      primaryColor: tokens.primary,
+      secondaryColor: tokens.secondary,
+      accentColor: tokens.accent,
+      backgroundColor: tokens.bgBase,
+      surfaceColor: tokens.glassFill,
+      backgroundGradient: tokens.backgroundGradient,
+      headlineMedium: GlassTypeScale.display.copyWith(color: textHigh),
+      titleLarge: const TextStyle(
+        fontSize: 22,
+        fontWeight: FontWeight.w600,
+      ).copyWith(color: textHigh),
+      titleMedium: GlassTypeScale.label.copyWith(
+        color: textHigh,
+        fontSize: 16,
+        fontWeight: FontWeight.w600,
+      ),
+      titleSmall: GlassTypeScale.label.copyWith(color: textMedium),
+      bodyLarge: GlassTypeScale.body.copyWith(
+        color: textHigh,
+        height: 1.5,
+      ),
+      bodyMedium: GlassTypeScale.label.copyWith(
+        color: textMedium,
+        height: 1.4,
+      ),
+      bodySmall: GlassTypeScale.caption.copyWith(color: tokens.textLow),
+      blur: tokens.isDark ? GlassBlur.md : GlassBlur.sm + 5,
+      gradientColors: [
+        tokens.glassFill,
+        tokens.glassFill.withValues(alpha: 0.05),
+      ],
+      borderColor: tokens.glassStroke,
+      shadowColor: tokens.isDark
+          ? const Color(0x591F268C)
+          : const Color(0x331F268C),
+    );
+  }
   
   /// Copy with method for customization
   GlassThemeData copyWith({
@@ -237,34 +279,32 @@ class GlassTheme extends InheritedWidget {
   bool updateShouldNotify(GlassTheme oldWidget) => data != oldWidget.data;
 }
 
-/// Color palette for glassmorphism effects
+/// Color palette for glassmorphism effects.
+///
+/// These are the dark-mode tokens of the default Glass preset; screens
+/// migrate to GlassThemeData.fromTokens with the active preset over time.
 class GlassColors {
   // Core colors
-  static const Color primary = Color(0xFF667EEA);
-  static const Color secondary = Color(0xFF764BA2);
-  static const Color accent = Color(0xFF4FACFE);
-  static const Color background = Color(0xFF0A0E21);
-  static const Color surface = Color(0x1AFFFFFF);
+  static const Color primary = GlassCoreColors.primary;
+  static const Color secondary = GlassCoreColors.secondary;
+  static const Color accent = GlassCoreColors.accent;
+  static const Color background = GlassCoreColors.bgBase;
+  static const Color surface = GlassCoreColors.glassFill;
 
   // App background gradient
-  static const List<Color> backgroundGradient = [
-    Color(0xFF0A0E21),
-    Color(0xFF1A1F3C),
-    Color(0xFF0F2027),
-  ];
+  static const List<Color> backgroundGradient =
+      GlassCoreColors.backgroundGradient;
 
   // Primary gradients
-  static const List<Color> primaryGradient = [Color(0xFF667eea), Color(0xFF764ba2)];
+  static const List<Color> primaryGradient =
+      GlassCoreColors.primaryGradient;
   static const List<Color> secondaryGradient = [Color(0xFFf093fb), Color(0xFFf5576c)];
-  static const List<Color> accentGradient = [Color(0xFF4facfe), Color(0xFF00f2fe)];
+  static const List<Color> accentGradient =
+      GlassCoreColors.accentGradient;
   
   // Aurora colors
-  static const List<Color> auroraColors = [
-    Color(0xFF00d2ff),
-    Color(0xFF3a7bd5),
-    Color(0xFF7f00ff),
-    Color(0xFFe100ff),
-  ];
+  static const List<Color> auroraColors =
+      GlassCoreColors.auroraColors;
   
   // Glass whites with different opacities
   static const Color glassWhite10 = Color(0x1AFFFFFF);
@@ -273,7 +313,7 @@ class GlassColors {
   static const Color glassWhite40 = Color(0x66FFFFFF);
   
   // Glass borders
-  static const Color glassBorder = Color(0x2DFFFFFF);
+  static const Color glassBorder = GlassCoreColors.glassStroke;
   static const Color glassBorderStrong = Color(0x40FFFFFF);
   
   // Shadow colors
