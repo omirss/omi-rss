@@ -17,6 +17,7 @@ class AnalyticsService {
 
   // Get user analytics
   Future<UserAnalytics> getUserAnalytics(String timeframe) async {
+    if (!ApiConfig.hasServer) throw Exception('No server configured');
     final headers = await _getHeaders();
     final response = await http.get(
       Uri.parse('$baseUrl/api/analytics?timeframe=$timeframe'),
@@ -38,6 +39,7 @@ class AnalyticsService {
     required int interactionTime,
     required bool completed,
   }) async {
+    if (!ApiConfig.hasServer) return;
     final headers = await _getHeaders();
     final response = await http.post(
       Uri.parse('$baseUrl/api/analytics/article-read'),
@@ -60,6 +62,7 @@ class AnalyticsService {
     required String feedId,
     required String action,
   }) async {
+    if (!ApiConfig.hasServer) return;
     final headers = await _getHeaders();
     final response = await http.post(
       Uri.parse('$baseUrl/api/analytics/feed-interaction'),
@@ -82,6 +85,7 @@ class AnalyticsService {
     required int responseTime,
     int? tokensUsed,
   }) async {
+    if (!ApiConfig.hasServer) return;
     final headers = await _getHeaders();
     final response = await http.post(
       Uri.parse('$baseUrl/api/analytics/ai-usage'),
@@ -104,6 +108,7 @@ class AnalyticsService {
     String type = 'mixed',
     int limit = 10,
   }) async {
+    if (!ApiConfig.hasServer) return [];
     final headers = await _getHeaders();
     final response = await http.get(
       Uri.parse('$baseUrl/api/analytics/recommendations?type=$type&limit=$limit'),
@@ -120,6 +125,7 @@ class AnalyticsService {
 
   // Get insights
   Future<List<Insight>> getInsights({String category = 'all'}) async {
+    if (!ApiConfig.hasServer) return [];
     final headers = await _getHeaders();
     final response = await http.get(
       Uri.parse('$baseUrl/api/analytics/insights?category=$category'),
@@ -136,6 +142,7 @@ class AnalyticsService {
 
   // Export user data
   Future<String> exportUserData() async {
+    if (!ApiConfig.hasServer) throw Exception('No server configured');
     final headers = await _getHeaders();
     final response = await http.get(
       Uri.parse('$baseUrl/api/analytics/export'),
@@ -151,6 +158,7 @@ class AnalyticsService {
 
   // Get reading streaks
   Future<Map<String, dynamic>> getReadingStreaks() async {
+    if (!ApiConfig.hasServer) return {};
     final headers = await _getHeaders();
     final response = await http.get(
       Uri.parse('$baseUrl/api/analytics/streaks'),
@@ -166,6 +174,7 @@ class AnalyticsService {
 
   // Compare with others
   Future<Map<String, dynamic>> compareWithOthers() async {
+    if (!ApiConfig.hasServer) return {};
     final headers = await _getHeaders();
     final response = await http.get(
       Uri.parse('$baseUrl/api/analytics/compare'),

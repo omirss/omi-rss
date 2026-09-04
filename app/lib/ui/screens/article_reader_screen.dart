@@ -3,7 +3,6 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../../core/models/article.dart';
-import '../glass_theme.dart';
 import '../components/glass_container.dart';
 import '../components/glass_button.dart';
 import '../components/glass_snack_bar.dart';
@@ -107,11 +106,17 @@ class _ArticleReaderScreenState extends ConsumerState<ArticleReaderScreen> {
   double _maxScrollDepth = 0;
   final _stopwatch = Stopwatch();
   bool _isOffline = false;
-  
+  late final Future<void> Function(String, double, int, bool) _trackArticleRead;
+  late final ReadingSessionNotifier _readingSession;
+
   @override
   void initState() {
     super.initState();
-    
+
+    // Providers are captured up front: ref cannot be used in dispose()
+    _trackArticleRead = ref.read(trackArticleReadProvider);
+    _readingSession = ref.read(readingSessionProvider.notifier);
+
     // Start tracking reading time
     _stopwatch.start();
     
@@ -120,11 +125,17 @@ class _ArticleReaderScreenState extends ConsumerState<ArticleReaderScreen> {
       if (!widget.article.isRead) {
         ref.read(articleActionsProvider).markAsRead(widget.article.id);
       }
-      
-      // Check if article is offline
-      final isOffline = await ref.read(offlineArticlesProvider.notifier).isArticleOffline(widget.article.id);
-      if (mounted) {
-        setState(() => _isOffline = isOffline);
+
+      // Check if article is offline (storage is unavailable on some platforms)
+      try {
+        final isOffline = await ref
+            .read(offlineArticlesProvider.notifier)
+            .isArticleOffline(widget.article.id);
+        if (mounted) {
+          setState(() => _isOffline = isOffline);
+        }
+      } catch (_) {
+        // Offline availability is optional metadata
       }
       
       // Start reading session
@@ -159,25 +170,24 @@ class _ArticleReaderScreenState extends ConsumerState<ArticleReaderScreen> {
   void dispose() {
     // Stop tracking time
     _stopwatch.stop();
-    
-    // Track article read analytics
-    final trackArticleRead = ref.read(trackArticleReadProvider);
+
+    // Track article read analytics (providers captured in initState)
     final scrollDepthPercentage = (_maxScrollDepth * 100).clamp(0.0, 100.0).toDouble();
     final interactionTimeSeconds = _stopwatch.elapsed.inSeconds;
     final completed = _maxScrollDepth >= 0.9; // Consider 90% scroll as completed
-    
-    trackArticleRead(
+
+    _trackArticleRead(
       widget.article.id,
       scrollDepthPercentage,
       interactionTimeSeconds,
       completed,
     );
-    
+
     // End reading session
     final content = widget.article.fullContent ?? widget.article.content ?? widget.article.summary ?? '';
     final wordCount = content.split(' ').length;
-    ref.read(readingSessionProvider.notifier).endSession(wordCount);
-    
+    _readingSession.endSession(wordCount);
+
     _scrollController.dispose();
     super.dispose();
   }
@@ -500,8 +510,6 @@ class _ArticleReaderScreenState extends ConsumerState<ArticleReaderScreen> {
   }
   
   void _showReaderSettings(BuildContext context) {
-    final settings = ref.read(readerSettingsProvider);
-    
     showGlassDialog(
       context: context,
       title: const Text('Reader Settings'),

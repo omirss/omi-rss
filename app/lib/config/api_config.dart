@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:universal_html/html.dart' as html;
@@ -19,8 +21,10 @@ class ApiConfig {
     if (saved != null && saved.isNotEmpty) return saved;
     if (_defaultBaseUrl.isNotEmpty) return _defaultBaseUrl;
     if (kIsWeb) {
-      final origin = html.window.location.origin;
-      if (origin.isNotEmpty && !origin.startsWith('about:')) return origin;
+      final String? origin = html.window.location.origin;
+      if (origin != null && origin.isNotEmpty && !origin.startsWith('about:')) {
+        return origin;
+      }
     }
     return '';
   }
@@ -33,9 +37,54 @@ class ApiConfig {
 
   /// Load the persisted server URL. Must be called before the first
   /// network request (done in main).
+  ///
+  /// SharedPreferences on the web JSON-encodes every value; a legacy or
+  /// hand-edited localStorage entry that is not valid JSON makes
+  /// SharedPreferences.getInstance() throw, which would abort bootstrap
+  /// before runApp. Repair such entries and never let this fail.
   static Future<void> load() async {
-    final prefs = await SharedPreferences.getInstance();
-    _savedServerUrl = prefs.getString(_serverUrlKey);
+    final prefs = await _prefsOrRepair();
+    try {
+      _savedServerUrl = prefs?.getString(_serverUrlKey);
+    } catch (_) {
+      _savedServerUrl = null;
+    }
+  }
+
+  static Future<SharedPreferences?> _prefsOrRepair() async {
+    try {
+      return await SharedPreferences.getInstance();
+    } catch (_) {
+      await _repairWebPreferences();
+      try {
+        return await SharedPreferences.getInstance();
+      } catch (_) {
+        return null;
+      }
+    }
+  }
+
+  /// Re-encode raw (non-JSON) `flutter.*` localStorage values so the
+  /// preferences store becomes readable again. Values are preserved.
+  static Future<void> _repairWebPreferences() async {
+    if (!kIsWeb) return;
+    try {
+      final storage = html.window.localStorage;
+      final keys = storage.keys
+          .where((k) => k.startsWith('flutter.'))
+          .toList(growable: false);
+      for (final key in keys) {
+        final raw = storage[key];
+        if (raw == null) continue;
+        try {
+          jsonDecode(raw);
+        } catch (_) {
+          storage[key] = jsonEncode(raw);
+        }
+      }
+    } catch (_) {
+      // Storage unavailable: continue with defaults
+    }
   }
 
   /// Set and persist the server URL. An empty value returns the app to

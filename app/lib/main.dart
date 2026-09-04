@@ -16,8 +16,9 @@ import 'ui/components/glass_tooltip.dart';
 import 'ui/screens/article_reader_screen.dart';
 import 'providers/database_provider.dart';
 import 'providers/feed_provider.dart';
+import 'providers/article_actions_provider.dart';
 import 'providers/auth_provider.dart';
-import 'providers/api_feed_provider.dart' hide feedsProvider, articlesProvider;
+import 'providers/sync_provider.dart';
 import 'providers/opml_provider.dart';
 import 'ui/screens/auth/login_screen.dart';
 import 'ui/screens/settings_screen.dart';
@@ -28,7 +29,6 @@ import 'features/analytics/analytics_dashboard.dart';
 import 'features/search/search_page.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -44,23 +44,21 @@ class RSSGlassmorphismReaderApp extends ConsumerStatefulWidget {
   const RSSGlassmorphismReaderApp({super.key});
 
   @override
-  ConsumerState<RSSGlassmorphismReaderApp> createState() => _RSSGlassmorphismReaderAppState();
+  ConsumerState<RSSGlassmorphismReaderApp> createState() =>
+      _RSSGlassmorphismReaderAppState();
 }
 
-class _RSSGlassmorphismReaderAppState extends ConsumerState<RSSGlassmorphismReaderApp> {
+class _RSSGlassmorphismReaderAppState
+    extends ConsumerState<RSSGlassmorphismReaderApp> {
   @override
   void initState() {
     super.initState();
-    // Initialize database and sample feeds
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       // Ensure database is initialized
       await ref.read(databaseInitializationProvider.future);
-      
-      // Initialize sample feeds if none exist
-      ref.read(initializeSampleFeedsProvider);
     });
   }
-  
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -95,8 +93,8 @@ class AuthenticationWrapper extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final authState = ref.watch(authProvider);
-    
-    if (authState.isAuthenticated) {
+
+    if (authState.isAuthenticated || ref.watch(localModeProvider)) {
       return const GlassTheme(
         data: GlassThemeData.defaultTheme,
         child: GlassSnackBarManager(
@@ -122,7 +120,7 @@ class HomePage extends ConsumerStatefulWidget {
 class _HomePageState extends ConsumerState<HomePage> {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
-  
+
   void _showAdvancedSearch(BuildContext context) {
     Navigator.push(
       context,
@@ -134,21 +132,25 @@ class _HomePageState extends ConsumerState<HomePage> {
       ),
     );
   }
-  
+
   String _formatTime(DateTime? dateTime) {
     if (dateTime == null) return 'Unknown time';
     final now = DateTime.now();
     final difference = now.difference(dateTime);
-    
+
     if (difference.inMinutes < 1) return 'Just now';
     if (difference.inMinutes < 60) return '${difference.inMinutes} minutes ago';
     if (difference.inHours < 24) return '${difference.inHours} hours ago';
     if (difference.inDays < 7) return '${difference.inDays} days ago';
     return '${(difference.inDays / 7).floor()} weeks ago';
   }
-  
+
   @override
   Widget build(BuildContext context) {
+    // Keeps the sync engine (server pull + per-feed refresh schedule)
+    // alive while the home shell is on screen.
+    ref.watch(feedSyncProvider);
+
     return Scaffold(
       body: ParticleBackground(
         particleCount: 60,
@@ -181,7 +183,16 @@ class _HomePageState extends ConsumerState<HomePage> {
       ),
     );
   }
-  
+
+  void _clearSearch() {
+    _searchController.clear();
+    if (_searchQuery.isNotEmpty) {
+      setState(() {
+        _searchQuery = '';
+      });
+    }
+  }
+
   Widget _buildLeftPanel() {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -249,7 +260,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                   builder: (context, ref, child) {
                     final feedsAsync = ref.watch(feedsProvider);
                     final selectedFeedId = ref.watch(selectedFeedProvider);
-                    
+
                     return feedsAsync.when(
                       data: (feeds) {
                         return Column(
@@ -259,32 +270,42 @@ class _HomePageState extends ConsumerState<HomePage> {
                               builder: (context, ref, child) {
                                 final allArticles = ref.watch(articlesProvider);
                                 final unreadCount = allArticles.maybeWhen(
-                                  data: (articles) => articles.where((a) => !a.isRead).length,
+                                  data: (articles) =>
+                                      articles.where((a) => !a.isRead).length,
                                   orElse: () => 0,
                                 );
                                 return _buildCategoryItem(
-                                  'All Feeds', 
-                                  Icons.inbox, 
-                                  unreadCount, 
-                                  selectedFeedId == null && !ref.watch(showStarredProvider),
+                                  'All Feeds',
+                                  Icons.inbox,
+                                  unreadCount,
+                                  selectedFeedId == null &&
+                                      !ref.watch(showStarredProvider),
                                   onTap: () {
-                                    ref.read(selectedFeedProvider.notifier).state = null;
-                                    ref.read(showStarredProvider.notifier).state = false;
-                                    ref.read(articleFilterProvider.notifier).showAll();
+                                    _clearSearch();
+                                    ref
+                                        .read(selectedFeedProvider.notifier)
+                                        .state = null;
+                                    ref
+                                        .read(showStarredProvider.notifier)
+                                        .state = false;
+                                    ref
+                                        .read(articleFilterProvider.notifier)
+                                        .showAll();
                                   },
                                 );
                               },
                             ),
-                            
+
                             // Individual feeds
                             ...feeds.map((feed) {
                               return Consumer(
                                 builder: (context, ref, child) {
                                   final feedArticles = ref.watch(
-                                    apiArticlesProvider(ArticleQuery(feedId: feed.id)),
+                                    articlesByFeedProvider(feed.id),
                                   );
                                   final unreadCount = feedArticles.maybeWhen(
-                                    data: (articles) => articles.where((a) => !a.isRead).length,
+                                    data: (articles) =>
+                                        articles.where((a) => !a.isRead).length,
                                     orElse: () => 0,
                                   );
                                   return _buildCategoryItem(
@@ -292,34 +313,51 @@ class _HomePageState extends ConsumerState<HomePage> {
                                     Icons.rss_feed,
                                     unreadCount,
                                     selectedFeedId == feed.id,
-                                    onTap: () => ref.read(selectedFeedProvider.notifier).state = feed.id,
+                                    onTap: () {
+                                      _clearSearch();
+                                      ref
+                                          .read(showStarredProvider.notifier)
+                                          .state = false;
+                                      ref
+                                          .read(selectedFeedProvider.notifier)
+                                          .state = feed.id;
+                                      ref
+                                          .read(articleFilterProvider.notifier)
+                                          .showFeed(feed.id);
+                                    },
                                   );
                                 },
                               );
                             }),
-                            
+
                             // Starred
                             Consumer(
                               builder: (context, ref, child) {
-                                // Temporarily set filter to starred to get count
-                                final currentFilter = ref.watch(articleFilterProvider);
-                                
                                 // Watch all articles to get starred count
                                 final allArticles = ref.watch(articlesProvider);
                                 final count = allArticles.maybeWhen(
-                                  data: (articles) => articles.where((a) => a.isStarred).length,
+                                  data: (articles) =>
+                                      articles.where((a) => a.isStarred).length,
                                   orElse: () => 0,
                                 );
-                                final isShowingStarred = ref.watch(showStarredProvider);
+                                final isShowingStarred =
+                                    ref.watch(showStarredProvider);
                                 return _buildCategoryItem(
-                                  'Starred', 
-                                  Icons.star, 
-                                  count, 
+                                  'Starred',
+                                  Icons.star,
+                                  count,
                                   isShowingStarred,
                                   onTap: () {
-                                    ref.read(selectedFeedProvider.notifier).state = null;
-                                    ref.read(showStarredProvider.notifier).state = true;
-                                    ref.read(articleFilterProvider.notifier).showStarred();
+                                    _clearSearch();
+                                    ref
+                                        .read(selectedFeedProvider.notifier)
+                                        .state = null;
+                                    ref
+                                        .read(showStarredProvider.notifier)
+                                        .state = true;
+                                    ref
+                                        .read(articleFilterProvider.notifier)
+                                        .showStarred();
                                   },
                                 );
                               },
@@ -327,7 +365,8 @@ class _HomePageState extends ConsumerState<HomePage> {
                           ],
                         );
                       },
-                      loading: () => const Center(child: CircularProgressIndicator()),
+                      loading: () =>
+                          const Center(child: CircularProgressIndicator()),
                       error: (error, stack) => const SizedBox.shrink(),
                     );
                   },
@@ -339,63 +378,62 @@ class _HomePageState extends ConsumerState<HomePage> {
       ),
     );
   }
-  
-  Widget _buildCategoryItem(String title, IconData icon, int count, bool isSelected, {VoidCallback? onTap}) {
+
+  Widget _buildCategoryItem(
+      String title, IconData icon, int count, bool isSelected,
+      {VoidCallback? onTap}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
-      child: InkWell(
+      child: GlassContainer(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: GlassContainer(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          gradientColors: isSelected
-              ? [
-                  GlassColors.accentGradient[0].withOpacity(0.2),
-                  GlassColors.accentGradient[1].withOpacity(0.1),
-                ]
-              : null,
-          child: Row(
-            children: [
-              Icon(
-                icon,
-                color: Colors.white.withOpacity(0.8),
-                size: 20,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  title,
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.9),
-                    fontSize: 16,
-                  ),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        gradientColors: isSelected
+            ? [
+                GlassColors.accentGradient[0].withOpacity(0.2),
+                GlassColors.accentGradient[1].withOpacity(0.1),
+              ]
+            : null,
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              color: Colors.white.withOpacity(0.8),
+              size: 20,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                title,
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.9),
+                  fontSize: 16,
                 ),
               ),
-              if (count > 0)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: count > 0 
+            ),
+            if (count > 0)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: count > 0
                       ? GlassColors.accentGradient[0].withOpacity(0.3)
                       : Colors.white.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    count.toString(),
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.9),
-                      fontSize: 12,
-                      fontWeight: count > 0 ? FontWeight.bold : FontWeight.normal,
-                    ),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  count.toString(),
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.9),
+                    fontSize: 12,
+                    fontWeight: count > 0 ? FontWeight.bold : FontWeight.normal,
                   ),
                 ),
-            ],
-          ),
+              ),
+          ],
         ),
       ),
     );
   }
-  
+
   Widget _buildMiddlePanel() {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -415,6 +453,15 @@ class _HomePageState extends ConsumerState<HomePage> {
                     setState(() {
                       _searchQuery = value;
                     });
+                    final filter = ref.read(articleFilterProvider.notifier);
+                    if (value.isEmpty) {
+                      if (ref.read(articleFilterProvider).type ==
+                          ArticleFilterType.search) {
+                        filter.showAll();
+                      }
+                    } else {
+                      filter.search(value);
+                    }
                   },
                 ),
               ),
@@ -433,16 +480,8 @@ class _HomePageState extends ConsumerState<HomePage> {
           Expanded(
             child: Consumer(
               builder: (context, ref, child) {
-                final selectedFeedId = ref.watch(selectedFeedProvider);
-                final showStarred = ref.watch(showStarredProvider);
-                
-                // Apply search filter if needed
-                if (_searchQuery.isNotEmpty) {
-                  ref.read(articleFilterProvider.notifier).search(_searchQuery);
-                }
-                
                 final articlesAsync = ref.watch(articlesProvider);
-                
+
                 return articlesAsync.when(
                   data: (articles) {
                     if (articles.isEmpty) {
@@ -475,159 +514,190 @@ class _HomePageState extends ConsumerState<HomePage> {
                         ),
                       );
                     }
-                    
+
                     return ListView.builder(
                       itemCount: articles.length,
                       itemBuilder: (context, index) {
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: Dismissible(
-                    key: Key(articles[index].id),
-                    direction: DismissDirection.horizontal,
-                    confirmDismiss: (direction) async {
-                      if (direction == DismissDirection.endToStart) {
-                        // Mark as read
-                        if (!articles[index].isRead) {
-                          await ref.read(articleActionsProvider).markAsRead(articles[index].id);
-                        }
-                        return false; // Don't actually dismiss
-                      } else if (direction == DismissDirection.startToEnd) {
-                        // Toggle star
-                        await ref.read(articleActionsProvider).toggleStarred(articles[index].id);
-                        return false; // Don't actually dismiss
-                      }
-                      return false;
-                    },
-                    background: Container(
-                      alignment: Alignment.centerLeft,
-                      padding: const EdgeInsets.only(left: 20),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [Colors.amber.withOpacity(0.3), Colors.amber.withOpacity(0.1)],
-                          begin: Alignment.centerLeft,
-                          end: Alignment.centerRight,
-                        ),
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: const Icon(Icons.star, color: Colors.amber, size: 28),
-                    ),
-                    secondaryBackground: Container(
-                      alignment: Alignment.centerRight,
-                      padding: const EdgeInsets.only(right: 20),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [Colors.green.withOpacity(0.1), Colors.green.withOpacity(0.3)],
-                          begin: Alignment.centerLeft,
-                          end: Alignment.centerRight,
-                        ),
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: const Icon(Icons.check, color: Colors.green, size: 28),
-                    ),
-                    child: InkWell(
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => GlassTheme(
-                              data: GlassThemeData.defaultTheme,
-                              child: ArticleReaderScreen(article: articles[index]),
-                            ),
-                          ),
-                        );
-                      },
-                      borderRadius: BorderRadius.circular(16),
-                      child: GlassCard(
-                        elevation: 2,
-                        child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                        Row(
-                          children: [
-                            Container(
-                              width: 40,
-                              height: 40,
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: Dismissible(
+                            key: Key(articles[index].id),
+                            direction: DismissDirection.horizontal,
+                            confirmDismiss: (direction) async {
+                              if (direction == DismissDirection.endToStart) {
+                                // Mark as read
+                                if (!articles[index].isRead) {
+                                  await ref
+                                      .read(articleActionsProvider)
+                                      .markAsRead(articles[index].id);
+                                }
+                                return false; // Don't actually dismiss
+                              } else if (direction ==
+                                  DismissDirection.startToEnd) {
+                                // Toggle star
+                                await ref
+                                    .read(articleActionsProvider)
+                                    .toggleStarred(articles[index].id);
+                                return false; // Don't actually dismiss
+                              }
+                              return false;
+                            },
+                            background: Container(
+                              alignment: Alignment.centerLeft,
+                              padding: const EdgeInsets.only(left: 20),
                               decoration: BoxDecoration(
-                                color: GlassColors.primaryGradient[0].withOpacity(0.3),
-                                borderRadius: BorderRadius.circular(8),
+                                gradient: LinearGradient(
+                                  colors: [
+                                    Colors.amber.withOpacity(0.3),
+                                    Colors.amber.withOpacity(0.1)
+                                  ],
+                                  begin: Alignment.centerLeft,
+                                  end: Alignment.centerRight,
+                                ),
+                                borderRadius: BorderRadius.circular(16),
                               ),
-                              child: const Icon(
-                                Icons.article,
-                                color: Colors.white,
-                                size: 20,
-                              ),
+                              child: const Icon(Icons.star,
+                                  color: Colors.amber, size: 28),
                             ),
-                            const SizedBox(width: 12),
-                            Expanded(
+                            secondaryBackground: Container(
+                              alignment: Alignment.centerRight,
+                              padding: const EdgeInsets.only(right: 20),
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [
+                                    Colors.green.withOpacity(0.1),
+                                    Colors.green.withOpacity(0.3)
+                                  ],
+                                  begin: Alignment.centerLeft,
+                                  end: Alignment.centerRight,
+                                ),
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: const Icon(Icons.check,
+                                  color: Colors.green, size: 28),
+                            ),
+                            child: GlassCard(
+                              elevation: 2,
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => GlassTheme(
+                                      data: GlassThemeData.defaultTheme,
+                                      child: ArticleReaderScreen(
+                                          article: articles[index]),
+                                    ),
+                                  ),
+                                );
+                              },
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
+                                  Row(
+                                    children: [
+                                      Container(
+                                        width: 40,
+                                        height: 40,
+                                        decoration: BoxDecoration(
+                                          color: GlassColors.primaryGradient[0]
+                                              .withOpacity(0.3),
+                                          borderRadius:
+                                              BorderRadius.circular(8),
+                                        ),
+                                        child: const Icon(
+                                          Icons.article,
+                                          color: Colors.white,
+                                          size: 20,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              articles[index].title,
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 16,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                              maxLines: 2,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              '${articles[index].feedTitle ?? 'Unknown Source'} • ${_formatTime(articles[index].publishedAt)}',
+                                              style: TextStyle(
+                                                color: Colors.white
+                                                    .withOpacity(0.6),
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 12),
                                   Text(
-                                    articles[index].title,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold,
+                                    articles[index].content ??
+                                        articles[index].description,
+                                    style: TextStyle(
+                                      color: Colors.white.withOpacity(0.8),
+                                      fontSize: 14,
+                                      height: 1.5,
                                     ),
-                                    maxLines: 2,
+                                    maxLines: 3,
                                     overflow: TextOverflow.ellipsis,
                                   ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    '${articles[index].feedTitle ?? 'Unknown Source'} • ${_formatTime(articles[index].publishedAt)}',
-                                    style: TextStyle(
-                                      color: Colors.white.withOpacity(0.6),
-                                      fontSize: 12,
-                                    ),
+                                  const SizedBox(height: 12),
+                                  Row(
+                                    children: [
+                                      _buildArticleAction(
+                                        articles[index].isRead
+                                            ? Icons.mark_email_read
+                                            : Icons.mark_email_unread,
+                                        () =>
+                                            _toggleArticleRead(articles[index]),
+                                        color: articles[index].isRead
+                                            ? Colors.green
+                                            : null,
+                                      ).glassTooltip(articles[index].isRead
+                                          ? 'Mark as unread'
+                                          : 'Mark as read'),
+                                      const SizedBox(width: 8),
+                                      _buildArticleAction(
+                                        articles[index].isStarred
+                                            ? Icons.star
+                                            : Icons.star_outline,
+                                        () => _toggleArticleStarred(
+                                            articles[index]),
+                                        color: articles[index].isStarred
+                                            ? Colors.amber
+                                            : null,
+                                      ).glassTooltip(articles[index].isStarred
+                                          ? 'Unstar'
+                                          : 'Star'),
+                                      const SizedBox(width: 8),
+                                      _buildArticleAction(Icons.share, () {
+                                        _shareArticle(articles[index]);
+                                      }).glassTooltip('Share'),
+                                      const SizedBox(width: 8),
+                                      _buildArticleAction(Icons.open_in_browser,
+                                          () {
+                                        _openArticleInBrowser(articles[index]);
+                                      }).glassTooltip('Open in browser'),
+                                    ],
                                   ),
                                 ],
                               ),
                             ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          articles[index].content ?? articles[index].description ?? 'No preview available',
-                          style: TextStyle(
-                            color: Colors.white.withOpacity(0.8),
-                            fontSize: 14,
-                            height: 1.5,
                           ),
-                          maxLines: 3,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            _buildArticleAction(
-                              articles[index].isRead ? Icons.mark_email_read : Icons.mark_email_unread,
-                              () => _toggleArticleRead(articles[index]),
-                              color: articles[index].isRead ? Colors.green : null,
-                            ).glassTooltip(articles[index].isRead ? 'Mark as unread' : 'Mark as read'),
-                            const SizedBox(width: 8),
-                            _buildArticleAction(
-                              articles[index].isStarred ? Icons.star : Icons.star_outline,
-                              () => _toggleArticleStarred(articles[index]),
-                              color: articles[index].isStarred ? Colors.amber : null,
-                            ).glassTooltip(articles[index].isStarred ? 'Unstar' : 'Star'),
-                            const SizedBox(width: 8),
-                            _buildArticleAction(Icons.share, () {
-                              _shareArticle(articles[index]);
-                            }).glassTooltip('Share'),
-                            const SizedBox(width: 8),
-                            _buildArticleAction(Icons.open_in_browser, () {
-                              _openArticleInBrowser(articles[index]);
-                            }).glassTooltip('Open in browser'),
-                          ],
-                        ),
-                      ],
-                      ),
-                      ),
-                    ),
-                  ),
-                );
-              },
-            );
+                        );
+                      },
+                    );
                   },
                   loading: () => const Center(
                     child: CircularProgressIndicator(
@@ -671,8 +741,9 @@ class _HomePageState extends ConsumerState<HomePage> {
       ),
     );
   }
-  
-  Widget _buildArticleAction(IconData icon, VoidCallback onTap, {Color? color}) {
+
+  Widget _buildArticleAction(IconData icon, VoidCallback onTap,
+      {Color? color}) {
     return GlassButton(
       icon: icon,
       onPressed: onTap,
@@ -682,7 +753,7 @@ class _HomePageState extends ConsumerState<HomePage> {
       iconColor: color,
     );
   }
-  
+
   Widget _buildRightPanel() {
     return Container(
       padding: const EdgeInsets.all(24),
@@ -754,12 +825,18 @@ class _HomePageState extends ConsumerState<HomePage> {
                                   ),
                                 ),
                                 const SizedBox(height: 8),
-                                _buildFeatureItem(Icons.rss_feed, 'Local-first feed subscriptions'),
-                                _buildFeatureItem(Icons.article, 'Full-text article reading'),
-                                _buildFeatureItem(Icons.download_for_offline, 'Offline reading'),
-                                _buildFeatureItem(Icons.star, 'Starred articles'),
-                                _buildFeatureItem(Icons.import_export, 'OPML import and export'),
-                                _buildFeatureItem(Icons.bar_chart, 'Reading statistics'),
+                                _buildFeatureItem(Icons.rss_feed,
+                                    'Local-first feed subscriptions'),
+                                _buildFeatureItem(
+                                    Icons.article, 'Full-text article reading'),
+                                _buildFeatureItem(Icons.download_for_offline,
+                                    'Offline reading'),
+                                _buildFeatureItem(
+                                    Icons.star, 'Starred articles'),
+                                _buildFeatureItem(Icons.import_export,
+                                    'OPML import and export'),
+                                _buildFeatureItem(
+                                    Icons.bar_chart, 'Reading statistics'),
                                 const SizedBox(height: 16),
                                 const Text(
                                   'Version: 1.0.0',
@@ -774,7 +851,8 @@ class _HomePageState extends ConsumerState<HomePage> {
                               GlassButton(
                                 text: 'Documentation',
                                 onPressed: () {
-                                  launchUrl(Uri.parse('https://github.com/yourusername/omi-rss'));
+                                  launchUrl(Uri.parse(
+                                      'https://github.com/yourusername/omi-rss'));
                                 },
                                 variant: GlassButtonVariant.secondary,
                               ),
@@ -833,8 +911,9 @@ class _HomePageState extends ConsumerState<HomePage> {
       ),
     );
   }
-  
-  Widget _buildFeatureCard(String title, String description, IconData icon, List<Color> gradient) {
+
+  Widget _buildFeatureCard(
+      String title, String description, IconData icon, List<Color> gradient) {
     return GlassCard(
       elevation: 3,
       padding: const EdgeInsets.all(20),
@@ -881,15 +960,15 @@ class _HomePageState extends ConsumerState<HomePage> {
       ),
     );
   }
-  
+
   void _showDrawer(BuildContext context) {
     final authState = ref.read(authProvider);
     final user = authState.user;
-    
+
     showGlassDrawer(
       context: context,
       header: GlassDrawerHeader(
-        userName: user?.username ?? user?.email?.split('@').first ?? 'User',
+        userName: user?.username ?? user?.email.split('@').first ?? 'User',
         userEmail: user?.email ?? 'Not logged in',
         onProfileTap: () {
           Navigator.of(context).pop();
@@ -1109,6 +1188,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                 );
                 if (confirm == true) {
                   await ref.read(authProvider.notifier).logout();
+                  await ref.read(localModeProvider.notifier).disable();
                   if (context.mounted) {
                     context.showWarningSnackBar('Logged out successfully');
                   }
@@ -1174,89 +1254,10 @@ class _HomePageState extends ConsumerState<HomePage> {
     urlController.dispose();
   }
 
-  void _showArticleOptions(BuildContext context, int index) async {
-    final result = await showGlassDialog<String>(
-      context: context,
-      title: Text('Article ${index + 1} Options'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _buildOption(context, Icons.bookmark, 'Save for later', 'save'),
-          _buildOption(context, Icons.archive, 'Archive', 'archive'),
-          _buildOption(context, Icons.open_in_browser, 'Open in browser', 'browser'),
-          _buildOption(context, Icons.content_copy, 'Copy link', 'copy'),
-          _buildOption(context, Icons.delete_outline, 'Delete', 'delete', isDestructive: true),
-        ],
-      ),
-      size: GlassDialogSize.small,
-      dismissible: true,
-    );
-
-    if (result != null) {
-      switch (result) {
-        case 'save':
-          context.showSuccessSnackBar('Article saved for later');
-          break;
-        case 'archive':
-          context.showSuccessSnackBar('Article archived');
-          break;
-        case 'browser':
-          context.showGlassSnackBar('Opening in browser...', type: GlassSnackBarType.info);
-          break;
-        case 'copy':
-          context.showSuccessSnackBar('Link copied to clipboard');
-          break;
-        case 'delete':
-          final confirm = await showGlassConfirmDialog(
-            context: context,
-            title: 'Delete Article',
-            message: 'Are you sure you want to delete this article?',
-            confirmText: 'Delete',
-            destructive: true,
-          );
-          if (confirm == true) {
-            context.showWarningSnackBar('Article deleted');
-          }
-          break;
-      }
-    }
-  }
-
-  Widget _buildOption(BuildContext context, IconData icon, String label, String value, {bool isDestructive = false}) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () => Navigator.of(context).pop(value),
-        borderRadius: BorderRadius.circular(8),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          child: Row(
-            children: [
-              Icon(
-                icon,
-                color: isDestructive ? Colors.red : Colors.white.withOpacity(0.8),
-                size: 20,
-              ),
-              const SizedBox(width: 12),
-              Text(
-                label,
-                style: TextStyle(
-                  color: isDestructive ? Colors.red : Colors.white.withOpacity(0.9),
-                  fontSize: 16,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   void _importOPML(BuildContext context) async {
     try {
       await ref.read(importOPMLFromFileProvider.future);
-      
+
       // Show import progress dialog
       if (context.mounted) {
         showGlassDialog(
@@ -1266,7 +1267,7 @@ class _HomePageState extends ConsumerState<HomePage> {
           content: Consumer(
             builder: (context, ref, child) {
               final importState = ref.watch(opmlImportProvider);
-              
+
               return Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -1287,8 +1288,12 @@ class _HomePageState extends ConsumerState<HomePage> {
                     ),
                   ] else ...[
                     Icon(
-                      importState.failedFeeds == 0 ? Icons.check_circle : Icons.warning,
-                      color: importState.failedFeeds == 0 ? Colors.green : Colors.orange,
+                      importState.failedFeeds == 0
+                          ? Icons.check_circle
+                          : Icons.warning,
+                      color: importState.failedFeeds == 0
+                          ? Colors.green
+                          : Colors.orange,
                       size: 48,
                     ),
                     const SizedBox(height: 16),
@@ -1320,7 +1325,7 @@ class _HomePageState extends ConsumerState<HomePage> {
             Consumer(
               builder: (context, ref, child) {
                 final importState = ref.watch(opmlImportProvider);
-                
+
                 if (importState.isComplete) {
                   return GlassButton(
                     text: 'Done',
@@ -1331,7 +1336,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                     variant: GlassButtonVariant.elevated,
                   );
                 }
-                
+
                 return const SizedBox.shrink();
               },
             ),
@@ -1347,11 +1352,15 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   void _exportOPML(BuildContext context) async {
     try {
-      final timestamp = DateTime.now().toIso8601String().replaceAll(':', '-').split('.').first;
+      final timestamp = DateTime.now()
+          .toIso8601String()
+          .replaceAll(':', '-')
+          .split('.')
+          .first;
       final filename = 'omi-rss-feeds-$timestamp.opml';
-      
+
       await ref.read(exportOPMLToFileProvider(filename).future);
-      
+
       if (context.mounted) {
         context.showSuccessSnackBar('OPML exported successfully!');
       }
@@ -1363,11 +1372,12 @@ class _HomePageState extends ConsumerState<HomePage> {
   }
 
   void _refreshAllFeeds(BuildContext context) async {
-    context.showGlassSnackBar('Refreshing all feeds...', type: GlassSnackBarType.info);
-    
+    context.showGlassSnackBar('Refreshing all feeds...',
+        type: GlassSnackBarType.info);
+
     try {
       await ref.read(feedRefreshProvider.notifier).refreshAllFeeds();
-      
+
       if (context.mounted) {
         final progress = ref.read(feedRefreshProvider).value;
         if (progress != null && progress.isComplete) {
@@ -1400,11 +1410,10 @@ class _HomePageState extends ConsumerState<HomePage> {
     try {
       final actions = ref.read(articleActionsProvider);
       await actions.toggleStarred(article.id);
-      
+
       if (mounted) {
         context.showSuccessSnackBar(
-          article.isStarred ? 'Article unstarred' : 'Article starred'
-        );
+            article.isStarred ? 'Article unstarred' : 'Article starred');
       }
     } catch (e) {
       if (mounted) {

@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'package:drift/drift.dart';
 import '../database.dart';
 import '../tables/articles_table.dart';
-import '../tables/feeds_table.dart';
 import '../../models/article.dart';
 
 part 'article_dao.g.dart';

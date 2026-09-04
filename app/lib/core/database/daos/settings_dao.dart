@@ -62,7 +62,7 @@ class SettingsDao extends DatabaseAccessor<AppDatabase> with _$SettingsDaoMixin 
     
     return AppSettings(
       theme: settingsMap['theme'] ?? 'default',
-      updateFrequency: int.tryParse(settingsMap['updateFrequency'] ?? '') ?? 3600,
+      updateFrequency: int.tryParse(settingsMap['updateFrequency'] ?? '') ?? 60,
       articlesPerPage: int.tryParse(settingsMap['articlesPerPage'] ?? '') ?? 20,
       enableNotifications: settingsMap['enableNotifications'] == 'true',
       enableAutoSync: settingsMap['enableAutoSync'] == 'true',

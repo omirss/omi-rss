@@ -61,7 +61,6 @@ class _GlassButtonState extends State<GlassButton>
   late Animation<double> _shimmerAnimation;
   late Animation<double> _scaleAnimation;
   
-  bool _isPressed = false;
   bool _isHovered = false;
 
   @override
@@ -414,12 +413,15 @@ class _GlassButtonState extends State<GlassButton>
         children: [
           Icon(widget.icon, color: widget.iconColor ?? color, size: 20),
           const SizedBox(width: 8),
-          Text(
-            widget.text!,
-            style: TextStyle(
-              color: color,
-              fontSize: widget.fontSize,
-              fontWeight: FontWeight.w600,
+          Flexible(
+            child: Text(
+              widget.text!,
+              style: TextStyle(
+                color: color,
+                fontSize: widget.fontSize,
+                fontWeight: FontWeight.w600,
+              ),
+              overflow: TextOverflow.ellipsis,
             ),
           ),
         ],
@@ -443,19 +445,16 @@ class _GlassButtonState extends State<GlassButton>
   }
   
   void _handleTapDown() {
-    setState(() => _isPressed = true);
     _pressController.forward();
     HapticFeedback.lightImpact();
   }
   
   void _handleTapUp() {
-    setState(() => _isPressed = false);
     _pressController.reverse();
     widget.onPressed?.call();
   }
   
   void _handleTapCancel() {
-    setState(() => _isPressed = false);
     _pressController.reverse();
   }
 

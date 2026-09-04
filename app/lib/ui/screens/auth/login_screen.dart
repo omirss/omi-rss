@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../providers/auth_provider.dart';
 import '../../glass_theme.dart';
-import '../../components/glass_container.dart';
 import '../../components/glass_button.dart';
 import '../../components/glass_text_field.dart';
 import '../../animations/particle_background.dart';
@@ -63,7 +62,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authProvider);
-    final size = MediaQuery.of(context).size;
     
     return Scaffold(
       body: Stack(
@@ -293,11 +291,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       
                       const SizedBox(height: 24),
                       
-                      // Demo mode button
+                      // Local mode button
                       TextButton(
                         onPressed: () {
-                          // Skip auth for demo mode
-                          Navigator.of(context).pushReplacementNamed('/');
+                          ref.read(localModeProvider.notifier).enable();
                         },
                         child: Text(
                           'Continue without account',

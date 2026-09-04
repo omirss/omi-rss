@@ -2,8 +2,6 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../config/api_config.dart';
-import '../core/models/article.dart';
-import '../core/database/database.dart';
 import '../services/api_service.dart';
 import 'auth_provider.dart';
 import 'database_provider.dart';

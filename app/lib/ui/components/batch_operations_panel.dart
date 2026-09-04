@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/models/feed.dart';
 import '../../core/models/category.dart';
-import '../../core/services/feed_service.dart';
 import '../../providers/feed_provider.dart';
 import '../../providers/category_provider.dart';
 import '../../providers/database_provider.dart';
@@ -579,7 +578,7 @@ class _BatchOperationsPanelState extends ConsumerState<BatchOperationsPanel>
     try {
       for (final feed in widget.selectedFeeds) {
         await ref.read(databaseProvider).feedDao.updateFeed(
-          feed.copyWith(updateFrequency: minutes * 60),
+          feed.copyWith(updateFrequency: minutes),
         );
       }
       

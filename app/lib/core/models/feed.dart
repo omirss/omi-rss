@@ -14,7 +14,7 @@ class Feed {
   final DateTime? lastFetched;
   final String? etag;
   final String? lastModified;
-  final int updateFrequency; // in seconds
+  final int updateFrequency; // in minutes
   final bool isActive;
   final FeedType type;
   final DateTime createdAt;
@@ -47,7 +47,7 @@ class Feed {
     this.lastFetched,
     this.etag,
     this.lastModified,
-    this.updateFrequency = 3600,
+    this.updateFrequency = 60,
     this.isActive = true,
     this.type = FeedType.rss,
     DateTime? createdAt,
@@ -176,7 +176,9 @@ class Feed {
               : null,
       etag: json['etag'] as String?,
       lastModified: json['lastModified'] as String?,
-      updateFrequency: json['updateFrequency'] as int? ?? 3600,
+      updateFrequency: (json['updateInterval'] as num?)?.toInt() ??
+          (json['updateFrequency'] as num?)?.toInt() ??
+          60,
       isActive: json['isActive'] as bool? ?? true,
       type: FeedType.values.firstWhere(
         (e) => e.name == json['type'],

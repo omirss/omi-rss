@@ -49,6 +49,46 @@ final authProvider = StateNotifierProvider<AuthNotifier, AuthState>((ref) {
   return AuthNotifier(ref);
 });
 
+/// Local-only mode: bypasses authentication and runs the app on the
+/// local drift database alone. Persisted so a reload stays in local mode.
+final localModeProvider =
+    StateNotifierProvider<LocalModeNotifier, bool>((ref) {
+  return LocalModeNotifier();
+});
+
+class LocalModeNotifier extends StateNotifier<bool> {
+  static const String _key = 'localMode';
+
+  LocalModeNotifier() : super(false) {
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      state = prefs.getBool(_key) ?? false;
+    } catch (_) {
+      state = false;
+    }
+  }
+
+  Future<void> enable() async {
+    state = true;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_key, true);
+    } catch (_) {}
+  }
+
+  Future<void> disable() async {
+    state = false;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_key);
+    } catch (_) {}
+  }
+}
+
 
 /// Auth notifier
 class AuthNotifier extends StateNotifier<AuthState> {

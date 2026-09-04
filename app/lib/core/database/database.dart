@@ -1,7 +1,6 @@
 import 'package:drift/drift.dart';
 import 'tables/feeds_table.dart';
 import 'tables/articles_table.dart';
-import 'tables/categories_table.dart';
 import 'tables/settings_table.dart';
 import 'tables/sync_metadata_table.dart';
 import '../models/folder.dart';
@@ -40,7 +39,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(openAppConnection());
   
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
   
   @override
   MigrationStrategy get migration {
@@ -75,7 +74,7 @@ class AppDatabase extends _$AppDatabase {
             ),
             SettingsTableCompanion.insert(
               key: 'updateFrequency',
-              value: '3600',
+              value: '60',
             ),
             SettingsTableCompanion.insert(
               key: 'articlesPerPage',
@@ -92,6 +91,35 @@ class AppDatabase extends _$AppDatabase {
         if (from < 3) {
           await m.createTable(foldersTable);
           await m.createTable(folderFeedsTable);
+        }
+        if (from < 4) {
+          // update_frequency switched from seconds to minutes; its CHECK
+          // constraint changed too. feeds_table is rebuilt with the new
+          // definition and articles_table is recreated so its foreign key
+          // keeps pointing at feeds_table after the rename dance.
+          await customStatement(
+              'ALTER TABLE feeds_table RENAME TO feeds_table_v3');
+          await customStatement(
+              'ALTER TABLE articles_table RENAME TO articles_table_v3');
+          await m.createTable(feedsTable);
+          await m.createTable(articlesTable);
+          await customStatement(''
+              'INSERT INTO feeds_table (id, url, title, description, link,'
+              ' category_id, favicon_url, last_fetched, etag, last_modified,'
+              ' update_frequency, is_active, type, created_at, updated_at,'
+              ' language, copyright, generator, image_url, custom_fields,'
+              ' successful_fetches, failed_fetches, success_rate, last_error,'
+              ' last_error_at) '
+              'SELECT id, url, title, description, link, category_id,'
+              ' favicon_url, last_fetched, etag, last_modified,'
+              ' MAX(update_frequency / 60, 1), is_active, type, created_at,'
+              ' updated_at, language, copyright, generator, image_url,'
+              ' custom_fields, successful_fetches, failed_fetches, success_rate,'
+              ' last_error, last_error_at FROM feeds_table_v3');
+          await customStatement(
+              'INSERT INTO articles_table SELECT * FROM articles_table_v3');
+          await customStatement('DROP TABLE articles_table_v3');
+          await customStatement('DROP TABLE feeds_table_v3');
         }
       },
     );
@@ -192,10 +220,39 @@ class AppDatabase extends _$AppDatabase {
   }
   
   /// Convenience accessors used by services
-  
+
   Future<List<Feed>> getAllFeeds() => feedDao.getAllFeeds();
-  
+
   Future<void> insertFeed(Feed feed) => feedDao.insertOrUpdateFeed(feed);
+
+  /// Device identity used to key the sync metadata row. Generated once
+  /// on first use and stored in the sync metadata table itself.
+  Future<String> syncDeviceId() async {
+    final existing = await select(syncMetadataTable).getSingleOrNull();
+    if (existing != null) return existing.deviceId;
+    const deviceId = 'app-web';
+    await into(syncMetadataTable).insert(
+      SyncMetadataTableCompanion.insert(deviceId: deviceId),
+      mode: InsertMode.insertOrIgnore,
+    );
+    final row = await select(syncMetadataTable).getSingleOrNull();
+    return row!.deviceId;
+  }
+
+  Future<DateTime?> getLastSyncAt() async {
+    final row = await select(syncMetadataTable).getSingleOrNull();
+    return row?.lastSync;
+  }
+
+  Future<void> setLastSyncAt(DateTime time) async {
+    final deviceId = await syncDeviceId();
+    await into(syncMetadataTable).insertOnConflictUpdate(
+      SyncMetadataTableCompanion.insert(
+        deviceId: deviceId,
+        lastSync: Value(time),
+      ),
+    );
+  }
   
   Future<Category> createCategory(Category category) async {
     await into(categoriesTable).insert(

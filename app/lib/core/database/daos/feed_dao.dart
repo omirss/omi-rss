@@ -84,6 +84,17 @@ class FeedDao extends DatabaseAccessor<AppDatabase> with _$FeedDaoMixin {
     });
   }
 
+  /// Record the last time a feed refresh was triggered locally, without
+  /// touching health counters or cache headers.
+  Future<void> setLastFetched(String feedId, DateTime time) {
+    return (update(feedsTable)..where((f) => f.id.equals(feedId))).write(
+      FeedsTableCompanion(
+        lastFetched: Value(time),
+        updatedAt: Value(DateTime.now()),
+      ),
+    );
+  }
+
   /// Update feed fetch status
   Future<void> updateFeedFetchStatus(
     String feedId, {
@@ -115,19 +126,6 @@ class FeedDao extends DatabaseAccessor<AppDatabase> with _$FeedDaoMixin {
         updatedAt: Value(DateTime.now()),
       ),
     );
-  }
-
-  /// Get feeds that need updating
-  Future<List<Feed>> getFeedsNeedingUpdate() async {
-    final now = DateTime.now();
-    final rows = await (select(feedsTable)
-          ..where((f) {
-            return f.isActive &
-                (f.lastFetched.isNull() |
-                    f.lastFetched.isSmallerThan(Variable(now)));
-          }))
-        .get();
-    return rows.map(_toModel).toList();
   }
 
   /// Get feeds modified since a specific date (for sync)

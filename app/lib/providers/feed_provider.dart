@@ -1,23 +1,22 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
+import '../config/api_config.dart';
 import '../core/services/feed_service.dart';
-import '../core/services/feed_discovery_service.dart' hide DiscoveredFeed;
-import '../core/database/database.dart';
 import '../core/models/feed.dart';
 import '../core/models/article.dart';
 import '../core/models/folder.dart';
+import '../services/api_service.dart';
+import 'auth_provider.dart';
 import 'database_provider.dart';
+import 'sync_provider.dart';
 
 /// Feed service provider
 final feedServiceProvider = Provider<FeedService>((ref) {
   final database = ref.watch(databaseProvider);
-  final dio = Dio();
-  final discoveryService = FeedDiscoveryService(dio: dio);
-  
+
   return FeedService(
-    dio: dio,
+    dio: Dio(),
     database: database,
-    discoveryService: discoveryService,
   );
 });
 
@@ -156,61 +155,11 @@ class ArticleFilterNotifier extends StateNotifier<ArticleFilter> {
   }
 }
 
-/// Feed subscription notifier
-final feedSubscriptionProvider = StateNotifierProvider<FeedSubscriptionNotifier, AsyncValue<void>>((ref) {
-  return FeedSubscriptionNotifier(ref);
-});
+/// Selected feed provider
+final selectedFeedProvider = StateProvider<String?>((ref) => null);
 
-class FeedSubscriptionNotifier extends StateNotifier<AsyncValue<void>> {
-  final Ref ref;
-  
-  FeedSubscriptionNotifier(this.ref) : super(const AsyncValue.data(null));
-  
-  Future<Feed> subscribeFeed(String url) async {
-    state = const AsyncValue.loading();
-    
-    try {
-      final feedService = ref.read(feedServiceProvider);
-      final database = ref.read(databaseProvider);
-      
-      // Subscribe to feed
-      final feed = await feedService.subscribeFeed(url);
-      
-      // Save to database
-      await database.feedDao.insertFeed(feed);
-      
-      // Fetch initial articles
-      final result = await feedService.refreshFeed(feed);
-      
-      // Save articles
-      if (result.newArticles.isNotEmpty) {
-        await database.articleDao.insertArticles(result.newArticles);
-      }
-      
-      state = const AsyncValue.data(null);
-      return feed;
-    } catch (e, stack) {
-      state = AsyncValue.error(e, stack);
-      rethrow;
-    }
-  }
-  
-  Future<void> unsubscribeFeed(String feedId) async {
-    state = const AsyncValue.loading();
-    
-    try {
-      final database = ref.read(databaseProvider);
-      
-      // Delete feed and all its articles
-      await database.feedDao.deleteFeed(feedId);
-      
-      state = const AsyncValue.data(null);
-    } catch (e, stack) {
-      state = AsyncValue.error(e, stack);
-      rethrow;
-    }
-  }
-}
+/// Show starred articles provider
+final showStarredProvider = StateProvider<bool>((ref) => false);
 
 /// Feed refresh provider
 final feedRefreshProvider = StateNotifierProvider<FeedRefreshNotifier, AsyncValue<RefreshProgress>>((ref) {
@@ -246,7 +195,30 @@ class FeedRefreshNotifier extends StateNotifier<AsyncValue<RefreshProgress>> {
   Future<void> refreshAllFeeds() async {
     final feedService = ref.read(feedServiceProvider);
     final database = ref.read(databaseProvider);
-    
+
+    if (ApiConfig.hasServer && ref.read(authProvider).isAuthenticated) {
+      try {
+        final feeds = await database.feedDao.getAllFeeds();
+        final api = ref.read(apiServiceProvider);
+        for (final feed in feeds) {
+          try {
+            await api.refreshFeed(feed.id);
+          } catch (_) {
+            // Continue with the other feeds
+          }
+        }
+        await ref.read(feedSyncProvider.notifier).syncFromServer();
+        state = AsyncValue.data(RefreshProgress(
+          current: feeds.length,
+          total: feeds.length,
+          isComplete: true,
+        ));
+      } catch (e, stack) {
+        state = AsyncValue.error(e, stack);
+      }
+      return;
+    }
+
     try {
       // Get all feeds
       final feeds = await database.feedDao.getAllFeeds();
@@ -331,50 +303,6 @@ class FeedRefreshNotifier extends StateNotifier<AsyncValue<RefreshProgress>> {
   }
 }
 
-/// Feed discovery provider
-final feedDiscoveryProvider = FutureProvider.family<List<DiscoveredFeed>, String>((ref, url) async {
-  final feedService = ref.watch(feedServiceProvider);
-  return await feedService.discoverFeeds(url);
-});
-
-/// Article actions provider
-final articleActionsProvider = Provider<ArticleActions>((ref) {
-  return ArticleActions(ref);
-});
-
-class ArticleActions {
-  final Ref ref;
-  
-  ArticleActions(this.ref);
-  
-  Future<void> markAsRead(String articleId) async {
-    final database = ref.read(databaseProvider);
-    await database.articleDao.markAsRead(articleId);
-  }
-  
-  Future<void> markAsUnread(String articleId) async {
-    final database = ref.read(databaseProvider);
-    await database.articleDao.markAsUnread(articleId);
-  }
-  
-  Future<void> toggleStarred(String articleId) async {
-    final database = ref.read(databaseProvider);
-    final article = await database.articleDao.getArticle(articleId);
-    if (article != null) {
-      await database.articleDao.setStarred(articleId, !article.isStarred);
-    }
-  }
-  
-  Future<void> markAllAsRead({String? feedId, String? categoryId}) async {
-    final database = ref.read(databaseProvider);
-    if (feedId != null) {
-      await database.articleDao.markFeedAsRead(feedId);
-    } else {
-      await database.articleDao.markAllAsRead();
-    }
-  }
-}
-
 /// Feed statistics provider
 final feedStatisticsProvider = FutureProvider.family<FeedStatistics, String>((ref, feedId) async {
   final feedService = ref.watch(feedServiceProvider);
@@ -385,45 +313,4 @@ final feedStatisticsProvider = FutureProvider.family<FeedStatistics, String>((re
 final foldersProvider = StreamProvider<List<Folder>>((ref) {
   final database = ref.watch(databaseProvider);
   return database.folderDao.watchAllFolders();
-});
-
-/// Create initial sample feeds
-final initializeSampleFeedsProvider = FutureProvider<void>((ref) async {
-  final database = ref.read(databaseProvider);
-  final feedService = ref.read(feedServiceProvider);
-  
-  // Check if any feeds exist
-  final existingFeeds = await database.feedDao.getAllFeeds();
-  if (existingFeeds.isNotEmpty) return;
-  
-  // Sample feed URLs
-  final sampleFeeds = [
-    'https://news.ycombinator.com/rss',
-    'https://feeds.arstechnica.com/arstechnica/index',
-    'https://www.theverge.com/rss/index.xml',
-    'https://feeds.feedburner.com/TechCrunch/',
-    'https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml',
-  ];
-  
-  // Subscribe to each feed
-  for (final url in sampleFeeds) {
-    try {
-      // Subscribe to feed
-      final feed = await feedService.subscribeFeed(url);
-      
-      // Save to database
-      await database.feedDao.insertFeed(feed);
-      
-      // Fetch initial articles
-      final result = await feedService.refreshFeed(feed);
-      
-      // Save articles
-      if (result.newArticles.isNotEmpty) {
-        await database.articleDao.insertArticles(result.newArticles);
-      }
-    } catch (e) {
-      // Continue with next feed if one fails
-      print('Failed to subscribe to $url: $e');
-    }
-  }
 });

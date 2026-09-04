@@ -3,14 +3,12 @@ import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:html/parser.dart' as html_parser;
 import 'package:xml/xml.dart';
-import 'package:flutter/foundation.dart';
 import '../models/feed.dart';
 import '../models/article.dart';
 import '../parsers/rss_parser.dart';
 import '../parsers/atom_parser.dart';
 import '../parsers/json_feed_parser.dart';
 import '../database/database.dart';
-import 'feed_discovery_service.dart';
 import '../../services/feed_parser_service.dart' as parser;
 
 /// Feed service for managing RSS/Atom/JSON feeds with FreshRSS features
@@ -21,31 +19,24 @@ class FeedService {
   final JsonFeedParser _jsonFeedParser;
   final parser.FeedParserService _feedParserService;
   final AppDatabase? _database;
-  final FeedDiscoveryService? _discoveryService;
-  
-  // Cache for ETags and Last-Modified headers
-  final Map<String, String> _etagCache = {};
-  final Map<String, String> _lastModifiedCache = {};
-  
+
   // Feed health monitoring
   final Map<String, FeedHealth> _feedHealth = {};
-  
+
   // Progress callbacks for batch operations
   void Function(int current, int total)? onBatchProgress;
   void Function(String feedId, String message)? onFeedLog;
-  
+
   FeedService({
     Dio? dio,
     AppDatabase? database,
-    FeedDiscoveryService? discoveryService,
     parser.FeedParserService? feedParserService,
   }) : _dio = dio ?? Dio(),
         _rssParser = RssParser(),
         _atomParser = AtomParser(),
         _jsonFeedParser = JsonFeedParser(),
         _feedParserService = feedParserService ?? parser.FeedParserService(dio: dio),
-        _database = database,
-        _discoveryService = discoveryService {
+        _database = database {
     // Configure Dio
     _dio.options.connectTimeout = const Duration(seconds: 30);
     _dio.options.receiveTimeout = const Duration(seconds: 30);
@@ -60,14 +51,11 @@ class FeedService {
     try {
       // Parse the feed
       final parsedFeed = await _feedParserService.parseFeed(url);
-      
-      // Generate unique ID for the feed
-      final feedId = DateTime.now().millisecondsSinceEpoch.toString();
-      
+
       // Fetch favicon
       final faviconUrl = await _feedParserService.getFeedFavicon(parsedFeed.siteUrl) ??
                          await _fetchFavicon(parsedFeed.siteUrl);
-      
+
       // Map FeedType from parser to model
       FeedType feedType;
       switch (parsedFeed.type) {
@@ -80,13 +68,10 @@ class FeedService {
         case parser.FeedType.json:
           feedType = FeedType.json;
           break;
-        default:
-          feedType = FeedType.unknown;
       }
-      
+
       // Convert ParsedFeed to Feed model
       final feed = Feed(
-        id: feedId,
         url: parsedFeed.url,
         title: parsedFeed.title,
         description: parsedFeed.description,
@@ -99,7 +84,7 @@ class FeedService {
         updatedAt: DateTime.now(),
         etag: null,
         lastModified: null,
-        updateFrequency: 3600, // 1 hour default
+        updateFrequency: 60, // 1 hour default
         successfulFetches: 1,
         failedFetches: 0,
         successRate: 1.0,
@@ -341,20 +326,6 @@ class FeedService {
         return await _jsonFeedParser.parseFeed(content, url);
       case FeedType.unknown:
         throw FeedServiceException('Unknown feed type');
-    }
-  }
-  
-  /// Parse articles based on feed type
-  Future<List<Article>> _parseArticles(String content, String feedId, FeedType type) async {
-    switch (type) {
-      case FeedType.rss:
-        return await _rssParser.parseArticles(content, feedId);
-      case FeedType.atom:
-        return await _atomParser.parseArticles(content, feedId);
-      case FeedType.json:
-        return await _jsonFeedParser.parseArticles(content, feedId);
-      case FeedType.unknown:
-        return [];
     }
   }
   

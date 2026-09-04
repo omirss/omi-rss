@@ -9,7 +9,7 @@ import '../components/glass_app_bar.dart';
 import '../components/glass_snack_bar.dart';
 import '../components/glass_dialog.dart';
 import '../components/glass_text_field.dart';
-import '../widgets/article_list.dart';
+import '../../providers/article_actions_provider.dart';
 import '../../providers/feed_provider.dart';
 import '../../core/models/article.dart';
 import 'article_reader_screen.dart';
@@ -22,7 +22,6 @@ class SavedArticlesScreen extends ConsumerStatefulWidget {
 }
 
 class _SavedArticlesScreenState extends ConsumerState<SavedArticlesScreen> {
-  String _searchQuery = '';
   String _sortBy = 'date';
   final TextEditingController _searchController = TextEditingController();
   
@@ -89,11 +88,6 @@ class _SavedArticlesScreenState extends ConsumerState<SavedArticlesScreen> {
                       controller: _searchController,
                       hintText: 'Search saved articles...',
                       prefixIcon: Icons.search,
-                      onChanged: (value) {
-                        setState(() {
-                          _searchQuery = value;
-                        });
-                      },
                     ),
                     const SizedBox(height: 12),
                     

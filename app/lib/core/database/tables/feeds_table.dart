@@ -13,7 +13,7 @@ class FeedsTable extends Table {
   DateTimeColumn get lastFetched => dateTime().nullable()();
   TextColumn get etag => text().nullable()();
   TextColumn get lastModified => text().nullable()();
-  IntColumn get updateFrequency => integer().withDefault(const Constant(3600))();
+  IntColumn get updateFrequency => integer().withDefault(const Constant(60))();
   BoolColumn get isActive => boolean().withDefault(const Constant(true))();
   TextColumn get type => text().withDefault(const Constant('rss'))();
   DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
@@ -38,7 +38,7 @@ class FeedsTable extends Table {
   
   @override
   List<String> get customConstraints => [
-    'CHECK (update_frequency >= 60)', // Minimum 1 minute
+    'CHECK (update_frequency >= 1)', // Minimum 1 minute
   ];
 }
 
