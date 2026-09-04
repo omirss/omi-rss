@@ -167,11 +167,13 @@ class Feed {
       link: json['link'] as String?,
       siteUrl: json['siteUrl'] as String?,
       customTitle: json['customTitle'] as String?,
-      categoryId: json['categoryId'] as String?,
-      faviconUrl: json['faviconUrl'] as String?,
+      categoryId: json['categoryId'] as String? ?? json['folderId'] as String?,
+      faviconUrl: json['faviconUrl'] as String? ?? json['favicon'] as String?,
       lastFetched: json['lastFetched'] != null
-          ? DateTime.parse(json['lastFetched'] as String)
-          : null,
+          ? DateTime.tryParse(json['lastFetched'] as String)
+          : json['lastFetchedAt'] != null
+              ? DateTime.tryParse(json['lastFetchedAt'] as String)
+              : null,
       etag: json['etag'] as String?,
       lastModified: json['lastModified'] as String?,
       updateFrequency: json['updateFrequency'] as int? ?? 3600,
@@ -180,19 +182,26 @@ class Feed {
         (e) => e.name == json['type'],
         orElse: () => FeedType.rss,
       ),
-      createdAt: DateTime.parse(json['createdAt'] as String),
-      updatedAt: DateTime.parse(json['updatedAt'] as String),
+      createdAt: json['createdAt'] != null
+          ? DateTime.tryParse(json['createdAt'] as String)
+          : null,
+      updatedAt: json['updatedAt'] != null
+          ? DateTime.tryParse(json['updatedAt'] as String)
+          : null,
       language: json['language'] as String?,
       copyright: json['copyright'] as String?,
       generator: json['generator'] as String?,
       imageUrl: json['imageUrl'] as String?,
-      customFields: json['customFields'] as Map<String, dynamic>?,
+      customFields: json['customFields'] as Map<String, dynamic>? ??
+          json['settings'] as Map<String, dynamic>?,
       successfulFetches: json['successfulFetches'] as int? ?? 0,
-      failedFetches: json['failedFetches'] as int? ?? 0,
+      failedFetches: json['failedFetches'] as int? ??
+          (json['errorCount'] as num?)?.toInt() ??
+          0,
       successRate: (json['successRate'] as num?)?.toDouble() ?? 0.0,
-      lastError: json['lastError'] as String?,
+      lastError: json['lastError'] as String? ?? json['lastFetchError'] as String?,
       lastErrorAt: json['lastErrorAt'] != null
-          ? DateTime.parse(json['lastErrorAt'] as String)
+          ? DateTime.tryParse(json['lastErrorAt'] as String)
           : null,
     );
   }

@@ -1,6 +1,6 @@
 /// User model
 class User {
-  final int id;
+  final String id;
   final String email;
   final String? username;
   final String? fullName;
@@ -15,20 +15,28 @@ class User {
     this.username,
     this.fullName,
     this.avatarUrl,
-    required this.createdAt,
+    DateTime? createdAt,
     this.preferences,
     this.statistics,
-  });
+  }) : createdAt = createdAt ?? DateTime.now();
   
   factory User.fromJson(Map<String, dynamic> json) {
+    final firstName = json['firstName'] as String?;
+    final lastName = json['lastName'] as String?;
     return User(
-      id: json['id'] as int,
+      id: json['id'] as String,
       email: json['email'] as String,
-      username: json['userName'] as String?,
-      fullName: json['fullName'] as String?,
+      username: json['username'] as String?,
+      fullName: json['fullName'] as String? ??
+          (firstName == null && lastName == null
+              ? null
+              : [firstName, lastName].whereType<String>().join(' ')),
       avatarUrl: json['avatarUrl'] as String?,
-      createdAt: DateTime.parse(json['createdAt'] as String),
-      preferences: json['preferences'] as Map<String, dynamic>?,
+      createdAt: json['createdAt'] != null
+          ? DateTime.tryParse(json['createdAt'] as String)
+          : null,
+      preferences: json['preferences'] as Map<String, dynamic>? ??
+          json['settings'] as Map<String, dynamic>?,
       statistics: json['statistics'] != null 
           ? UserStatistics.fromJson(json['statistics'] as Map<String, dynamic>)
           : null,
@@ -49,7 +57,7 @@ class User {
   }
   
   User copyWith({
-    int? id,
+    String? id,
     String? email,
     String? username,
     String? fullName,

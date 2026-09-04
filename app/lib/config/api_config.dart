@@ -10,8 +10,12 @@ class ApiConfig {
 
   static String? _savedServerUrl;
 
-  /// Base URL of the server API. Empty when running in local-only mode.
+  /// Base URL of the server (no trailing "/" or "/api" suffix).
+  /// Empty when running in local-only mode.
   static String get baseUrl => _savedServerUrl ?? _defaultBaseUrl;
+
+  /// Base URL for all API calls: the server root with a single "/api" prefix.
+  static String get apiBaseUrl => baseUrl.isEmpty ? '' : '$baseUrl/api';
 
   /// True when a server is configured.
   static bool get hasServer => baseUrl.isNotEmpty;
@@ -27,7 +31,7 @@ class ApiConfig {
   /// local-only mode.
   static Future<void> setServerUrl(String url) async {
     final prefs = await SharedPreferences.getInstance();
-    final normalized = _normalize(url);
+    final normalized = normalizeUrl(url);
     if (normalized.isEmpty) {
       _savedServerUrl = null;
       await prefs.remove(_serverUrlKey);
@@ -37,10 +41,18 @@ class ApiConfig {
     }
   }
 
-  static String _normalize(String url) {
+  /// Normalize a user-entered server URL: trims whitespace and strips any
+  /// trailing "/" and "/api" suffix so the "/api" prefix is applied exactly once.
+  static String normalizeUrl(String url) {
     var normalized = url.trim();
     while (normalized.endsWith('/')) {
       normalized = normalized.substring(0, normalized.length - 1);
+    }
+    while (normalized.toLowerCase().endsWith('/api')) {
+      normalized = normalized.substring(0, normalized.length - 4);
+      while (normalized.endsWith('/')) {
+        normalized = normalized.substring(0, normalized.length - 1);
+      }
     }
     return normalized;
   }
@@ -50,7 +62,6 @@ class ApiConfig {
 
   // WebSocket configuration
   static String get wsUrl {
-    final url = baseUrl.replaceFirst('http://', 'ws://').replaceFirst('https://', 'wss://');
-    return url.replaceFirst('/api', '/ws');
+    return baseUrl.replaceFirst('http://', 'ws://').replaceFirst('https://', 'wss://');
   }
 }

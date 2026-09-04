@@ -1,6 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../config/api_config.dart';
 import '../features/search/search_service.dart';
 import '../services/api_service.dart';
+import 'database_provider.dart';
 
 // Search service provider
 final searchServiceProvider = Provider<SearchService>((ref) {
@@ -78,21 +80,45 @@ class SearchState {
 
 // Search notifier
 class SearchNotifier extends StateNotifier<SearchState> {
+  final Ref _ref;
   final SearchService _searchService;
   final SearchHistoryManager _historyManager;
-  
-  SearchNotifier(this._searchService, this._historyManager) : super(SearchState());
-  
+
+  SearchNotifier(this._ref, this._searchService, this._historyManager)
+      : super(SearchState());
+
   void updateQuery(String query) {
     state = state.copyWith(
       query: query,
       isSearching: true,
     );
   }
-  
+
+  Future<List<SearchResult>> _searchLocal(String query) async {
+    final database = _ref.read(databaseProvider);
+    final articles = await database.articleDao.searchArticles(query).first;
+    return articles.map((article) {
+      return SearchResult(
+        id: article.id,
+        type: SearchResultType.article,
+        title: article.title,
+        snippet: article.summary ?? '',
+        score: 0,
+        metadata: {
+          'feedId': article.feedId,
+          if (article.feedTitle != null) 'feedTitle': article.feedTitle,
+          'url': article.url,
+          if (article.publishedAt != null)
+            'publishedAt': article.publishedAt!.toIso8601String(),
+        },
+        highlights: const [],
+      );
+    }).toList();
+  }
+
   Future<void> search(String query) async {
     if (query.isEmpty) return;
-    
+
     state = state.copyWith(
       query: query,
       isLoading: true,
@@ -100,21 +126,23 @@ class SearchNotifier extends StateNotifier<SearchState> {
       results: [],
       options: state.options.copyWith(offset: 0),
     );
-    
+
     try {
-      final results = await _searchService.search(
-        query,
-        filters: state.filters,
-        options: state.options,
-      );
-      
+      final results = ApiConfig.hasServer
+          ? await _searchService.search(
+              query,
+              filters: state.filters,
+              options: state.options,
+            )
+          : await _searchLocal(query);
+
       state = state.copyWith(
         results: results,
         isLoading: false,
         totalResults: results.length, // In real app, this would come from server
         hasMore: results.length >= state.options.limit,
       );
-      
+
       // Add to history
       _historyManager.addSearchQuery(query, results.length);
     } catch (e) {
@@ -124,21 +152,23 @@ class SearchNotifier extends StateNotifier<SearchState> {
       );
     }
   }
-  
+
   Future<void> loadMore() async {
     if (state.isLoading || !state.hasMore) return;
-    
+
     state = state.copyWith(isLoading: true);
-    
+
     try {
-      final results = await _searchService.search(
-        state.query,
-        filters: state.filters,
-        options: state.options.copyWith(
-          offset: state.results.length,
-        ),
-      );
-      
+      final results = ApiConfig.hasServer
+          ? await _searchService.search(
+              state.query,
+              filters: state.filters,
+              options: state.options.copyWith(
+                offset: state.results.length,
+              ),
+            )
+          : const <SearchResult>[];
+
       state = state.copyWith(
         results: [...state.results, ...results],
         isLoading: false,
@@ -271,43 +301,21 @@ class SearchNotifier extends StateNotifier<SearchState> {
 final searchProvider = StateNotifierProvider<SearchNotifier, SearchState>((ref) {
   final searchService = ref.watch(searchServiceProvider);
   final historyManager = ref.watch(searchHistoryProvider);
-  return SearchNotifier(searchService, historyManager);
+  return SearchNotifier(ref, searchService, historyManager);
 });
 
 // Search suggestions provider
 final searchSuggestionsProvider = FutureProvider<List<String>>((ref) async {
   final searchState = ref.watch(searchProvider);
-  final searchService = ref.watch(searchServiceProvider);
   final historyManager = ref.watch(searchHistoryProvider);
-  
+
   if (searchState.query.isEmpty) {
     // Return recent searches
     return historyManager.history.take(5).map((item) => item.query).toList();
   }
-  
-  // Get suggestions from history first
-  final historySuggestions = historyManager.getSuggestions(searchState.query);
-  
-  // Get server suggestions
-  try {
-    final serverSuggestions = await searchService.getSuggestions(searchState.query);
-    
-    // Combine and deduplicate
-    final allSuggestions = <String>{...historySuggestions, ...serverSuggestions};
-    return allSuggestions.take(8).toList();
-  } catch (e) {
-    // Fall back to history suggestions
-    return historySuggestions;
-  }
-});
 
-// Related articles provider
-final relatedArticlesProvider = FutureProvider.family<List<SearchResult>, String>(
-  (ref, articleId) async {
-    final searchService = ref.watch(searchServiceProvider);
-    return searchService.getRelatedArticles(articleId);
-  },
-);
+  return historyManager.getSuggestions(searchState.query);
+});
 
 // Extension to make options copyable
 extension _SearchOptionsCopyWith on SearchOptions {

@@ -283,7 +283,7 @@ class SettingsScreen extends ConsumerWidget {
                     Icons.dns,
                     settings.serverUrl,
                     (value) => ref.read(settingsProvider.notifier).setServerUrl(value),
-                    hintText: 'http://localhost:8080/api',
+                    hintText: 'http://localhost:8080',
                   ),
                   const Divider(color: Colors.white24, height: 32),
                   _buildSwitchTile(

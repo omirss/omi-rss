@@ -281,7 +281,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                               return Consumer(
                                 builder: (context, ref, child) {
                                   final feedArticles = ref.watch(
-                                    apiArticlesProvider(ArticleQuery(feedId: int.tryParse(feed.id))),
+                                    apiArticlesProvider(ArticleQuery(feedId: feed.id)),
                                   );
                                   final unreadCount = feedArticles.maybeWhen(
                                     data: (articles) => articles.where((a) => !a.isRead).length,

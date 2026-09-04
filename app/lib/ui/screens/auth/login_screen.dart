@@ -17,6 +17,7 @@ class LoginScreen extends ConsumerStatefulWidget {
 class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
+  final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _isLogin = true;
   bool _isPasswordVisible = false;
@@ -24,6 +25,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   @override
   void dispose() {
     _emailController.dispose();
+    _usernameController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
@@ -36,13 +38,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     try {
       if (_isLogin) {
         await authNotifier.login(
-          email: _emailController.text.trim(),
+          emailOrUsername: _emailController.text.trim(),
           password: _passwordController.text,
         );
       } else {
         await authNotifier.register(
           email: _emailController.text.trim(),
           password: _passwordController.text,
+          username: _usernameController.text.trim(),
         );
       }
     } catch (e) {
@@ -126,19 +129,38 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       // Email field
                       GlassTextField(
                         controller: _emailController,
-                        hintText: 'Email',
+                        hintText: _isLogin ? 'Email or username' : 'Email',
                         keyboardType: TextInputType.emailAddress,
                         prefixIcon: Icon(Icons.email_outlined, color: Colors.white70),
                         validator: (value) {
                           if (value == null || value.isEmpty) {
-                            return 'Please enter your email';
+                            return _isLogin
+                                ? 'Please enter your email or username'
+                                : 'Please enter your email';
                           }
-                          if (!value.contains('@')) {
+                          if (!_isLogin && !value.contains('@')) {
                             return 'Please enter a valid email';
                           }
                           return null;
                         },
                       ),
+                      
+                      if (!_isLogin) ...[
+                        const SizedBox(height: 16),
+                        
+                        // Username field
+                        GlassTextField(
+                          controller: _usernameController,
+                          hintText: 'Username',
+                          prefixIcon: Icon(Icons.person_outline, color: Colors.white70),
+                          validator: (value) {
+                            if (value == null || value.trim().length < 3) {
+                              return 'Username must be at least 3 characters';
+                            }
+                            return null;
+                          },
+                        ),
+                      ],
                       
                       const SizedBox(height: 16),
                       
@@ -215,28 +237,31 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       const SizedBox(height: 24),
                       
                       // Toggle login/register
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            _isLogin ? "Don't have an account?" : "Already have an account?",
-                            style: TextStyle(color: Colors.white70),
-                          ),
-                          TextButton(
-                            onPressed: () {
-                              setState(() {
-                                _isLogin = !_isLogin;
-                              });
-                            },
-                            child: Text(
-                              _isLogin ? 'Sign Up' : 'Sign In',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              _isLogin ? "Don't have an account?" : "Already have an account?",
+                              style: TextStyle(color: Colors.white70),
+                            ),
+                            TextButton(
+                              onPressed: () {
+                                setState(() {
+                                  _isLogin = !_isLogin;
+                                });
+                              },
+                              child: Text(
+                                _isLogin ? 'Sign Up' : 'Sign In',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                       
                       const SizedBox(height: 48),

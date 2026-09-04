@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -70,7 +72,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     final token = _prefs.getString(_tokenKey);
     final refreshToken = _prefs.getString(_refreshTokenKey);
     
-    if (token != null && refreshToken != null) {
+    if (token != null) {
       // Try to restore session
       try {
         final user = await _apiService.getCurrentUser();
@@ -81,12 +83,16 @@ class AuthNotifier extends StateNotifier<AuthState> {
           refreshToken: refreshToken,
         );
       } catch (e) {
-        // Token expired, try refresh
-        try {
-          final response = await _apiService.refreshToken(refreshToken);
-          await _saveAuth(response);
-        } catch (e) {
-          // Refresh failed, clear auth
+        if (refreshToken != null) {
+          // Token expired, try refresh
+          try {
+            final response = await _apiService.refreshToken(refreshToken);
+            await _saveAuth(response);
+          } catch (e) {
+            // Refresh failed, clear auth
+            await _clearAuth();
+          }
+        } else {
           await _clearAuth();
         }
       }
@@ -101,7 +107,11 @@ class AuthNotifier extends StateNotifier<AuthState> {
     state = state.copyWith(isLoading: true, error: null);
     
     try {
-      final response = await _apiService.register(email, password, username ?? email.split('@')[0]);
+      final response = await _apiService.register(
+        username: username ?? email.split('@')[0],
+        email: email,
+        password: password,
+      );
       
       await _saveAuth(response);
     } catch (e) {
@@ -114,13 +124,13 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
   
   Future<void> login({
-    required String email,
+    required String emailOrUsername,
     required String password,
   }) async {
     state = state.copyWith(isLoading: true, error: null);
     
     try {
-      final response = await _apiService.login(email, password);
+      final response = await _apiService.login(emailOrUsername, password);
       
       await _saveAuth(response);
     } catch (e) {
@@ -147,12 +157,31 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
   
   Future<void> _saveAuth(Map<String, dynamic> response) async {
-    final token = response['accessToken'] as String;
-    final refreshToken = response['refreshToken'] as String;
-    final user = User.fromJson(response['user'] as Map<String, dynamic>);
+    final token = response['token'] as String?;
+    final refreshToken = response['refreshToken'] as String?;
+    final userJson = response['user'];
+    
+    if (token == null) {
+      state = state.copyWith(
+        isLoading: false,
+        error: 'Authentication failed: no token returned',
+      );
+      return;
+    }
     
     await _prefs.setString(_tokenKey, token);
-    await _prefs.setString(_refreshTokenKey, refreshToken);
+    if (refreshToken != null) {
+      await _prefs.setString(_refreshTokenKey, refreshToken);
+    } else {
+      await _prefs.remove(_refreshTokenKey);
+    }
+    
+    final user = userJson is Map<String, dynamic>
+        ? User.fromJson(userJson)
+        : null;
+    if (user != null) {
+      await _prefs.setString(_userKey, jsonEncode(user.toJson()));
+    }
     
     state = state.copyWith(
       isAuthenticated: true,

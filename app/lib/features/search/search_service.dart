@@ -1,6 +1,4 @@
-import 'dart:convert';
 import 'package:dio/dio.dart';
-import '../../core/models/article.dart';
 
 // Search result model
 class SearchResult {
@@ -170,12 +168,12 @@ enum SortOrder {
 class SearchService {
   final Dio _dio;
   final String baseUrl;
-  
+
   SearchService({
     required this.baseUrl,
     Dio? dio,
   }) : _dio = dio ?? Dio();
-  
+
   // Search articles
   Future<List<SearchResult>> search(
     String query, {
@@ -183,91 +181,44 @@ class SearchService {
     SearchOptions? options,
   }) async {
     try {
-      final response = await _dio.post(
-        '$baseUrl/api/search',
-        data: {
-          'query': query,
-          'filters': filters?.toJson() ?? {},
-          'options': options?.toJson() ?? SearchOptions().toJson(),
-        },
+      final limit = options?.limit ?? 20;
+      final offset = options?.offset ?? 0;
+      final queryParams = <String, dynamic>{
+        'search': query,
+        'limit': limit,
+        'page': (offset ~/ limit) + 1,
+        if (filters?.isRead != null) 'isRead': filters!.isRead.toString(),
+        if (filters?.isStarred != null) 'isStarred': filters!.isStarred.toString(),
+      };
+
+      final response = await _dio.get(
+        '$baseUrl/articles',
+        queryParameters: queryParams,
       );
-      
-      return (response.data['results'] as List)
-        .map((r) => SearchResult.fromJson(r))
-        .toList();
+
+      final articles = (response.data['articles'] as List)
+          .whereType<Map<String, dynamic>>()
+          .toList();
+
+      return articles.map((article) {
+        return SearchResult(
+          id: article['id'] as String,
+          type: SearchResultType.article,
+          title: (article['title'] as String?) ?? '',
+          snippet: (article['summary'] as String?) ?? '',
+          score: 0,
+          metadata: {
+            if (article['feedId'] != null) 'feedId': article['feedId'],
+            if (article['feedTitle'] != null) 'feedTitle': article['feedTitle'],
+            if (article['url'] != null) 'url': article['url'],
+            if (article['publishedAt'] != null)
+              'publishedAt': article['publishedAt'],
+          },
+          highlights: const [],
+        );
+      }).toList();
     } catch (e) {
       throw Exception('Search failed: $e');
-    }
-  }
-  
-  // Get search suggestions
-  Future<List<String>> getSuggestions(String partial) async {
-    try {
-      final response = await _dio.get(
-        '$baseUrl/api/search/suggestions',
-        queryParameters: {
-          'q': partial,
-          'limit': 5,
-        },
-      );
-      
-      return List<String>.from(response.data['suggestions']);
-    } catch (e) {
-      return [];
-    }
-  }
-  
-  // Get related articles
-  Future<List<SearchResult>> getRelatedArticles(
-    String articleId, {
-    int limit = 5,
-  }) async {
-    try {
-      final response = await _dio.get(
-        '$baseUrl/api/search/related/$articleId',
-        queryParameters: {
-          'limit': limit,
-        },
-      );
-      
-      return (response.data['results'] as List)
-        .map((r) => SearchResult.fromJson(r))
-        .toList();
-    } catch (e) {
-      throw Exception('Failed to get related articles: $e');
-    }
-  }
-  
-  // Index article for search
-  Future<void> indexArticle(Article article) async {
-    try {
-      await _dio.post(
-        '$baseUrl/api/search/index',
-        data: {
-          'article': article.toJson(),
-        },
-      );
-    } catch (e) {
-      // Indexing failures shouldn't break the app
-      print('Failed to index article: $e');
-    }
-  }
-  
-  // Remove article from index
-  Future<void> removeFromIndex(String articleId) async {
-    try {
-      await _dio.delete('$baseUrl/api/search/index/$articleId');
-    } catch (e) {
-      print('Failed to remove article from index: $e');
-    }
-  }
-  
-  // Reindex all articles
-  Future<void> reindexAll() async {
-    try {
-      await _dio.post('$baseUrl/api/search/reindex');
-    } catch (e) {
-      throw Exception('Failed to reindex: $e');
     }
   }
 }

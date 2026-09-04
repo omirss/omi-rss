@@ -207,25 +207,32 @@ class Article {
   }
   
   factory Article.fromJson(Map<String, dynamic> json) {
+    final publishedAt = json['publishedAt'] != null
+        ? DateTime.tryParse(json['publishedAt'] as String)
+        : null;
+    final id = json['id'] as String;
+    final url = json['url'] as String;
     return Article(
-      id: json['id'] as String,
+      id: id,
       feedId: json['feedId'] as String,
-      guid: json['guid'] as String,
+      guid: json['guid'] as String? ?? url,
       title: json['title'] as String,
       content: json['content'] as String?,
       summary: json['summary'] as String?,
       author: json['author'] as String?,
-      publishedAt: json['publishedAt'] != null
-          ? DateTime.parse(json['publishedAt'] as String)
-          : null,
-      url: json['url'] as String,
+      publishedAt: publishedAt,
+      url: url,
       imageUrl: json['imageUrl'] as String?,
       isRead: json['isRead'] as bool? ?? false,
       isStarred: json['isStarred'] as bool? ?? false,
       isArchived: json['isArchived'] as bool? ?? false,
       readTimeSeconds: json['readTimeSeconds'] as int?,
-      createdAt: DateTime.parse(json['createdAt'] as String),
-      updatedAt: DateTime.parse(json['updatedAt'] as String),
+      createdAt: json['createdAt'] != null
+          ? DateTime.tryParse(json['createdAt'] as String)
+          : null,
+      updatedAt: json['updatedAt'] != null
+          ? DateTime.tryParse(json['updatedAt'] as String)
+          : null,
       aiSummary: json['aiSummary'] as String?,
       aiTags: (json['aiTags'] as List<dynamic>?)?.cast<String>(),
       perspectives: json['perspectives'] as Map<String, dynamic>?,
@@ -240,7 +247,7 @@ class Article {
       rights: json['rights'] as String?,
       fullContent: json['fullContent'] as String?,
       fullContentFetchedAt: json['fullContentFetchedAt'] != null
-          ? DateTime.parse(json['fullContentFetchedAt'] as String)
+          ? DateTime.tryParse(json['fullContentFetchedAt'] as String)
           : null,
       fullContentAvailable: json['fullContentAvailable'] as bool?,
       feedTitle: json['feedTitle'] as String?,

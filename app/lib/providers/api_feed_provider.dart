@@ -63,7 +63,7 @@ final apiArticlesProvider = FutureProvider.family<List<Article>, ArticleQuery>((
   } catch (e) {
     // Fall back to local data if API fails
     if (query.feedId != null) {
-      return await database.articleDao.getArticlesByFeed(query.feedId.toString());
+      return await database.articleDao.getArticlesByFeed(query.feedId!);
     } else if (query.unreadOnly == true) {
       return await database.articleDao.getUnreadArticles();
     } else {
@@ -74,8 +74,8 @@ final apiArticlesProvider = FutureProvider.family<List<Article>, ArticleQuery>((
 
 /// Article query parameters
 class ArticleQuery {
-  final int? feedId;
-  final int? folderId;
+  final String? feedId;
+  final String? folderId;
   final bool? unreadOnly;
   final bool? starredOnly;
   final int? limit;
@@ -111,7 +111,7 @@ final subscribeFeedProvider = FutureProvider.family<Feed, String>((ref, url) asy
 });
 
 /// Unsubscribe from feed through API
-final unsubscribeFeedProvider = FutureProvider.family<void, int>((ref, feedId) async {
+final unsubscribeFeedProvider = FutureProvider.family<void, String>((ref, feedId) async {
   final apiService = ref.watch(apiServiceProvider);
   final database = ref.watch(databaseProvider);
   
@@ -119,14 +119,14 @@ final unsubscribeFeedProvider = FutureProvider.family<void, int>((ref, feedId) a
   await apiService.deleteFeed(feedId);
   
   // Remove from local database
-  await database.feedDao.deleteFeed(feedId.toString());
+  await database.feedDao.deleteFeed(feedId);
   
   // Trigger refresh
   ref.invalidate(apiFeedsProvider);
 });
 
 /// Refresh single feed through API
-final refreshFeedProvider = FutureProvider.family<void, int>((ref, feedId) async {
+final refreshFeedProvider = FutureProvider.family<void, String>((ref, feedId) async {
   final apiService = ref.watch(apiServiceProvider);
   
   // Refresh through API
@@ -142,18 +142,18 @@ final markArticleReadProvider = FutureProvider.family<void, MarkReadParams>((ref
   final database = ref.watch(databaseProvider);
   
   // Update through API
-  await apiService.markArticleRead(params.articleId, params.isRead);
+  await apiService.updateArticleState(params.articleId, isRead: params.isRead);
   
   // Update local database
   if (params.isRead) {
-    await database.articleDao.markAsRead(params.articleId.toString());
+    await database.articleDao.markAsRead(params.articleId);
   } else {
-    await database.articleDao.markAsUnread(params.articleId.toString());
+    await database.articleDao.markAsUnread(params.articleId);
   }
 });
 
 class MarkReadParams {
-  final int articleId;
+  final String articleId;
   final bool isRead;
   
   MarkReadParams({required this.articleId, required this.isRead});
@@ -165,14 +165,14 @@ final markArticleSavedProvider = FutureProvider.family<void, MarkSavedParams>((r
   final database = ref.watch(databaseProvider);
   
   // Update through API
-  await apiService.markArticleSaved(params.articleId, params.isSaved);
+  await apiService.updateArticleState(params.articleId, isStarred: params.isSaved);
   
   // Update local database
-  await database.articleDao.setStarred(params.articleId.toString(), params.isSaved);
+  await database.articleDao.setStarred(params.articleId, params.isSaved);
 });
 
 class MarkSavedParams {
-  final int articleId;
+  final String articleId;
   final bool isSaved;
   
   MarkSavedParams({required this.articleId, required this.isSaved});
@@ -188,7 +188,7 @@ final markAllReadProvider = FutureProvider.family<void, MarkAllReadParams>((ref,
   
   // Update local database
   if (params.feedId != null) {
-    await database.articleDao.markFeedAsRead(params.feedId.toString());
+    await database.articleDao.markFeedAsRead(params.feedId!);
   } else {
     await database.articleDao.markAllAsRead();
   }
@@ -201,8 +201,8 @@ final markAllReadProvider = FutureProvider.family<void, MarkAllReadParams>((ref,
 });
 
 class MarkAllReadParams {
-  final int? feedId;
-  final int? folderId;
+  final String? feedId;
+  final String? folderId;
   
   MarkAllReadParams({this.feedId, this.folderId});
 }
@@ -276,7 +276,7 @@ final articlesProvider = StreamProvider.family<List<Article>, ArticleQuery>((ref
   
   // Return local data based on query
   if (query.feedId != null) {
-    return database.articleDao.watchArticlesByFeed(query.feedId.toString());
+    return database.articleDao.watchArticlesByFeed(query.feedId!);
   } else if (query.unreadOnly == true) {
     return database.articleDao.watchUnreadArticles();
   } else if (query.starredOnly == true) {
