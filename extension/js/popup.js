@@ -116,8 +116,7 @@ function initializeEventListeners() {
     'show-floating-button',
     'auto-detect-articles',
     'enable-reader-mode',
-    'prefer-sidepanel',
-    'auto-backup'
+    'prefer-sidepanel'
   ];
   
   settingsToggles.forEach(id => {
@@ -889,16 +888,14 @@ async function subscribeFeed(feedUrl) {
       url: feedUrl
     });
 
-    if (response.error) {
-      throw new Error(response.error);
-    }
-
     if (response.success) {
       showNotification(response.serverSynced
         ? 'Subscribed to feed (synced to server)'
         : 'Subscribed to feed (saved locally)');
+    } else if (response.feed) {
+      showNotification('Feed already subscribed', 'warning');
     } else {
-      showNotification(response.error || 'Already subscribed', 'warning');
+      throw new Error(response.error || 'Subscribe failed');
     }
     await loadFeeds();
   } catch (error) {
@@ -911,14 +908,33 @@ function showLoading(show) {
   views.loading.style.display = show ? 'flex' : 'none';
 }
 
-function showNotification(message) {
-  // TODO: Implement notification UI
-  console.log('Notification:', message);
+// Show an in-popup toast. type: info | success | warning | error
+function showNotification(message, type = 'info') {
+  const notification = document.createElement('div');
+  notification.className = `notification notification-${type}`;
+  notification.innerHTML = `
+    <div class="notification-content">
+      ${message}
+    </div>
+  `;
+
+  document.body.appendChild(notification);
+
+  // Animate in
+  setTimeout(() => {
+    notification.classList.add('show');
+  }, 10);
+
+  // Remove after delay; errors linger longer so they can be read
+  const visibleMs = type === 'error' ? 6000 : 3000;
+  setTimeout(() => {
+    notification.classList.remove('show');
+    setTimeout(() => notification.remove(), 300);
+  }, visibleMs);
 }
 
 function showError(message) {
-  // TODO: Implement error UI
-  console.error('Error:', message);
+  showNotification(message, 'error');
 }
 
 function escapeHtml(text) {
@@ -1050,31 +1066,6 @@ async function exitOfflineMode() {
   await chrome.storage.local.remove(['offlineMode', 'offlineStartDate']);
   // Reload the popup to reset state
   window.location.reload();
-}
-
-// Add notification function if it doesn't exist
-function showNotification(message, type = 'info') {
-  // Create notification element
-  const notification = document.createElement('div');
-  notification.className = `notification notification-${type}`;
-  notification.innerHTML = `
-    <div class="notification-content">
-      ${message}
-    </div>
-  `;
-  
-  document.body.appendChild(notification);
-  
-  // Animate in
-  setTimeout(() => {
-    notification.classList.add('show');
-  }, 10);
-  
-  // Remove after delay
-  setTimeout(() => {
-    notification.classList.remove('show');
-    setTimeout(() => notification.remove(), 300);
-  }, 3000);
 }
 
 // Sync Handler Functions

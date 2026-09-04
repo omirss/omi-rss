@@ -1391,6 +1391,11 @@ body {
   box-shadow: 0 8px 25px rgba(33, 150, 243, 0.3);
 }
 
+.notification-success {
+  border-color: var(--success);
+  box-shadow: 0 8px 25px rgba(76, 175, 80, 0.3);
+}
+
 .notification-warning {
   border-color: var(--warning);
   box-shadow: 0 8px 25px rgba(255, 152, 0, 0.3);

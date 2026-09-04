@@ -11,14 +11,16 @@ if (typeof importScripts === 'function') {
   importScripts('./storage-service.js');
   importScripts('./feed-parser.js');
   importScripts('./feed-scheduler.js');
-  importScripts('./offline-db.js');
-  importScripts('./sync-service.js');
 }
 
 const NOTIFICATION_ICON = chrome.runtime.getURL('icons/icon-128.png');
 
 // Extension state
 let isAuthenticated = false;
+
+// Arm feed scheduling on every service worker wake. Timers die when the
+// worker suspends, so start() re-creates the chrome.alarms tick each time.
+feedScheduler.start();
 
 async function refreshAuthState() {
   const token = await getAccessToken();
@@ -565,9 +567,6 @@ async function subscribeFeed(url) {
     // Add articles
     const articles = await storageService.addArticles(result.feed.items, feedId);
 
-    // Schedule feed updates
-    feedScheduler.addOrUpdateFeed(feedData);
-
     // Update badge
     await feedScheduler.updateBadge();
 
@@ -638,9 +637,6 @@ async function addFeedFromLink(url, tab) {
 // Delete feed: local removal plus server unsubscribe (best-effort)
 async function deleteFeed(feedId) {
   try {
-    // Remove from scheduler
-    feedScheduler.removeFeed(feedId);
-
     // Delete from storage
     await storageService.deleteFeed(feedId);
 

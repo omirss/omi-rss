@@ -1,4 +1,7 @@
 // Feed Update Scheduler for Browser Extension
+// MV3 service workers suspend when idle, so setInterval timers do not survive.
+// Scheduling uses chrome.alarms: a single tick alarm wakes the worker on a
+// fixed period and any feed past its next-due time is refreshed.
 class FeedScheduler {
   constructor() {
     this.storageService = (typeof storageService !== 'undefined')
@@ -7,78 +10,42 @@ class FeedScheduler {
     this.feedParser = (typeof feedParser !== 'undefined')
       ? feedParser
       : new FeedParser();
-    this.updateIntervals = new Map(); // feedId -> intervalId
     this.isRunning = false;
     this.defaultUpdateInterval = 3600000; // 1 hour
     this.minUpdateInterval = 300000; // 5 minutes
     this.maxUpdateInterval = 86400000; // 24 hours
+    this.tickAlarmName = 'omi-feed-tick';
+    this.tickPeriodMinutes = 1; // alarm API minimum granularity
   }
 
-  // Start the scheduler
+  // Start the scheduler. Safe to call on every service worker wake.
   async start() {
     if (this.isRunning) return;
-    
-    console.log('Starting feed scheduler...');
+
     this.isRunning = true;
-    
-    // Load all feeds and schedule updates
-    await this.scheduleAllFeeds();
-    
-    // Listen for feed changes
+
+    // Arm the tick alarm first so scheduling survives worker suspension
+    await chrome.alarms.create(this.tickAlarmName, {
+      delayInMinutes: this.tickPeriodMinutes,
+      periodInMinutes: this.tickPeriodMinutes
+    });
+
     this.setupEventListeners();
-    
-    // Check for stale feeds on startup
+
+    // Catch up on feeds that came due while the worker was suspended
     await this.checkStaleFeeds();
   }
 
   // Stop the scheduler
-  stop() {
-    console.log('Stopping feed scheduler...');
+  async stop() {
     this.isRunning = false;
-    
-    // Clear all intervals
-    for (const [feedId, intervalId] of this.updateIntervals) {
-      clearInterval(intervalId);
-    }
-    this.updateIntervals.clear();
-  }
-
-  // Schedule updates for all feeds
-  async scheduleAllFeeds() {
-    const feeds = await this.storageService.getAllFeeds();
-    
-    for (const feed of feeds) {
-      this.scheduleFeed(feed);
-    }
-  }
-
-  // Schedule updates for a single feed
-  scheduleFeed(feed) {
-    // Clear existing interval if any
-    if (this.updateIntervals.has(feed.id)) {
-      clearInterval(this.updateIntervals.get(feed.id));
-    }
-    
-    // Don't schedule if feed is disabled
-    if (feed.disabled) return;
-    
-    // Get update interval
-    const interval = this.getUpdateInterval(feed);
-    
-    // Schedule the update
-    const intervalId = setInterval(async () => {
-      await this.updateFeed(feed.id);
-    }, interval);
-    
-    this.updateIntervals.set(feed.id, intervalId);
-    
-    console.log(`Scheduled feed "${feed.title}" to update every ${interval / 1000 / 60} minutes`);
+    await chrome.alarms.clear(this.tickAlarmName);
   }
 
   // Get update interval for a feed
   getUpdateInterval(feed) {
     let interval = feed.updateInterval || this.defaultUpdateInterval;
-    
+
     // Apply smart scheduling based on feed activity
     if (feed.errorCount > 5) {
       // Reduce frequency for feeds with many errors
@@ -86,7 +53,7 @@ class FeedScheduler {
     } else if (feed.lastUpdated) {
       // Adjust based on how often the feed actually updates
       const hoursSinceUpdate = (Date.now() - new Date(feed.lastUpdated).getTime()) / 1000 / 60 / 60;
-      
+
       if (hoursSinceUpdate > 24) {
         // Feed hasn't updated in a day, check less frequently
         interval = Math.min(interval * 1.5, this.maxUpdateInterval);
@@ -95,21 +62,19 @@ class FeedScheduler {
         interval = Math.max(interval * 0.5, this.minUpdateInterval);
       }
     }
-    
+
     return interval;
   }
 
   // Update a single feed
   async updateFeed(feedId) {
     try {
-      console.log(`Updating feed ${feedId}...`);
-      
       const feed = await this.storageService.getFeed(feedId);
       if (!feed || feed.disabled) return;
-      
+
       // Parse the feed
       const result = await this.feedParser.parseFeed(feed.url);
-      
+
       if (result.success) {
         // Update feed metadata
         await this.storageService.updateFeed(feedId, {
@@ -119,22 +84,22 @@ class FeedScheduler {
           errorCount: 0,
           lastError: null
         });
-        
+
         // Add new articles
         const newArticles = await this.storageService.addArticles(result.feed.items, feedId);
-        
+
         // Update unread count
         const unreadCount = (feed.unreadCount || 0) + newArticles.length;
         await this.storageService.updateFeed(feedId, { unreadCount });
-        
+
         // Send notification if new articles
         if (newArticles.length > 0) {
           this.sendNewArticlesNotification(feed, newArticles.length);
         }
-        
+
         // Update badge
         await this.updateBadge();
-        
+
         console.log(`Updated feed "${feed.title}": ${newArticles.length} new articles`);
       } else {
         // Handle error
@@ -142,7 +107,7 @@ class FeedScheduler {
           errorCount: (feed.errorCount || 0) + 1,
           lastError: result.error
         });
-        
+
         console.error(`Failed to update feed "${feed.title}": ${result.error}`);
       }
     } catch (error) {
@@ -154,14 +119,14 @@ class FeedScheduler {
   async checkStaleFeeds() {
     const feeds = await this.storageService.getAllFeeds();
     const now = Date.now();
-    
+
     for (const feed of feeds) {
       if (feed.disabled) continue;
-      
+
       const lastUpdated = feed.lastUpdated ? new Date(feed.lastUpdated).getTime() : 0;
       const timeSinceUpdate = now - lastUpdated;
       const updateInterval = this.getUpdateInterval(feed);
-      
+
       // If feed is overdue for update, update it now
       if (timeSinceUpdate > updateInterval) {
         console.log(`Feed "${feed.title}" is stale, updating now...`);
@@ -173,25 +138,26 @@ class FeedScheduler {
   // Update all feeds manually
   async updateAllFeeds() {
     console.log('Updating all feeds...');
-    
+
     const feeds = await this.storageService.getAllFeeds();
+
     const results = {
       success: 0,
       failed: 0,
       newArticles: 0
     };
-    
+
     // Update feeds in parallel (max 3 at a time)
     const batchSize = 3;
     for (let i = 0; i < feeds.length; i += batchSize) {
       const batch = feeds.slice(i, i + batchSize);
-      
+
       await Promise.all(batch.map(async (feed) => {
         try {
           const before = await this.storageService.getArticles({ feedId: feed.id });
           await this.updateFeed(feed.id);
           const after = await this.storageService.getArticles({ feedId: feed.id });
-          
+
           const newCount = after.length - before.length;
           results.newArticles += newCount;
           results.success++;
@@ -200,7 +166,7 @@ class FeedScheduler {
         }
       }));
     }
-    
+
     console.log('Update complete:', results);
     return results;
   }
@@ -208,12 +174,12 @@ class FeedScheduler {
   // Send notification for new articles
   sendNewArticlesNotification(feed, count) {
     if (!chrome.notifications) return;
-    
+
     const title = `New articles in ${feed.title}`;
-    const message = count === 1 
-      ? '1 new article' 
+    const message = count === 1
+      ? '1 new article'
       : `${count} new articles`;
-    
+
     chrome.notifications.create({
       type: 'basic',
       iconUrl: feed.favicon || chrome.runtime.getURL('icons/icon-128.png'),
@@ -223,9 +189,9 @@ class FeedScheduler {
         { title: 'Read now' }
       ]
     }, (notificationId) => {
-      // Store feed ID for click handler
-      chrome.storage.local.set({ 
-        [`notification_${notificationId}`]: feed.id 
+      // Store feed ID for the background click handler
+      chrome.storage.local.set({
+        [`notification_feed_${notificationId}`]: feed.id
       });
     });
   }
@@ -234,92 +200,34 @@ class FeedScheduler {
   async updateBadge() {
     const feeds = await this.storageService.getAllFeeds();
     const totalUnread = feeds.reduce((sum, feed) => sum + (feed.unreadCount || 0), 0);
-    
+
     if (chrome.action) {
       // Manifest V3
-      chrome.action.setBadgeText({ 
-        text: totalUnread > 0 ? totalUnread.toString() : '' 
+      chrome.action.setBadgeText({
+        text: totalUnread > 0 ? totalUnread.toString() : ''
       });
-      chrome.action.setBadgeBackgroundColor({ 
-        color: '#f5576c' 
+      chrome.action.setBadgeBackgroundColor({
+        color: '#f5576c'
       });
     } else if (chrome.browserAction) {
       // Manifest V2
-      chrome.browserAction.setBadgeText({ 
-        text: totalUnread > 0 ? totalUnread.toString() : '' 
+      chrome.browserAction.setBadgeText({
+        text: totalUnread > 0 ? totalUnread.toString() : ''
       });
-      chrome.browserAction.setBadgeBackgroundColor({ 
-        color: '#f5576c' 
+      chrome.browserAction.setBadgeBackgroundColor({
+        color: '#f5576c'
       });
     }
   }
 
   // Setup event listeners
   setupEventListeners() {
-    // Listen for notification clicks
-    if (chrome.notifications) {
-      chrome.notifications.onButtonClicked.addListener(async (notificationId, buttonIndex) => {
-        if (buttonIndex === 0) { // "Read now" button
-          const result = await chrome.storage.local.get([`notification_${notificationId}`]);
-          const feedId = result[`notification_${notificationId}`];
-          
-          if (feedId) {
-            // Open feed in new tab
-            chrome.tabs.create({
-              url: chrome.runtime.getURL(`sidepanel.html#feed/${feedId}`)
-            });
-            
-            // Clean up
-            chrome.storage.local.remove([`notification_${notificationId}`]);
-          }
-        }
-        
-        chrome.notifications.clear(notificationId);
-      });
-    }
-    
-    // Listen for manual refresh requests
-    chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-      if (request.action === 'refreshFeed') {
-        this.updateFeed(request.feedId).then(() => {
-          sendResponse({ success: true });
-        }).catch((error) => {
-          sendResponse({ success: false, error: error.message });
-        });
-        return true; // Keep channel open for async response
-      }
-      
-      if (request.action === 'refreshAllFeeds') {
-        this.updateAllFeeds().then((results) => {
-          sendResponse({ success: true, results });
-        }).catch((error) => {
-          sendResponse({ success: false, error: error.message });
-        });
-        return true;
+    // Tick: refresh any feeds past their due time
+    chrome.alarms.onAlarm.addListener(async (alarm) => {
+      if (alarm.name === this.tickAlarmName && this.isRunning) {
+        await this.checkStaleFeeds();
       }
     });
-  }
-
-  // Add or update a feed in the scheduler
-  async addOrUpdateFeed(feed) {
-    // Remove existing schedule if any
-    if (this.updateIntervals.has(feed.id)) {
-      clearInterval(this.updateIntervals.get(feed.id));
-      this.updateIntervals.delete(feed.id);
-    }
-    
-    // Schedule the feed
-    if (!feed.disabled) {
-      this.scheduleFeed(feed);
-    }
-  }
-
-  // Remove a feed from the scheduler
-  removeFeed(feedId) {
-    if (this.updateIntervals.has(feedId)) {
-      clearInterval(this.updateIntervals.get(feedId));
-      this.updateIntervals.delete(feedId);
-    }
   }
 }
 

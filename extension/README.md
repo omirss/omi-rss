@@ -46,6 +46,7 @@ gecko id `{41a6adaa-f9f6-429c-b579-48e0f0697dfe}` for signed releases.
 
 - `activeTab`, `scripting`, `contextMenus` — save/extract the page you are on
 - `storage` — settings, credentials, local data
+- `alarms` — background feed refresh scheduling
 - `notifications` — save/subscribe feedback
 - `sidePanel` (Chrome) — persistent reader panel
 - `downloads` — OPML and JSON backup export
@@ -61,9 +62,9 @@ gecko id `{41a6adaa-f9f6-429c-b579-48e0f0697dfe}` for signed releases.
 - `js/background.js` — service worker: context menus, commands, message router
 - `js/config.js` — shared config and storage keys
 - `js/api.js` — server API client
-- `js/feed-parser.js`, `js/feed-scheduler.js` — feed parsing and refresh timers
+- `js/feed-parser.js`, `js/feed-scheduler.js` — feed parsing and alarm-driven refresh
 - `js/storage-service.js`, `js/offline-db.js` — local data layer
-- `js/sync-service.js`, `js/sync-manager.js`, `js/file-sync.js` — sync and backup
+- `js/sync-manager.js`, `js/file-sync.js` — JSON backup export/import
 - `js/content.js`, `js/extractors/site-specific.js` — in-page actions
 
 ## Status

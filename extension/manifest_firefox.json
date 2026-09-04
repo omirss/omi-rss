@@ -6,6 +6,7 @@
   "permissions": [
     "activeTab",
     "storage",
+    "alarms",
     "contextMenus",
     "notifications",
     "tabs",
@@ -25,8 +26,6 @@
       "js/storage-service.js",
       "js/feed-parser.js",
       "js/feed-scheduler.js",
-      "js/offline-db.js",
-      "js/sync-service.js",
       "js/background.js"
     ]
   },
@@ -49,7 +48,6 @@
     {
       "matches": ["<all_urls>"],
       "js": [
-        "js/offline-db.js",
         "js/content.js",
         "js/extractors/site-specific.js"
       ],
