@@ -21,6 +21,7 @@
       "js/config.js",
       "js/api.js",
       "js/sync-manager.js",
+      "js/file-sync.js",
       "js/storage-service.js",
       "js/feed-parser.js",
       "js/feed-scheduler.js",

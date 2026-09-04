@@ -161,7 +161,7 @@ function renderFeeds() {
   elements.feedsList.innerHTML = state.feeds.map(feed => {
     const unreadCount = feed.unreadCount || 0;
     return `
-      <a href="#" class="glass-nav-item feed-item ${state.selectedFeed === feed.id ? 'active' : ''}" data-feed-id="${feed.id}">
+      <a href="#" class="glass-nav-item feed-item ${String(state.selectedFeed) === String(feed.id) ? 'active' : ''}" data-feed-id="${feed.id}">
         ${feed.favicon ? `
           <img src="${feed.favicon}" alt="" class="feed-icon" width="16" height="16">
         ` : `
@@ -258,7 +258,7 @@ function renderArticles() {
     item.addEventListener('click', (e) => {
       if (!e.target.closest('.glass-action-btn')) {
         const articleId = item.dataset.articleId;
-        const article = state.articles.find(a => a.id === articleId);
+        const article = state.articles.find(a => String(a.id) === articleId);
         if (article) {
           openArticle(article);
         }
@@ -373,12 +373,14 @@ function selectFeed(feedId) {
     item.classList.remove('active');
   });
   document.querySelector(`[data-feed-id="${feedId}"]`)?.classList.add('active');
-  
-  state.selectedFeed = feedId;
+
+  // Resolve the dataset string id back to the stored feed id
+  const feed = state.feeds.find(f => String(f.id) === String(feedId));
+  state.selectedFeed = feed ? feed.id : feedId;
   state.currentView = 'feed';
-  
+
   // Load articles for feed
-  loadArticles(feedId);
+  loadArticles(state.selectedFeed);
 }
 
 // Handle refresh
@@ -576,7 +578,7 @@ async function subscribeFeed(url) {
 
 // Handle article actions
 async function handleArticleAction(action, articleId) {
-  const article = state.articles.find(a => a.id === articleId);
+  const article = state.articles.find(a => String(a.id) === String(articleId));
   if (!article) return;
   
   switch (action) {
@@ -595,14 +597,13 @@ async function handleArticleAction(action, articleId) {
 // Mark article as read
 async function markArticleRead(articleId) {
   try {
-    await storageService.updateArticle(articleId, { isRead: true });
-    
-    // Update local state
-    const article = state.articles.find(a => a.id === articleId);
-    if (article) {
-      article.isRead = true;
-      updateCounts();
-    }
+    const article = state.articles.find(a => String(a.id) === String(articleId));
+    if (!article) return;
+
+    await storageService.updateArticle(article.id, { isRead: true });
+
+    article.isRead = true;
+    updateCounts();
   } catch (error) {
     console.error('Failed to mark article as read:', error);
   }
@@ -610,24 +611,24 @@ async function markArticleRead(articleId) {
 
 // Toggle article read status
 async function toggleArticleRead(articleId) {
-  const article = state.articles.find(a => a.id === articleId);
+  const article = state.articles.find(a => String(a.id) === String(articleId));
   if (!article) return;
-  
+
   article.isRead = !article.isRead;
-  await storageService.updateArticle(articleId, { isRead: article.isRead });
-  
+  await storageService.updateArticle(article.id, { isRead: article.isRead });
+
   renderArticles();
   updateCounts();
 }
 
 // Toggle article star status
 async function toggleArticleStar(articleId) {
-  const article = state.articles.find(a => a.id === articleId);
+  const article = state.articles.find(a => String(a.id) === String(articleId));
   if (!article) return;
-  
+
   article.isStarred = !article.isStarred;
-  await storageService.updateArticle(articleId, { isStarred: article.isStarred });
-  
+  await storageService.updateArticle(article.id, { isStarred: article.isStarred });
+
   renderArticles();
   showNotification(article.isStarred ? 'Article starred' : 'Article unstarred');
 }

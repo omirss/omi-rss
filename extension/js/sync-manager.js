@@ -123,20 +123,21 @@ class SyncManager {
   }
 
   // File sync methods
-  async exportToFile() {
+  // FileSync is loaded statically (importScripts / background.scripts),
+  // because dynamic import() is disallowed in classic service workers.
+  getFileSync() {
     if (!this.fileSync) {
-      const { FileSync } = await import('./file-sync.js');
       this.fileSync = new FileSync(this);
     }
-    return this.fileSync.exportData();
+    return this.fileSync;
+  }
+
+  async exportToFile() {
+    return this.getFileSync().exportData();
   }
 
   async importFromFile(fileContent) {
-    if (!this.fileSync) {
-      const { FileSync } = await import('./file-sync.js');
-      this.fileSync = new FileSync(this);
-    }
-    return this.fileSync.importData(fileContent);
+    return this.getFileSync().importData(fileContent);
   }
 
   // Helper methods

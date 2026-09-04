@@ -421,8 +421,17 @@ class FeedParser {
   }
 
   // Helper: Get text content of element
+  // Namespaced tags (dc:creator, content:encoded, media:*) are invalid CSS
+  // selectors in XML documents, so match them by local/qualified name instead.
   getTextContent(parent, selector) {
-    const element = parent.querySelector(selector);
+    let element;
+    if (selector.includes(':')) {
+      const localName = selector.split(':')[1];
+      element = parent.getElementsByTagNameNS('*', localName)[0] ||
+        parent.getElementsByTagName(selector)[0];
+    } else {
+      element = parent.querySelector(selector);
+    }
     return element?.textContent?.trim() || null;
   }
 

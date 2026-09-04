@@ -7,6 +7,7 @@ if (typeof importScripts === 'function') {
   importScripts('./config.js');
   importScripts('./api.js');
   importScripts('./sync-manager.js');
+  importScripts('./file-sync.js');
   importScripts('./storage-service.js');
   importScripts('./feed-parser.js');
   importScripts('./feed-scheduler.js');
@@ -94,7 +95,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       return true;
 
     case 'check-feed':
-      checkForFeed(sender.tab)
+      getTargetTab(sender.tab)
+        .then(tab => checkForFeed(tab))
         .then(sendResponse)
         .catch(err => sendResponse({ error: err.message }));
       return true;
@@ -386,8 +388,26 @@ function extractArticleFromPage() {
   };
 }
 
+// Resolve the tab a message action should run against.
+// Messages from the popup have no sender.tab, so fall back to the active tab.
+// Extension pages (pop-out popup, sidepanel in a tab) report themselves as
+// sender.tab but cannot be script-injected, so they also fall back — and the
+// fallback must itself skip non-injectable tabs (the pop-out can be focused).
+async function getTargetTab(tab) {
+  if (tab && tab.url && !tab.url.startsWith('chrome-extension://')) return tab;
+  const candidates = await chrome.tabs.query({ active: true });
+  const injectable = candidates.filter(
+    (candidate) => candidate.url && /^https?:\/\//.test(candidate.url),
+  );
+  return injectable[0] || candidates[0];
+}
+
 // Check if current page has RSS/Atom feeds
 async function checkForFeed(tab) {
+  if (!tab) {
+    return { hasFeeds: false, feeds: [], suggestions: [] };
+  }
+
   try {
     const [result] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },

@@ -135,6 +135,9 @@ function initializeEventListeners() {
   document.getElementById('opml-import-btn')?.addEventListener('click', handleImportOPML);
   document.getElementById('opml-export-btn')?.addEventListener('click', handleExportOPML);
 
+  // Server URL
+  document.getElementById('settings-server-url')?.addEventListener('change', handleServerUrlChange);
+
   // Load more
   document.getElementById('load-more-btn').addEventListener('click', loadMoreArticles);
   
@@ -835,6 +838,17 @@ async function updateSetting(key, value) {
   } catch (error) {
     showError('Failed to update settings: ' + error.message);
   }
+}
+
+// Handle server URL change
+async function handleServerUrlChange(e) {
+  const url = normalizeServerUrl(e.target.value) || DEFAULT_SERVER_URL;
+  const { settings: currentSettings = {} } = await chrome.storage.local.get('settings');
+  await chrome.storage.local.set({
+    settings: { ...currentSettings, apiUrl: url }
+  });
+  e.target.value = url;
+  showNotification('Server URL updated');
 }
 
 // Show feed modal

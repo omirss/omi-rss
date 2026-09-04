@@ -1,5 +1,6 @@
 // Ultra-thin file-based sync implementation
-export class FileSync {
+// Loaded as a classic script (importScripts / background.scripts), not a module.
+class FileSync {
   constructor(syncManager) {
     this.syncManager = syncManager;
     this.fileVersion = '1.0';
@@ -24,7 +25,14 @@ export class FileSync {
       
       // Create blob
       const blob = new Blob([jsonStr], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
+
+      // Service workers have no URL.createObjectURL - fall back to a data URL
+      let url;
+      if (typeof URL.createObjectURL === 'function') {
+        url = URL.createObjectURL(blob);
+      } else {
+        url = 'data:application/json;charset=utf-8,' + encodeURIComponent(jsonStr);
+      }
 
       // Generate filename with timestamp
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
@@ -38,7 +46,9 @@ export class FileSync {
       });
 
       // Clean up
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      if (url.startsWith('blob:')) {
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+      }
 
       return {
         success: true,
