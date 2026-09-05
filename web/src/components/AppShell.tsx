@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from "preact/hooks";
+import { useEffect, useState } from "preact/hooks";
 import type { ComponentChildren, VNode } from "preact";
 import { NavLink, useNavigate } from "@neutron-build/core/client";
 import type { RouteHref } from "@neutron-build/core/client";
 import { useSession } from "../lib/auth.js";
-import { ThemePicker } from "./ThemePicker.js";
+import { AccountMenu } from "./AccountMenu.js";
 import { EmptyState } from "./states.js";
 import {
   AnalyticsIcon,
@@ -13,11 +13,9 @@ import {
   CompassIcon,
   FolderIcon,
   HomeIcon,
-  LogoutIcon,
   MenuIcon,
   RssIcon,
   SearchIcon,
-  SettingsIcon,
   StatisticsIcon,
 } from "./Icons.js";
 
@@ -51,10 +49,6 @@ const NAV_SECTIONS: NavSection[] = [
       { to: "/statistics", label: "Statistics", icon: <StatisticsIcon /> },
     ],
   },
-  {
-    label: "General",
-    items: [{ to: "/settings", label: "Settings", icon: <SettingsIcon /> }],
-  },
 ];
 
 const DRAWER_COLLAPSED_KEY = "omi.drawer.collapsed";
@@ -70,7 +64,7 @@ export function AppShell({
   children: ComponentChildren;
   drawerExtra?: ComponentChildren;
 }) {
-  const { status, user, logout } = useSession();
+  const { status } = useSession();
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
@@ -89,13 +83,6 @@ export function AppShell({
     }
   }, [status, navigate]);
 
-  const initials = useMemo(() => {
-    if (!user) return "";
-    const first = user.firstName?.[0] ?? user.username[0] ?? "";
-    const last = user.lastName?.[0] ?? "";
-    return (first + last).toUpperCase() || user.username.slice(0, 2).toUpperCase();
-  }, [user]);
-
   if (status !== "authenticated") {
     return <ShellLoading />;
   }
@@ -112,19 +99,11 @@ export function AppShell({
     });
   };
 
-  const handleLogout = async () => {
-    await logout();
-    navigate("/login");
-  };
-
   return (
     <div class="shell">
       {mobileOpen ? <div class="drawer-mobile-backdrop" onClick={() => setMobileOpen(false)} /> : null}
       <aside class={`shell-drawer glass-panel${mobileOpen ? " shell-drawer-open" : ""}${collapsed ? " shell-drawer-collapsed" : ""}`}>
         <div class="drawer-header">
-          <span class="drawer-logo">
-            <RssIcon size={18} />
-          </span>
           <span class="drawer-title">Omi RSS</span>
           <button type="button" class="drawer-collapse drawer-collapse-btn" onClick={toggleCollapsed} aria-label="Collapse sidebar">
             <ChevronLeftIcon size={16} />
@@ -154,21 +133,6 @@ export function AppShell({
           ))}
           {drawerExtra}
         </nav>
-        <div class="drawer-footer">
-          <div class="drawer-user">
-            <span class="drawer-avatar">
-              {user?.avatarUrl ? <img src={user.avatarUrl} alt="" /> : initials}
-            </span>
-            <div class="drawer-user-meta">
-              <span class="drawer-user-name">{user ? user.firstName || user.username : ""}</span>
-              <span class="drawer-user-email">{user?.email}</span>
-            </div>
-          </div>
-          <button type="button" class="btn btn-ghost drawer-footer-logout" onClick={handleLogout}>
-            <LogoutIcon size={17} />
-            <span class="shell-expand-label">Log out</span>
-          </button>
-        </div>
       </aside>
       <div class="shell-main">
         <header class="topbar glass-card">
@@ -183,7 +147,7 @@ export function AppShell({
           <h1 class="topbar-title">{title}</h1>
           {actions}
           <div class="topbar-spacer" />
-          <ThemePicker />
+          <AccountMenu />
         </header>
         <main class="shell-content">{children}</main>
       </div>

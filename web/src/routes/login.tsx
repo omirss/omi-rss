@@ -3,7 +3,7 @@ import type { JSX } from "preact";
 import { route, useNavigate } from "@neutron-build/core/client";
 import { useSession } from "../lib/auth.js";
 import { ApiError } from "../lib/client.js";
-import { AlertIcon, EyeIcon, EyeOffIcon, RssIcon } from "../components/Icons.js";
+import { AlertIcon, EyeIcon, EyeOffIcon } from "../components/Icons.js";
 
 export const config = { mode: "app" };
 
@@ -79,9 +79,6 @@ export default function LoginPage() {
     <div class="auth-screen">
       <div class="glass-panel auth-card">
         <div class="auth-brand">
-          <span class="auth-logo">
-            <RssIcon size={26} />
-          </span>
           <h1 class="auth-title">Omi RSS</h1>
           <p class="auth-subtitle">
             {tab === "login" ? "Sign in to your reading library" : "Create your reading account"}

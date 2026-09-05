@@ -1,7 +1,7 @@
 .article-list {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-md);
+  gap: var(--sp-lg);
 }
 
 .article-row {

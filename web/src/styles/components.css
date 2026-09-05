@@ -457,7 +457,7 @@ button.chip:hover {
 .page {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-lg);
+  gap: var(--sp-xl);
   padding: var(--sp-xl);
   max-width: 1120px;
   margin: 0 auto;

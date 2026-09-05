@@ -26,7 +26,7 @@
 .stat-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: var(--sp-md);
+  gap: var(--sp-lg);
 }
 
 .stat-card {
@@ -433,7 +433,7 @@
 .insight-list {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-sm);
+  gap: var(--sp-md);
   list-style: none;
   margin: 0;
   padding: 0;

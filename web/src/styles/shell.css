@@ -6,7 +6,7 @@
 
 .shell-drawer {
   flex-shrink: 0;
-  width: 264px;
+  width: 224px;
   display: flex;
   flex-direction: column;
   margin: var(--sp-sm) 0 var(--sp-sm) var(--sp-sm);
@@ -30,18 +30,6 @@
   gap: var(--sp-md);
   padding: var(--sp-lg);
   border-bottom: var(--hairline) solid var(--c-divider);
-}
-
-.drawer-logo {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 34px;
-  border-radius: var(--r-sm);
-  background: var(--c-primary-gradient);
-  color: #ffffff;
 }
 
 .drawer-title {
@@ -134,61 +122,6 @@
   margin-left: auto;
 }
 
-.drawer-footer {
-  padding: var(--sp-md);
-  border-top: var(--hairline) solid var(--c-divider);
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-sm);
-}
-
-.drawer-user {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-md);
-  padding: var(--sp-sm);
-  border-radius: var(--r-md);
-  min-width: 0;
-}
-
-.drawer-avatar {
-  flex-shrink: 0;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--c-primary-gradient);
-  color: #ffffff;
-  font: var(--t-caption);
-  font-weight: 700;
-  overflow: hidden;
-}
-
-.drawer-user-meta {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.drawer-user-name {
-  font: var(--t-label);
-  font-weight: 600;
-  color: var(--c-text-high);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.drawer-user-email {
-  font: var(--t-caption);
-  color: var(--c-text-low);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .shell-collapsed-only {
   display: none;
 }
@@ -196,7 +129,6 @@
 .shell-drawer-collapsed .shell-expand-label,
 .shell-drawer-collapsed .drawer-title,
 .shell-drawer-collapsed .drawer-section-label,
-.shell-drawer-collapsed .drawer-user-meta,
 .shell-drawer-collapsed .drawer-link-badge {
   display: none;
 }
@@ -208,15 +140,6 @@
 
 .shell-drawer-collapsed .drawer-header {
   justify-content: center;
-}
-
-.shell-drawer-collapsed .drawer-user {
-  justify-content: center;
-}
-
-.shell-drawer-collapsed .drawer-footer-logout {
-  justify-content: center;
-  padding: 0;
 }
 
 .shell-main {
@@ -283,20 +206,84 @@
   min-height: 0;
 }
 
-.theme-popover-anchor {
+.account-menu-anchor {
   position: relative;
 }
 
-.theme-popover {
+.account-btn {
+  flex-shrink: 0;
+}
+
+.account-popover {
   position: absolute;
   top: calc(100% + var(--sp-sm));
   right: 0;
   z-index: 150;
-  width: 248px;
+  width: 264px;
   padding: var(--sp-lg);
   display: flex;
   flex-direction: column;
-  gap: var(--sp-lg);
+  gap: var(--sp-sm);
+}
+
+.account-user {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-xxs);
+  padding: var(--sp-sm);
+  border-radius: var(--r-md);
+  background: var(--c-glass-fill);
+  border: var(--hairline) solid var(--c-glass-stroke);
+  min-width: 0;
+}
+
+.account-user-name {
+  font: var(--t-label);
+  font-weight: 600;
+  color: var(--c-text-high);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-user-email {
+  font: var(--t-caption);
+  color: var(--c-text-low);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-md);
+  height: 36px;
+  padding: 0 var(--sp-sm);
+  border-radius: var(--r-md);
+  font: var(--t-label);
+  color: var(--c-text-medium);
+  text-align: left;
+  width: 100%;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.account-item:hover {
+  background: var(--c-hover-fill);
+  color: var(--c-text-high);
+}
+
+.account-item svg {
+  flex-shrink: 0;
+}
+
+.account-theme {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-md);
+  padding: var(--sp-md) 0;
+  border-top: var(--hairline) solid var(--c-divider);
+  border-bottom: var(--hairline) solid var(--c-divider);
 }
 
 .theme-popover-title {
@@ -498,15 +485,13 @@
   }
 
   .shell-drawer-collapsed .drawer-link,
-  .shell-drawer-collapsed .drawer-header,
-  .shell-drawer-collapsed .drawer-user {
+  .shell-drawer-collapsed .drawer-header {
     justify-content: flex-start;
   }
 
   .shell-drawer-collapsed .shell-expand-label,
   .shell-drawer-collapsed .drawer-title,
   .shell-drawer-collapsed .drawer-section-label,
-  .shell-drawer-collapsed .drawer-user-meta,
   .shell-drawer-collapsed .drawer-link-badge {
     display: initial;
   }
@@ -529,10 +514,6 @@
   }
 
   .drawer-link {
-    height: 44px;
-  }
-
-  .drawer-footer-logout {
     height: 44px;
   }
 
