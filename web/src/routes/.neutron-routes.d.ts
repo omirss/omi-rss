@@ -3,6 +3,7 @@ declare module "@neutron-build/core" {
   interface NeutronGeneratedRouteMap {
     paths:
     | "/"
+    | "/analytics"
     | `/api/${string}`
     | "/api/analytics"
     | "/api/analytics/article-read"
@@ -43,8 +44,15 @@ declare module "@neutron-build/core" {
     | "/api/users/me/avatar"
     | "/api/users/me/password"
     | "/api/users/me/settings"
+    | "/discover"
+    | "/folders"
     | "/health"
+    | "/login"
     | "/ready"
+    | "/saved"
+    | "/search"
+    | "/settings"
+    | "/statistics"
     | `/uploads/${string}`
   }
 }

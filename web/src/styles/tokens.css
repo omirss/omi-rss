@@ -1,0 +1,47 @@
+@import "./presets.css";
+
+:root {
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+
+  --sp-xs: 4px;
+  --sp-sm: 8px;
+  --sp-md: 12px;
+  --sp-lg: 16px;
+  --sp-xl: 24px;
+  --sp-xxl: 32px;
+
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 20px;
+  --r-xl: 24px;
+
+  --blur-sm: 10px;
+  --blur-md: 16px;
+  --blur-lg: 30px;
+
+  --op-faint: 0.25;
+  --op-soft: 0.4;
+  --op-medium: 0.6;
+  --op-strong: 0.8;
+
+  --t-display: 700 28px/1.2 var(--font-sans);
+  --t-display-sm: 700 24px/1.25 var(--font-sans);
+  --t-title: 600 20px/1.3 var(--font-sans);
+  --t-heading: 600 18px/1.35 var(--font-sans);
+  --t-body: 400 16px/1.5 var(--font-sans);
+  --t-label: 500 14px/1.45 var(--font-sans);
+  --t-caption: 400 12px/1.4 var(--font-sans);
+
+  --hairline: 1px;
+  --focus-ring: 0 0 0 2px var(--c-accent-soft), 0 0 0 1px var(--c-accent);
+}
+
+[data-preset] {
+  --shadow-float: 0 6px 24px rgba(0, 0, 0, 0.25);
+  --shadow-panel: 0 16px 48px rgba(0, 0, 0, 0.35);
+}
+
+[data-preset][data-mode="light"] {
+  --shadow-float: 0 6px 24px rgba(26, 31, 60, 0.14);
+  --shadow-panel: 0 16px 48px rgba(26, 31, 60, 0.18);
+}

@@ -1,0 +1,166 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font: var(--t-body);
+  color: var(--c-text-high);
+  background-color: var(--c-bg-base);
+  background-image: var(--c-bg-gradient);
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
+}
+
+body::before,
+body::after {
+  content: "";
+  position: fixed;
+  z-index: 0;
+  pointer-events: none;
+  border-radius: 50%;
+}
+
+body::before {
+  top: -18%;
+  left: -8%;
+  width: 60vw;
+  height: 60vw;
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--bloom-a) 16%, transparent) 0%,
+    transparent 65%
+  );
+}
+
+body::after {
+  bottom: -22%;
+  right: -12%;
+  width: 55vw;
+  height: 55vw;
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--bloom-c) 13%, transparent) 0%,
+    transparent 65%
+  );
+}
+
+#app {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p,
+figure {
+  margin: 0;
+}
+
+h1 {
+  font: var(--t-display);
+}
+
+h2 {
+  font: var(--t-title);
+}
+
+h3 {
+  font: var(--t-heading);
+}
+
+a {
+  color: var(--c-accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+button {
+  font: var(--t-label);
+  color: inherit;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+input,
+textarea,
+select {
+  font: var(--t-body);
+  color: inherit;
+}
+
+ul,
+ol {
+  margin: 0;
+  padding: 0;
+}
+
+hr {
+  border: none;
+  border-top: var(--hairline) solid var(--c-divider);
+}
+
+::selection {
+  background: var(--c-accent-soft);
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--r-sm);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--c-glass-fill);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--c-glass-stroke);
+  background-clip: content-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
