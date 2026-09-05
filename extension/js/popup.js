@@ -377,18 +377,30 @@ async function handleLogout() {
   }
 }
 
-// Handle pop out window
+// Handle pop out window: with a paired server this is the full web app;
+// local-only falls back to the popup UI in a window
 async function handlePopOut() {
   try {
-    // Create a new window with the extension popup
-    const extensionUrl = chrome.runtime.getURL('popup.html');
-    await chrome.windows.create({
-      url: extensionUrl,
-      type: 'popup',
-      width: 400,
-      height: 700,
-      focused: true
-    });
+    const { access_token: token } = await chrome.storage.local.get(['access_token']);
+    const serverUrl = await getServerUrl();
+    if (token && serverUrl && serverUrl !== DEFAULT_SERVER_URL) {
+      await chrome.windows.create({
+        url: serverUrl,
+        type: 'popup',
+        width: 1200,
+        height: 850,
+        focused: true
+      });
+    } else {
+      const extensionUrl = chrome.runtime.getURL('popup.html');
+      await chrome.windows.create({
+        url: extensionUrl,
+        type: 'popup',
+        width: 400,
+        height: 700,
+        focused: true
+      });
+    }
     window.close();
   } catch (error) {
     console.error('Failed to create popup window:', error);
