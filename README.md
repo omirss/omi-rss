@@ -5,7 +5,7 @@ A cross-platform RSS reader — a web app, a browser extension, and a frozen fut
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Neutron](https://img.shields.io/badge/web-Neutron-8b5cf6)
 ![Node](https://img.shields.io/badge/backend-Node.js-339933)
-![Status](https://img.shields.io/badge/status-v0.4.1%20alpha-orange)
+![Status](https://img.shields.io/badge/status-v0.4.2%20alpha-orange)
 
 **Website:** <https://omirss.com>
 
