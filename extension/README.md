@@ -13,6 +13,10 @@ self-hosted Omi RSS server for sync.
 - Save articles from any page (button, context menu, or Ctrl/Cmd+Shift+S)
 - Reader mode (Ctrl/Cmd+Shift+R) with per-site extraction rules
 - Feed detection (Find Feeds) and one-click subscribe
+- Generate feed from this page: pick a content region on any page and the
+  server monitors it as a durable feed (region picker with live item
+  preview; requires a paired server)
+- Articles render server-extracted full text when the feed has it enabled
 - OPML import/export against the server
 - JSON backup export/import (also works as a file-based sync load)
 - Offline storage (IndexedDB) with a sync queue
@@ -71,7 +75,7 @@ gecko id `{41a6adaa-f9f6-429c-b579-48e0f0697dfe}` for signed releases.
 
 ## Status
 
-v0.3.0 alpha. Server pairing works and is verified end to end against the
+v0.4.1. Server pairing works and is verified end to end against the
 Neutron web app: login, subscribe from a real page, mark-read sync, OPML
 round-trip, JSON backup, offline fallback. See the repository PLAN.md for
 phase history.

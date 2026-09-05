@@ -5,7 +5,7 @@ A cross-platform RSS reader — a web app, a browser extension, and a frozen fut
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Neutron](https://img.shields.io/badge/web-Neutron-8b5cf6)
 ![Node](https://img.shields.io/badge/backend-Node.js-339933)
-![Status](https://img.shields.io/badge/status-v0.3.0%20alpha-orange)
+![Status](https://img.shields.io/badge/status-v0.4.1%20alpha-orange)
 
 **Website:** <https://omirss.com>
 
@@ -13,8 +13,8 @@ A cross-platform RSS reader — a web app, a browser extension, and a frozen fut
 
 Omi RSS is an RSS reader built as three pieces that work together:
 
-- **`web/`** — the product: a [Neutron](https://github.com/neutron-build/neutron) app (TypeScript + Preact) that serves the web UI, the JSON API, and (as a second process) the background worker — feed refresh crons, notifications, analytics, cleanup — from one codebase on Node.js, PostgreSQL, and Redis.
-- **`extension/`** — a browser extension (Chrome/Edge/Brave + Firefox) to save articles, detect and subscribe to feeds, and read in a popup or side panel. Works standalone or paired with a server.
+- **`web/`** — the product: a [Neutron](https://github.com/neutron-build/neutron) app (TypeScript + Preact) that serves the web UI, the JSON API, and (as a second process) the background worker — feed refresh crons, full-text extraction, page-feed monitoring, notifications, analytics, cleanup — from one codebase on Node.js, PostgreSQL, and Redis.
+- **`extension/`** — a browser extension (Chrome/Edge/Brave + Firefox) to save articles, detect and subscribe to feeds, generate a durable feed from any page (region picker), and read in a popup or side panel. Works standalone or paired with a server.
 - **`app/`** — **frozen**: the Flutter client (iOS/Android/desktop) from v0.2, kept as the starting point for a future mobile client. Not part of the shipped product; the web UI replaced the Flutter web build.
 
 Self-hosted software, not SaaS. Run your own instance and own your data.

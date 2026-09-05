@@ -1,6 +1,6 @@
 # Self-Hosting Omi RSS
 
-Guide to running your own Omi RSS instance (v0.3.0). The stack is four
+Guide to running your own Omi RSS instance (v0.4.1). The stack is four
 Docker Compose services: `web` (the Neutron app serving the UI and the API),
 `worker` (the same image running the background crons), PostgreSQL 16, and
 Redis 7. There is no nginx — the web server serves its own static assets.
@@ -72,8 +72,10 @@ What each service does:
 - **web** — builds from `web/Dockerfile`, applies pending drizzle migrations,
   then serves the webui + API on port 3000 (published on host 8080).
 - **worker** — the same image with the worker command: feed refresh every
-  5 minutes, analytics hourly, cleanup nightly, notification emails when
-  SMTP is configured. It starts only after `web` is healthy.
+  5 minutes, full-text extraction for feeds with it enabled (bounded,
+  per-host-polite), page-feed monitoring with conditional GET, analytics
+  hourly, cleanup nightly, notification emails when SMTP is configured.
+  It starts only after `web` is healthy.
 - **postgres / redis** — with healthchecks; the databases are not published
   to host ports.
 
