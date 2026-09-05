@@ -285,7 +285,21 @@ function renderArticles() {
 // Open article in reader
 async function openArticle(article) {
   state.selectedArticle = article;
-  
+
+  // Archive fallback links (local parser items carry the URL as `link`)
+  const rawArticleUrl = article.url || article.link;
+  const articleUrl = rawArticleUrl ? encodeURI(rawArticleUrl) : '';
+  const archiveOrgLink = document.getElementById('archive-org-link');
+  const archiveTodayLink = document.getElementById('archive-today-link');
+  if (archiveOrgLink && archiveTodayLink) {
+    archiveOrgLink.style.display = articleUrl ? '' : 'none';
+    archiveTodayLink.style.display = articleUrl ? '' : 'none';
+    if (articleUrl) {
+      archiveOrgLink.href = `https://web.archive.org/web/${articleUrl}`;
+      archiveTodayLink.href = `https://archive.ph/newest/${articleUrl}`;
+    }
+  }
+
   // Show reader
   elements.articleList.style.display = 'none';
   elements.articleReader.style.display = 'block';

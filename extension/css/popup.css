@@ -510,6 +510,27 @@ body {
   color: var(--text-secondary);
 }
 
+.detail-footer {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-md);
+  padding: var(--sp-sm) var(--sp-lg);
+  font-size: 12px;
+  border-top: 1px solid var(--glass-border);
+}
+
+.detail-footer a {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+  transition: color var(--transition-smooth);
+}
+
+.detail-footer a:hover {
+  color: var(--primary-light);
+  text-decoration: underline;
+}
+
 /* Glass Tabs */
 .glass-tabs {
   margin: 0 var(--sp-lg);

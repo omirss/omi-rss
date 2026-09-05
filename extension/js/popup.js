@@ -768,6 +768,17 @@ function renderArticleDetail(article) {
     paragraph.textContent = fallback;
     body.appendChild(paragraph);
   }
+
+  const footer = document.getElementById('detail-footer');
+  const articleUrl = article.url ? encodeURI(article.url) : '';
+  if (footer) {
+    footer.style.display = articleUrl ? 'flex' : 'none';
+  }
+  if (articleUrl) {
+    document.getElementById('detail-open-link').href = articleUrl;
+    document.getElementById('detail-archive-org-link').href = `https://web.archive.org/web/${articleUrl}`;
+    document.getElementById('detail-archive-today-link').href = `https://archive.ph/newest/${articleUrl}`;
+  }
 }
 
 // Load saved items

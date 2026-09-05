@@ -625,6 +625,20 @@ body {
   gap: var(--sp-sm);
 }
 
+.reader-archive-link {
+  align-self: center;
+  font-size: 12px;
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+  transition: color var(--transition-smooth);
+}
+
+.reader-archive-link:hover {
+  color: var(--primary-light);
+  text-decoration: underline;
+}
+
 .glass-reader-content {
   flex: 1;
   overflow-y: auto;
