@@ -59,3 +59,5 @@ web/uploads/
 # --- Flutter machine-specific ---
 **/local.properties
 .dart_tool/
+teploy.yml
+.teployignore
