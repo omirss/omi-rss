@@ -6,10 +6,10 @@
 
 .shell-drawer {
   flex-shrink: 0;
-  width: 224px;
+  width: 200px;
   display: flex;
   flex-direction: column;
-  margin: var(--sp-sm) 0 var(--sp-sm) var(--sp-sm);
+  margin: var(--sp-sm);
   transition: width 200ms ease;
 }
 
