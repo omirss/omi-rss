@@ -11,7 +11,6 @@ export const middleware = requireAuth;
 const searchSchema = z.object({
   q: z.string().min(2, "Query must be at least 2 characters"),
   category: z.string().optional(),
-  language: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(50).optional(),
 });
 
@@ -25,11 +24,10 @@ export async function loader({ request, context }: { request: Request; context: 
       return validationFailure(parsed.error);
     }
 
-    const { q, category, language, limit } = parsed.data;
+    const { q, category, limit } = parsed.data;
 
     const results = await feedDiscoveryService.searchPublicFeeds(q, {
       category,
-      language,
       limit,
     });
 

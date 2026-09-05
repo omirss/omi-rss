@@ -5,7 +5,11 @@ import { users } from "../../../data/db/schema.js";
 import { getDb } from "../../../lib/api/db.js";
 import { AppError, handle, jsonResponse } from "../../../lib/api/errors.js";
 import { readJsonBody } from "../../../lib/api/body.js";
-import { authRateLimitKey, consumeAuthRateLimit } from "../../../lib/api/rate-limit.js";
+import {
+  authRateLimitKey,
+  consumeAnonAuthRateLimit,
+  consumeAuthRateLimit,
+} from "../../../lib/api/rate-limit.js";
 import { signAccessToken, signRefreshToken } from "../../../lib/api/tokens.js";
 
 export const config = { mode: "app" };
@@ -15,11 +19,21 @@ const loginSchema = z.object({
   password: z.string(),
 });
 
+// Dummy hash (bcrypt, 10 rounds, random input) compared on the missing-user
+// path so response timings match the real-password path — no account
+// existence oracle through timing.
+const DUMMY_PASSWORD_HASH = "$2b$10$Y7pIF/8wk8MbFgVY2xRAYe7ta9sU1Os7PMqw5Z.IAAWY4/7DsiHAG";
+
 export async function action({ request }: { request: Request }) {
   return handle(async () => {
-    await consumeAuthRateLimit(authRateLimitKey(request));
-
     const data = loginSchema.parse(await readJsonBody(request));
+
+    const clientKey = authRateLimitKey(request);
+    if (clientKey !== null) {
+      await consumeAuthRateLimit(clientKey);
+    } else {
+      await consumeAnonAuthRateLimit(data.emailOrUsername);
+    }
 
     const db = await getDb();
 
@@ -35,6 +49,7 @@ export async function action({ request }: { request: Request }) {
       .limit(1);
 
     if (!user) {
+      await bcrypt.compare(data.password, DUMMY_PASSWORD_HASH);
       throw new AppError("Invalid credentials", 401);
     }
 
@@ -52,10 +67,11 @@ export async function action({ request }: { request: Request }) {
       .set({ lastLoginAt: new Date() })
       .where(eq(users.id, user.id));
 
-    const token = signAccessToken(user.id, user.email, user.username, user.role);
-    const refreshToken = signRefreshToken(user.id);
+    const tokenVersion = user.tokenVersion ?? 0;
+    const token = signAccessToken(user.id, user.email, user.username, user.role, tokenVersion);
+    const refreshToken = signRefreshToken(user.id, tokenVersion);
 
-    console.info(`User logged in: ${user.email}`);
+    console.info(`User logged in: ${user.id}`);
 
     return jsonResponse({
       token,

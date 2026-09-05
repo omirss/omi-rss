@@ -218,6 +218,101 @@
   flex-shrink: 0;
 }
 
+/* Feed rows nested under folders (feed management surface) */
+.folder-listing > div + div > .folder-row {
+  border-top: var(--hairline) solid var(--c-divider);
+}
+
+.folder-feed-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-sm);
+  padding: var(--sp-xs) var(--sp-lg);
+  border-top: var(--hairline) solid var(--c-divider);
+  min-height: 44px;
+}
+
+.folder-feed-icon {
+  position: relative;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.folder-feed-icon img {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  object-fit: cover;
+}
+
+.folder-feed-fallback {
+  font: 600 11px/1 var(--font-sans);
+  color: var(--c-accent);
+}
+
+.folder-feed-fallback-hidden {
+  display: none;
+}
+
+.folder-feed-title {
+  font: var(--t-label);
+  color: var(--c-text-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.folder-feed-warning {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  color: var(--c-warning);
+  cursor: help;
+}
+
+.folder-feed-actions {
+  margin-left: auto;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.folder-feed-move-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-sm);
+}
+
+.folder-feed-move-caption {
+  font: var(--t-caption);
+  color: var(--c-text-low);
+}
+
+.feed-move-select {
+  height: 30px;
+  max-width: 220px;
+  font: var(--t-caption);
+  color: var(--c-text-high);
+  padding-right: 26px;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238a90b0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+}
+
+.folder-row-unfiled .folder-name {
+  color: var(--c-text-medium);
+}
+
+.folder-dot-none {
+  background: transparent;
+  border: var(--hairline) dashed var(--c-glass-stroke);
+}
+
 /* Settings rows */
 .settings-row {
   display: flex;

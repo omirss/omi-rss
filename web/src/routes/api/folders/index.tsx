@@ -53,7 +53,15 @@ export async function loader({ context }: { context: Record<string, unknown> }) 
       .orderBy(folders.position, folders.name);
 
     type FolderNode = (typeof userFolders)[number] & { children: FolderNode[] };
-    const folderMap = new Map<string, FolderNode>(userFolders.map(f => [f.id, { ...f, children: [] }]));
+    const folderMap = new Map<string, FolderNode>();
+    for (const folder of userFolders) {
+      folderMap.set(folder.id, {
+        ...folder,
+        feedCount: Number(folder.feedCount),
+        unreadCount: Number(folder.unreadCount),
+        children: [],
+      });
+    }
     const rootFolders: FolderNode[] = [];
 
     userFolders.forEach(folder => {

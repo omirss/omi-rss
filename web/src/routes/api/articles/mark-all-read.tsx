@@ -12,9 +12,6 @@ export const middleware = requireAuth;
 const filterSchema = z.object({
   feedId: z.string().uuid().optional(),
   folderId: z.string().uuid().optional(),
-  isRead: z.string().transform(val => val === "true").optional(),
-  isStarred: z.string().transform(val => val === "true").optional(),
-  search: z.string().optional(),
 });
 
 export async function action({ request, context }: { request: Request; context: Record<string, unknown> }) {
@@ -24,7 +21,13 @@ export async function action({ request, context }: { request: Request; context: 
     const filters = filterSchema.parse(query);
     const db = await getDb();
 
-    const conditions: Array<SQL | undefined> = [eq(feeds.userId, auth.id)];
+    const conditions: Array<SQL | undefined> = [
+      eq(feeds.userId, auth.id),
+      or(
+        eq(userArticleStates.isRead, false),
+        sql`${userArticleStates.isRead} IS NULL`,
+      ),
+    ];
 
     if (filters.feedId) {
       conditions.push(eq(articles.feedId, filters.feedId));
@@ -34,48 +37,48 @@ export async function action({ request, context }: { request: Request; context: 
       conditions.push(eq(feeds.folderId, filters.folderId));
     }
 
-    conditions.push(
-      or(
-        eq(userArticleStates.isRead, false),
-        sql`${userArticleStates.isRead} IS NULL`,
-      ),
-    );
-
-    const unreadArticles = await db
-      .select({ id: articles.id })
-      .from(articles)
-      .innerJoin(feeds, eq(articles.feedId, feeds.id))
-      .leftJoin(
-        userArticleStates,
-        and(
-          eq(userArticleStates.articleId, articles.id),
-          eq(userArticleStates.userId, auth.id),
-        ),
+    // Insert-select must list EVERY userArticleStates column, in table
+    // order — drizzle validates the selection keys against the table
+    // definition and rejects partial/reordered selects.
+    const marked = await db
+      .insert(userArticleStates)
+      .select(
+        db
+          .select({
+            userId: sql`${auth.id}::uuid`.as("userId"),
+            articleId: articles.id,
+            isRead: sql`true`.as("isRead"),
+            isStarred: sql`COALESCE(${userArticleStates.isStarred}, false)`.as("isStarred"),
+            readAt: sql`now()`.as("readAt"),
+            starredAt: userArticleStates.starredAt,
+            readingTime: userArticleStates.readingTime,
+            createdAt: sql`now()`.as("createdAt"),
+            updatedAt: sql`now()`.as("updatedAt"),
+          })
+          .from(articles)
+          .innerJoin(feeds, eq(articles.feedId, feeds.id))
+          .leftJoin(
+            userArticleStates,
+            and(
+              eq(userArticleStates.articleId, articles.id),
+              eq(userArticleStates.userId, auth.id),
+            ),
+          )
+          .where(and(...conditions)),
       )
-      .where(and(...conditions));
-
-    for (const article of unreadArticles) {
-      await db
-        .insert(userArticleStates)
-        .values({
-          userId: auth.id,
-          articleId: article.id,
+      .onConflictDoUpdate({
+        target: [userArticleStates.userId, userArticleStates.articleId],
+        set: {
           isRead: true,
           readAt: new Date(),
-        })
-        .onConflictDoUpdate({
-          target: [userArticleStates.userId, userArticleStates.articleId],
-          set: {
-            isRead: true,
-            readAt: new Date(),
-            updatedAt: new Date(),
-          },
-        });
-    }
+          updatedAt: new Date(),
+        },
+      })
+      .returning({ articleId: userArticleStates.articleId });
 
     return jsonResponse({
       message: "All articles marked as read",
-      count: unreadArticles.length,
+      count: marked.length,
     });
   });
 }

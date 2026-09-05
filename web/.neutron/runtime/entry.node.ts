@@ -9,54 +9,56 @@ import * as routeModule5 from "../../src/routes/folders.tsx";
 import * as routeModule6 from "../../src/routes/health.tsx";
 import * as routeModule7 from "../../src/routes/login.tsx";
 import * as routeModule8 from "../../src/routes/ready.tsx";
-import * as routeModule9 from "../../src/routes/saved.tsx";
-import * as routeModule10 from "../../src/routes/search.tsx";
-import * as routeModule11 from "../../src/routes/settings.tsx";
-import * as routeModule12 from "../../src/routes/statistics.tsx";
-import * as routeModule13 from "../../src/routes/api/[...path].tsx";
-import * as routeModule14 from "../../src/routes/api/analytics/index.tsx";
-import * as routeModule15 from "../../src/routes/api/articles/index.tsx";
-import * as routeModule16 from "../../src/routes/api/feeds/index.tsx";
-import * as routeModule17 from "../../src/routes/api/folders/index.tsx";
-import * as routeModule18 from "../../src/routes/api/ping.tsx";
-import * as routeModule19 from "../../src/routes/uploads/[...path].tsx";
-import * as routeModule20 from "../../src/routes/api/analytics/article-read.tsx";
-import * as routeModule21 from "../../src/routes/api/analytics/export.tsx";
-import * as routeModule22 from "../../src/routes/api/analytics/feed-interaction.tsx";
-import * as routeModule23 from "../../src/routes/api/analytics/streaks.tsx";
-import * as routeModule24 from "../../src/routes/api/articles/batch-update.tsx";
-import * as routeModule25 from "../../src/routes/api/articles/mark-all-read.tsx";
-import * as routeModule26 from "../../src/routes/api/auth/forgot-password.tsx";
-import * as routeModule27 from "../../src/routes/api/auth/login.tsx";
-import * as routeModule28 from "../../src/routes/api/auth/logout.tsx";
-import * as routeModule29 from "../../src/routes/api/auth/refresh.tsx";
-import * as routeModule30 from "../../src/routes/api/auth/register.tsx";
-import * as routeModule31 from "../../src/routes/api/auth/reset-password.tsx";
-import * as routeModule32 from "../../src/routes/api/discovery/categories.tsx";
-import * as routeModule33 from "../../src/routes/api/discovery/discover.tsx";
-import * as routeModule34 from "../../src/routes/api/discovery/search.tsx";
-import * as routeModule35 from "../../src/routes/api/discovery/validate.tsx";
-import * as routeModule36 from "../../src/routes/api/folders/reorder.tsx";
-import * as routeModule37 from "../../src/routes/api/stats/history.tsx";
-import * as routeModule38 from "../../src/routes/api/stats/overview.tsx";
-import * as routeModule39 from "../../src/routes/api/stats/reading-time.tsx";
-import * as routeModule40 from "../../src/routes/api/users/me.tsx";
-import * as routeModule41 from "../../src/routes/api/articles/[articleId].tsx";
-import * as routeModule42 from "../../src/routes/api/feeds/[feedId].tsx";
-import * as routeModule43 from "../../src/routes/api/folders/[folderId].tsx";
-import * as routeModule44 from "../../src/routes/api/discovery/export/opml.tsx";
-import * as routeModule45 from "../../src/routes/api/discovery/import/opml.tsx";
-import * as routeModule46 from "../../src/routes/api/users/me/avatar.tsx";
-import * as routeModule47 from "../../src/routes/api/users/me/password.tsx";
-import * as routeModule48 from "../../src/routes/api/users/me/settings.tsx";
-import * as routeModule49 from "../../src/routes/api/auth/verify-email/[token].tsx";
-import * as routeModule50 from "../../src/routes/api/discovery/related/[feedId].tsx";
-import * as routeModule51 from "../../src/routes/api/articles/[articleId]/state.tsx";
-import * as routeModule52 from "../../src/routes/api/feeds/[feedId]/mark-all-read.tsx";
-import * as routeModule53 from "../../src/routes/api/feeds/[feedId]/refresh.tsx";
+import * as routeModule9 from "../../src/routes/reset-password.tsx";
+import * as routeModule10 from "../../src/routes/saved.tsx";
+import * as routeModule11 from "../../src/routes/search.tsx";
+import * as routeModule12 from "../../src/routes/settings.tsx";
+import * as routeModule13 from "../../src/routes/statistics.tsx";
+import * as routeModule14 from "../../src/routes/verify-email.tsx";
+import * as routeModule15 from "../../src/routes/api/[...path].tsx";
+import * as routeModule16 from "../../src/routes/api/analytics/index.tsx";
+import * as routeModule17 from "../../src/routes/api/articles/index.tsx";
+import * as routeModule18 from "../../src/routes/api/feeds/index.tsx";
+import * as routeModule19 from "../../src/routes/api/folders/index.tsx";
+import * as routeModule20 from "../../src/routes/api/ping.tsx";
+import * as routeModule21 from "../../src/routes/uploads/[...path].tsx";
+import * as routeModule22 from "../../src/routes/api/analytics/article-read.tsx";
+import * as routeModule23 from "../../src/routes/api/analytics/export.tsx";
+import * as routeModule24 from "../../src/routes/api/analytics/feed-interaction.tsx";
+import * as routeModule25 from "../../src/routes/api/analytics/streaks.tsx";
+import * as routeModule26 from "../../src/routes/api/articles/batch-update.tsx";
+import * as routeModule27 from "../../src/routes/api/articles/mark-all-read.tsx";
+import * as routeModule28 from "../../src/routes/api/auth/forgot-password.tsx";
+import * as routeModule29 from "../../src/routes/api/auth/login.tsx";
+import * as routeModule30 from "../../src/routes/api/auth/logout.tsx";
+import * as routeModule31 from "../../src/routes/api/auth/refresh.tsx";
+import * as routeModule32 from "../../src/routes/api/auth/register.tsx";
+import * as routeModule33 from "../../src/routes/api/auth/reset-password.tsx";
+import * as routeModule34 from "../../src/routes/api/discovery/categories.tsx";
+import * as routeModule35 from "../../src/routes/api/discovery/discover.tsx";
+import * as routeModule36 from "../../src/routes/api/discovery/search.tsx";
+import * as routeModule37 from "../../src/routes/api/discovery/validate.tsx";
+import * as routeModule38 from "../../src/routes/api/folders/reorder.tsx";
+import * as routeModule39 from "../../src/routes/api/stats/history.tsx";
+import * as routeModule40 from "../../src/routes/api/stats/overview.tsx";
+import * as routeModule41 from "../../src/routes/api/stats/reading-time.tsx";
+import * as routeModule42 from "../../src/routes/api/users/me.tsx";
+import * as routeModule43 from "../../src/routes/api/articles/[articleId].tsx";
+import * as routeModule44 from "../../src/routes/api/feeds/[feedId].tsx";
+import * as routeModule45 from "../../src/routes/api/folders/[folderId].tsx";
+import * as routeModule46 from "../../src/routes/api/discovery/export/opml.tsx";
+import * as routeModule47 from "../../src/routes/api/discovery/import/opml.tsx";
+import * as routeModule48 from "../../src/routes/api/users/me/avatar.tsx";
+import * as routeModule49 from "../../src/routes/api/users/me/password.tsx";
+import * as routeModule50 from "../../src/routes/api/users/me/settings.tsx";
+import * as routeModule51 from "../../src/routes/api/auth/verify-email/[token].tsx";
+import * as routeModule52 from "../../src/routes/api/discovery/related/[feedId].tsx";
+import * as routeModule53 from "../../src/routes/api/articles/[articleId]/state.tsx";
+import * as routeModule54 from "../../src/routes/api/feeds/[feedId]/mark-all-read.tsx";
+import * as routeModule55 from "../../src/routes/api/feeds/[feedId]/refresh.tsx";
 
-const CLIENT_ENTRY_SCRIPT_SRC = "/assets/index-BJEBfnaV.js";
-const CLIENT_STYLESHEET_HREFS = ["/assets/_layout-C0QCKq8n.css","/assets/reading-mhXLwx_U.css","/assets/widgets-BTB-VTYI.css"];
+const CLIENT_ENTRY_SCRIPT_SRC = "/assets/index-c0Ss2l6_.js";
+const CLIENT_STYLESHEET_HREFS = ["/assets/_layout-BdXTZzRL.css","/assets/reading-CGXcwm9H.css","/assets/widgets-CtM1PA7n.css"];
 const ROUTE_RULES = compileRouteRules({});
 
 const ROUTE_DEFS = [
@@ -142,6 +144,15 @@ const ROUTE_DEFS = [
     isLayout: false,
   },
   {
+    id: "route:reset-password.tsx",
+    path: "/reset-password",
+    parentId: "route:_layout.tsx",
+    params: [],
+    mode: "app",
+    cache: null,
+    isLayout: false,
+  },
+  {
     id: "route:saved.tsx",
     path: "/saved",
     parentId: "route:_layout.tsx",
@@ -171,6 +182,15 @@ const ROUTE_DEFS = [
   {
     id: "route:statistics.tsx",
     path: "/statistics",
+    parentId: "route:_layout.tsx",
+    params: [],
+    mode: "app",
+    cache: null,
+    isLayout: false,
+  },
+  {
+    id: "route:verify-email.tsx",
+    path: "/verify-email",
     parentId: "route:_layout.tsx",
     params: [],
     mode: "app",
@@ -558,54 +578,56 @@ const ROUTE_MODULES = {
   "route:health.tsx": routeModule6,
   "route:login.tsx": routeModule7,
   "route:ready.tsx": routeModule8,
-  "route:saved.tsx": routeModule9,
-  "route:search.tsx": routeModule10,
-  "route:settings.tsx": routeModule11,
-  "route:statistics.tsx": routeModule12,
-  "route:api/[...path].tsx": routeModule13,
-  "route:api/analytics/index.tsx": routeModule14,
-  "route:api/articles/index.tsx": routeModule15,
-  "route:api/feeds/index.tsx": routeModule16,
-  "route:api/folders/index.tsx": routeModule17,
-  "route:api/ping.tsx": routeModule18,
-  "route:uploads/[...path].tsx": routeModule19,
-  "route:api/analytics/article-read.tsx": routeModule20,
-  "route:api/analytics/export.tsx": routeModule21,
-  "route:api/analytics/feed-interaction.tsx": routeModule22,
-  "route:api/analytics/streaks.tsx": routeModule23,
-  "route:api/articles/batch-update.tsx": routeModule24,
-  "route:api/articles/mark-all-read.tsx": routeModule25,
-  "route:api/auth/forgot-password.tsx": routeModule26,
-  "route:api/auth/login.tsx": routeModule27,
-  "route:api/auth/logout.tsx": routeModule28,
-  "route:api/auth/refresh.tsx": routeModule29,
-  "route:api/auth/register.tsx": routeModule30,
-  "route:api/auth/reset-password.tsx": routeModule31,
-  "route:api/discovery/categories.tsx": routeModule32,
-  "route:api/discovery/discover.tsx": routeModule33,
-  "route:api/discovery/search.tsx": routeModule34,
-  "route:api/discovery/validate.tsx": routeModule35,
-  "route:api/folders/reorder.tsx": routeModule36,
-  "route:api/stats/history.tsx": routeModule37,
-  "route:api/stats/overview.tsx": routeModule38,
-  "route:api/stats/reading-time.tsx": routeModule39,
-  "route:api/users/me.tsx": routeModule40,
-  "route:api/articles/[articleId].tsx": routeModule41,
-  "route:api/feeds/[feedId].tsx": routeModule42,
-  "route:api/folders/[folderId].tsx": routeModule43,
-  "route:api/discovery/export/opml.tsx": routeModule44,
-  "route:api/discovery/import/opml.tsx": routeModule45,
-  "route:api/users/me/avatar.tsx": routeModule46,
-  "route:api/users/me/password.tsx": routeModule47,
-  "route:api/users/me/settings.tsx": routeModule48,
-  "route:api/auth/verify-email/[token].tsx": routeModule49,
-  "route:api/discovery/related/[feedId].tsx": routeModule50,
-  "route:api/articles/[articleId]/state.tsx": routeModule51,
-  "route:api/feeds/[feedId]/mark-all-read.tsx": routeModule52,
-  "route:api/feeds/[feedId]/refresh.tsx": routeModule53,
+  "route:reset-password.tsx": routeModule9,
+  "route:saved.tsx": routeModule10,
+  "route:search.tsx": routeModule11,
+  "route:settings.tsx": routeModule12,
+  "route:statistics.tsx": routeModule13,
+  "route:verify-email.tsx": routeModule14,
+  "route:api/[...path].tsx": routeModule15,
+  "route:api/analytics/index.tsx": routeModule16,
+  "route:api/articles/index.tsx": routeModule17,
+  "route:api/feeds/index.tsx": routeModule18,
+  "route:api/folders/index.tsx": routeModule19,
+  "route:api/ping.tsx": routeModule20,
+  "route:uploads/[...path].tsx": routeModule21,
+  "route:api/analytics/article-read.tsx": routeModule22,
+  "route:api/analytics/export.tsx": routeModule23,
+  "route:api/analytics/feed-interaction.tsx": routeModule24,
+  "route:api/analytics/streaks.tsx": routeModule25,
+  "route:api/articles/batch-update.tsx": routeModule26,
+  "route:api/articles/mark-all-read.tsx": routeModule27,
+  "route:api/auth/forgot-password.tsx": routeModule28,
+  "route:api/auth/login.tsx": routeModule29,
+  "route:api/auth/logout.tsx": routeModule30,
+  "route:api/auth/refresh.tsx": routeModule31,
+  "route:api/auth/register.tsx": routeModule32,
+  "route:api/auth/reset-password.tsx": routeModule33,
+  "route:api/discovery/categories.tsx": routeModule34,
+  "route:api/discovery/discover.tsx": routeModule35,
+  "route:api/discovery/search.tsx": routeModule36,
+  "route:api/discovery/validate.tsx": routeModule37,
+  "route:api/folders/reorder.tsx": routeModule38,
+  "route:api/stats/history.tsx": routeModule39,
+  "route:api/stats/overview.tsx": routeModule40,
+  "route:api/stats/reading-time.tsx": routeModule41,
+  "route:api/users/me.tsx": routeModule42,
+  "route:api/articles/[articleId].tsx": routeModule43,
+  "route:api/feeds/[feedId].tsx": routeModule44,
+  "route:api/folders/[folderId].tsx": routeModule45,
+  "route:api/discovery/export/opml.tsx": routeModule46,
+  "route:api/discovery/import/opml.tsx": routeModule47,
+  "route:api/users/me/avatar.tsx": routeModule48,
+  "route:api/users/me/password.tsx": routeModule49,
+  "route:api/users/me/settings.tsx": routeModule50,
+  "route:api/auth/verify-email/[token].tsx": routeModule51,
+  "route:api/discovery/related/[feedId].tsx": routeModule52,
+  "route:api/articles/[articleId]/state.tsx": routeModule53,
+  "route:api/feeds/[feedId]/mark-all-read.tsx": routeModule54,
+  "route:api/feeds/[feedId]/refresh.tsx": routeModule55,
 };
 
-const APP_ROUTE_IDS = new Set(["route:index.tsx","route:analytics.tsx","route:discover.tsx","route:folders.tsx","route:health.tsx","route:login.tsx","route:ready.tsx","route:saved.tsx","route:search.tsx","route:settings.tsx","route:statistics.tsx","route:api/[...path].tsx","route:api/analytics/index.tsx","route:api/articles/index.tsx","route:api/feeds/index.tsx","route:api/folders/index.tsx","route:api/ping.tsx","route:uploads/[...path].tsx","route:api/analytics/article-read.tsx","route:api/analytics/export.tsx","route:api/analytics/feed-interaction.tsx","route:api/analytics/streaks.tsx","route:api/articles/batch-update.tsx","route:api/articles/mark-all-read.tsx","route:api/auth/forgot-password.tsx","route:api/auth/login.tsx","route:api/auth/logout.tsx","route:api/auth/refresh.tsx","route:api/auth/register.tsx","route:api/auth/reset-password.tsx","route:api/discovery/categories.tsx","route:api/discovery/discover.tsx","route:api/discovery/search.tsx","route:api/discovery/validate.tsx","route:api/folders/reorder.tsx","route:api/stats/history.tsx","route:api/stats/overview.tsx","route:api/stats/reading-time.tsx","route:api/users/me.tsx","route:api/articles/[articleId].tsx","route:api/feeds/[feedId].tsx","route:api/folders/[folderId].tsx","route:api/discovery/export/opml.tsx","route:api/discovery/import/opml.tsx","route:api/users/me/avatar.tsx","route:api/users/me/password.tsx","route:api/users/me/settings.tsx","route:api/auth/verify-email/[token].tsx","route:api/discovery/related/[feedId].tsx","route:api/articles/[articleId]/state.tsx","route:api/feeds/[feedId]/mark-all-read.tsx","route:api/feeds/[feedId]/refresh.tsx"]);
+const APP_ROUTE_IDS = new Set(["route:index.tsx","route:analytics.tsx","route:discover.tsx","route:folders.tsx","route:health.tsx","route:login.tsx","route:ready.tsx","route:reset-password.tsx","route:saved.tsx","route:search.tsx","route:settings.tsx","route:statistics.tsx","route:verify-email.tsx","route:api/[...path].tsx","route:api/analytics/index.tsx","route:api/articles/index.tsx","route:api/feeds/index.tsx","route:api/folders/index.tsx","route:api/ping.tsx","route:uploads/[...path].tsx","route:api/analytics/article-read.tsx","route:api/analytics/export.tsx","route:api/analytics/feed-interaction.tsx","route:api/analytics/streaks.tsx","route:api/articles/batch-update.tsx","route:api/articles/mark-all-read.tsx","route:api/auth/forgot-password.tsx","route:api/auth/login.tsx","route:api/auth/logout.tsx","route:api/auth/refresh.tsx","route:api/auth/register.tsx","route:api/auth/reset-password.tsx","route:api/discovery/categories.tsx","route:api/discovery/discover.tsx","route:api/discovery/search.tsx","route:api/discovery/validate.tsx","route:api/folders/reorder.tsx","route:api/stats/history.tsx","route:api/stats/overview.tsx","route:api/stats/reading-time.tsx","route:api/users/me.tsx","route:api/articles/[articleId].tsx","route:api/feeds/[feedId].tsx","route:api/folders/[folderId].tsx","route:api/discovery/export/opml.tsx","route:api/discovery/import/opml.tsx","route:api/users/me/avatar.tsx","route:api/users/me/password.tsx","route:api/users/me/settings.tsx","route:api/auth/verify-email/[token].tsx","route:api/discovery/related/[feedId].tsx","route:api/articles/[articleId]/state.tsx","route:api/feeds/[feedId]/mark-all-read.tsx","route:api/feeds/[feedId]/refresh.tsx"]);
 const ROUTE_DEF_BY_ID = new Map(ROUTE_DEFS.map((route) => [route.id, route]));
 const ROUTES_BY_ID = new Map(ROUTE_DEFS.map((route) => [route.id, toRuntimeRoute(route)]));
 const LOADER_DATA_CACHE = createMemoryLoaderCacheStore();

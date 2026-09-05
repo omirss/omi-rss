@@ -29,7 +29,7 @@ export async function loader({ params }: { params: Record<string, string> }) {
       })
       .where(eq(users.id, user.id));
 
-    console.info(`Email verified for user: ${user.email}`);
+    console.info(`Email verified for user: ${user.id}`);
 
     return jsonResponse({ message: "Email verified successfully" });
   });

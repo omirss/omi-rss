@@ -27,6 +27,14 @@ export function noContent(): Response {
   return new Response(null, { status: 204 });
 }
 
+// Messages historically thrown with a 500 status that are actually client
+// faults (upload type/size limits). errorResponse downgrades these to 400 so
+// clients see the right status without every upload route hardcoding it.
+const CLIENT_ERROR_MESSAGES = new Set([
+  "Only image files are allowed",
+  "File too large",
+]);
+
 // The Express errorHandler, mapping thrown errors to the same JSON bodies.
 export function errorResponse(err: unknown): Response {
   console.error({
@@ -49,6 +57,16 @@ export function errorResponse(err: unknown): Response {
     );
   }
 
+  if (err instanceof SyntaxError && err.message.includes("JSON")) {
+    return jsonResponse(
+      {
+        error: "Malformed JSON body",
+        timestamp: new Date().toISOString(),
+      },
+      400
+    );
+  }
+
   if (err instanceof Error && err.name === "JsonWebTokenError") {
     return jsonResponse(
       {
@@ -56,6 +74,20 @@ export function errorResponse(err: unknown): Response {
         timestamp: new Date().toISOString(),
       },
       401
+    );
+  }
+
+  if (err instanceof AppError) {
+    const status =
+      err.statusCode === 500 && err.message && CLIENT_ERROR_MESSAGES.has(err.message)
+        ? 400
+        : err.statusCode;
+    return jsonResponse(
+      {
+        error: err.message,
+        timestamp: new Date().toISOString(),
+      },
+      status
     );
   }
 

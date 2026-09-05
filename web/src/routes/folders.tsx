@@ -2,10 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from "preact/hooks";
 import type { JSX } from "preact";
 import { AppShell } from "../components/AppShell.js";
 import { EmptyState, ErrorState, SkeletonList } from "../components/states.js";
-import { FolderIcon, PlusIcon } from "../components/Icons.js";
+import { AlertIcon, FolderIcon, PlusIcon, RssIcon } from "../components/Icons.js";
 import { useToast } from "../components/Toast.js";
-import { ApiError, foldersApi, toCount } from "../lib/client.js";
-import type { FolderNode } from "../lib/api-types.js";
+import { ApiError, feedsApi, foldersApi, toCount } from "../lib/client.js";
+import type { FeedWithUnread, FolderNode } from "../lib/api-types.js";
 import { Modal } from "../components/secondary/widgets.js";
 import {
   ChevronDownIcon,
@@ -13,6 +13,7 @@ import {
   PencilIcon,
   TrashIcon,
 } from "../components/secondary/icons.js";
+import "../components/secondary/secondary.css";
 
 export const config = { mode: "app" };
 
@@ -32,6 +33,16 @@ function flattenFolders(folders: FolderNode[]): FlatFolder[] {
     });
   };
   walk(folders, 0);
+  return rows;
+}
+
+function folderPaths(folders: FolderNode[], prefix: string[] = []): Array<{ id: string; path: string }> {
+  const rows: Array<{ id: string; path: string }> = [];
+  for (const node of folders) {
+    const path = [...prefix, node.name].join(" / ");
+    rows.push({ id: node.id, path });
+    rows.push(...folderPaths(node.children, [...prefix, node.name]));
+  }
   return rows;
 }
 
@@ -62,11 +73,21 @@ function moveWithinLevel(folders: FolderNode[], folderId: string, direction: -1 
   }));
 }
 
+function feedDisplayTitle(feed: FeedWithUnread): string {
+  return feed.customTitle || feed.title;
+}
+
+function feedIsFailing(feed: FeedWithUnread): boolean {
+  return feed.errorCount > 0 || Boolean(feed.lastFetchError);
+}
+
 export default function FoldersPage() {
   const { showToast } = useToast();
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [folders, setFolders] = useState<FolderNode[]>([]);
+  const [feeds, setFeeds] = useState<FeedWithUnread[]>([]);
+  const [movingFeedId, setMovingFeedId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [createName, setCreateName] = useState("");
   const [createColor, setCreateColor] = useState("#7c9cff");
@@ -81,8 +102,9 @@ export default function FoldersPage() {
   const load = useCallback(async () => {
     setPhase("loading");
     try {
-      const { folders: tree } = await foldersApi.list();
-      setFolders(tree);
+      const [foldersResponse, feedsResponse] = await Promise.all([foldersApi.list(), feedsApi.list()]);
+      setFolders(foldersResponse.folders);
+      setFeeds(feedsResponse.feeds);
       setPhase("ready");
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Failed to load folders");
@@ -95,6 +117,21 @@ export default function FoldersPage() {
   }, [load]);
 
   const rows = useMemo(() => flattenFolders(folders), [folders]);
+  const feedGroups = useMemo(() => {
+    const grouped = new Map<string, FeedWithUnread[]>();
+    const unfiled: FeedWithUnread[] = [];
+    for (const feed of feeds) {
+      if (feed.folderId) {
+        const list = grouped.get(feed.folderId) ?? [];
+        list.push(feed);
+        grouped.set(feed.folderId, list);
+      } else {
+        unfiled.push(feed);
+      }
+    }
+    return { grouped, unfiled };
+  }, [feeds]);
+  const folderOptions = useMemo(() => folderPaths(folders), [folders]);
 
   const reorder = async (folderId: string, direction: -1 | 1) => {
     const next = moveWithinLevel(folders, folderId, direction);
@@ -109,6 +146,28 @@ export default function FoldersPage() {
         kind: "error",
       });
       void load();
+    }
+  };
+
+  const moveFeed = async (feed: FeedWithUnread, folderId: string) => {
+    if (movingFeedId) return;
+    setMovingFeedId(feed.id);
+    try {
+      await feedsApi.update(feed.id, { folderId: folderId || null });
+      showToast({
+        title: folderId ? `Moved to folder` : "Removed from folder",
+        message: feedDisplayTitle(feed),
+        kind: "success",
+      });
+      await load();
+    } catch (error) {
+      showToast({
+        title: "Could not move feed",
+        message: error instanceof ApiError ? error.message : "Please try again",
+        kind: "error",
+      });
+    } finally {
+      setMovingFeedId(null);
     }
   };
 
@@ -176,6 +235,52 @@ export default function FoldersPage() {
     }
   };
 
+  const renderFeedRow = (feed: FeedWithUnread, depth: number) => {
+    const unread = toCount(feed.unreadCount);
+    const failing = feedIsFailing(feed);
+    return (
+      <div class="folder-feed-row" style={`padding-left: calc(var(--sp-lg) + ${depth * 24}px);`} key={feed.id}>
+        <span class="folder-feed-icon">
+          {feed.favicon ? <img src={feed.favicon} alt="" loading="lazy" /> : null}
+          <span class={`folder-feed-fallback${feed.favicon ? " folder-feed-fallback-hidden" : ""}`}>
+            {feedDisplayTitle(feed).trim().charAt(0).toUpperCase() || "?"}
+          </span>
+        </span>
+        <span class="folder-feed-title" title={feedDisplayTitle(feed)}>{feedDisplayTitle(feed)}</span>
+        {failing ? (
+          <span
+            class="folder-feed-warning"
+            role="img"
+            aria-label="Feed failed to update recently"
+            title={feed.lastFetchError || "This feed failed to update recently"}
+          >
+            <AlertIcon size={14} />
+          </span>
+        ) : null}
+        {unread > 0 ? <span class="chip chip-count">{unread}</span> : null}
+        <span class="folder-feed-actions">
+          <label class="folder-feed-move-label">
+            <span class="folder-feed-move-caption">Folder</span>
+            <select
+              class="input feed-move-select"
+              value={feed.folderId ?? ""}
+              disabled={movingFeedId !== null}
+              aria-label={`Folder for ${feedDisplayTitle(feed)}`}
+              onChange={(event) => void moveFeed(feed, event.currentTarget.value)}
+            >
+              <option value="">No folder</option>
+              {folderOptions.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.path}
+                </option>
+              ))}
+            </select>
+          </label>
+        </span>
+      </div>
+    );
+  };
+
   const deleteFeedCount = deleteTarget ? toCount(deleteTarget.feedCount) : 0;
   const deleteChildCount = deleteTarget ? deleteTarget.children.length : 0;
 
@@ -194,82 +299,106 @@ export default function FoldersPage() {
         {phase === "error" ? (
           <ErrorState title="Folders unavailable" message={errorMessage ?? undefined} onRetry={() => void load()} />
         ) : null}
-        {phase === "ready" && folders.length === 0 ? (
+        {phase === "ready" && folders.length === 0 && feeds.length === 0 ? (
           <EmptyState
             icon={<FolderIcon size={24} />}
             title="No folders yet"
-            description="Group your feeds into folders to keep your library organized."
+            description="Group your feeds into folders to keep your library organized. Subscribe to a feed first, then file it here."
             action={
-              <button type="button" class="btn btn-primary" onClick={() => setCreateOpen(true)}>
-                <PlusIcon size={16} />
-                Create your first folder
-              </button>
+              <>
+                <button type="button" class="btn btn-primary" onClick={() => setCreateOpen(true)}>
+                  <PlusIcon size={16} />
+                  Create your first folder
+                </button>
+                <a class="btn btn-secondary" href="/discover">
+                  <RssIcon size={16} />
+                  Find feeds
+                </a>
+              </>
             }
           />
         ) : null}
-        {phase === "ready" && folders.length > 0 ? (
-          <div class="glass-card">
+        {phase === "ready" && (folders.length > 0 || feeds.length > 0) ? (
+          <div class="glass-card folder-listing">
             {rows.map(({ folder, depth, siblingIndex, siblingCount }) => {
               const feedCount = toCount(folder.feedCount);
               const unreadCount = toCount(folder.unreadCount);
+              const folderFeeds = feedGroups.grouped.get(folder.id) ?? [];
               return (
-                <div
-                  class="folder-row"
-                  style={depth > 0 ? `padding-left: calc(var(--sp-lg) + ${depth * 24}px);` : undefined}
-                  key={folder.id}
-                >
-                  <span class="folder-color-dot" style={folder.color ? `background: ${folder.color};` : undefined} />
-                  <FolderIcon size={17} />
-                  <span class="folder-name">{folder.name}</span>
-                  <span class="folder-meta">
-                    <span class="chip">
-                      {feedCount} {feedCount === 1 ? "feed" : "feeds"}
+                <div key={folder.id}>
+                  <div
+                    class="folder-row"
+                    style={depth > 0 ? `padding-left: calc(var(--sp-lg) + ${depth * 24}px);` : undefined}
+                  >
+                    <span class="folder-color-dot" style={folder.color ? `background: ${folder.color};` : undefined} />
+                    <FolderIcon size={17} />
+                    <span class="folder-name">{folder.name}</span>
+                    <span class="folder-meta">
+                      <span class="chip">
+                        {feedCount} {feedCount === 1 ? "feed" : "feeds"}
+                      </span>
+                      {unreadCount > 0 ? <span class="chip chip-count">{unreadCount}</span> : null}
                     </span>
-                    {unreadCount > 0 ? <span class="chip chip-count">{unreadCount}</span> : null}
-                  </span>
-                  <span class="folder-actions">
-                    <button
-                      type="button"
-                      class="btn btn-ghost btn-icon btn-sm"
-                      disabled={siblingIndex <= 0}
-                      aria-label={`Move ${folder.name} up`}
-                      onClick={() => void reorder(folder.id, -1)}
-                    >
-                      <ChevronUpIcon size={15} />
-                    </button>
-                    <button
-                      type="button"
-                      class="btn btn-ghost btn-icon btn-sm"
-                      disabled={siblingIndex >= siblingCount - 1}
-                      aria-label={`Move ${folder.name} down`}
-                      onClick={() => void reorder(folder.id, 1)}
-                    >
-                      <ChevronDownIcon size={15} />
-                    </button>
-                    <button
-                      type="button"
-                      class="btn btn-ghost btn-icon btn-sm"
-                      aria-label={`Rename ${folder.name}`}
-                      onClick={() => {
-                        setRenameTarget(folder);
-                        setRenameName(folder.name);
-                        setRenameColor(folder.color ?? "#7c9cff");
-                      }}
-                    >
-                      <PencilIcon size={15} />
-                    </button>
-                    <button
-                      type="button"
-                      class="btn btn-ghost btn-icon btn-sm"
-                      aria-label={`Delete ${folder.name}`}
-                      onClick={() => setDeleteTarget(folder)}
-                    >
-                      <TrashIcon size={15} />
-                    </button>
-                  </span>
+                    <span class="folder-actions">
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-icon btn-sm"
+                        disabled={siblingIndex <= 0}
+                        aria-label={`Move ${folder.name} up`}
+                        onClick={() => void reorder(folder.id, -1)}
+                      >
+                        <ChevronUpIcon size={15} />
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-icon btn-sm"
+                        disabled={siblingIndex >= siblingCount - 1}
+                        aria-label={`Move ${folder.name} down`}
+                        onClick={() => void reorder(folder.id, 1)}
+                      >
+                        <ChevronDownIcon size={15} />
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-icon btn-sm"
+                        aria-label={`Rename ${folder.name}`}
+                        onClick={() => {
+                          setRenameTarget(folder);
+                          setRenameName(folder.name);
+                          setRenameColor(folder.color ?? "#7c9cff");
+                        }}
+                      >
+                        <PencilIcon size={15} />
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-icon btn-sm"
+                        aria-label={`Delete ${folder.name}`}
+                        onClick={() => setDeleteTarget(folder)}
+                      >
+                        <TrashIcon size={15} />
+                      </button>
+                    </span>
+                  </div>
+                  {folderFeeds.map((feed) => renderFeedRow(feed, depth + 1))}
                 </div>
               );
             })}
+            {feedGroups.unfiled.length > 0 ? (
+              <div>
+                <div class="folder-row folder-row-unfiled">
+                  <span class="folder-color-dot folder-dot-none" />
+                  <RssIcon size={16} />
+                  <span class="folder-name">No folder</span>
+                  <span class="folder-meta">
+                    <span class="chip">
+                      {feedGroups.unfiled.length} {feedGroups.unfiled.length === 1 ? "feed" : "feeds"}
+                    </span>
+                  </span>
+                </div>
+                {feedGroups.unfiled.map((feed) => renderFeedRow(feed, 1))}
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>

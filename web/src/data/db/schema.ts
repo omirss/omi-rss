@@ -34,6 +34,9 @@ export const users = pgTable("users", {
   passwordResetToken: varchar("password_reset_token", { length: 255 }),
   passwordResetExpires: timestamp("password_reset_expires"),
   lastLoginAt: timestamp("last_login_at"),
+  // v0.3.1: embedded in every JWT; bumping the column invalidates all
+  // outstanding tokens for the user (logout, password reset/change, delete).
+  tokenVersion: integer("token_version").default(0).notNull(),
   settings: jsonb("settings").default({}),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),

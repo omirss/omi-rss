@@ -6,7 +6,11 @@ import { users } from "../../../data/db/schema.js";
 import { getDb } from "../../../lib/api/db.js";
 import { AppError, handle, jsonResponse } from "../../../lib/api/errors.js";
 import { readJsonBody } from "../../../lib/api/body.js";
-import { authRateLimitKey, consumeAuthRateLimit } from "../../../lib/api/rate-limit.js";
+import {
+  authRateLimitKey,
+  consumeAnonAuthRateLimit,
+  consumeAuthRateLimit,
+} from "../../../lib/api/rate-limit.js";
 import { getDataRuntime } from "../../../data/runtime.js";
 import { signAccessToken, signRefreshToken } from "../../../lib/api/tokens.js";
 
@@ -22,9 +26,14 @@ const registerSchema = z.object({
 
 export async function action({ request }: { request: Request }) {
   return handle(async () => {
-    await consumeAuthRateLimit(authRateLimitKey(request));
-
     const data = registerSchema.parse(await readJsonBody(request));
+
+    const clientKey = authRateLimitKey(request);
+    if (clientKey !== null) {
+      await consumeAuthRateLimit(clientKey);
+    } else {
+      await consumeAnonAuthRateLimit(`${data.email}:${data.username}`);
+    }
 
     const db = await getDb();
 
@@ -35,7 +44,9 @@ export async function action({ request }: { request: Request }) {
       .limit(1);
 
     if (existingUser) {
-      throw new AppError("User already exists", 409);
+      // Generic message + kept 409 status (client contract): no account
+      // existence oracle through the response body.
+      throw new AppError("Registration failed", 409);
     }
 
     const passwordHash = await bcrypt.hash(data.password, parseInt(process.env.BCRYPT_ROUNDS || "10"));
@@ -70,10 +81,10 @@ export async function action({ request }: { request: Request }) {
       },
     });
 
-    const token = signAccessToken(newUser.id, newUser.email, newUser.username, "user");
-    const refreshToken = signRefreshToken(newUser.id);
+    const token = signAccessToken(newUser.id, newUser.email, newUser.username, "user", 0);
+    const refreshToken = signRefreshToken(newUser.id, 0);
 
-    console.info(`New user registered: ${newUser.email}`);
+    console.info(`New user registered: ${newUser.id}`);
 
     return jsonResponse(
       {

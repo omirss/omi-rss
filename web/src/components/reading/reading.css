@@ -186,7 +186,9 @@
 .reader-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 100;
+  /* Modal overlay: sits above the shell topbar (z-index 200). The reader is
+     a dialog, not page content, so it must out-stack shell chrome. */
+  z-index: 300;
   background: var(--c-overlay);
   backdrop-filter: blur(var(--blur-sm));
   -webkit-backdrop-filter: blur(var(--blur-sm));

@@ -49,8 +49,14 @@ export function FilterBar({ filter, onFilterChange, feeds, feedId, onFeedChange,
           {feeds.map((feed) => {
             const unread = toCount(feed.unreadCount);
             const label = feed.customTitle || feed.title;
+            const failing = feed.errorCount > 0 || Boolean(feed.lastFetchError);
             return (
-              <option key={feed.id} value={feed.id}>
+              <option
+                key={feed.id}
+                value={feed.id}
+                title={failing ? feed.lastFetchError || "This feed failed to update recently" : undefined}
+              >
+                {failing ? "! " : ""}
                 {label}
                 {unread > 0 ? ` (${unread})` : ""}
               </option>

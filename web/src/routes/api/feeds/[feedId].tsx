@@ -55,7 +55,12 @@ export async function loader({ params, context }: { params: Record<string, strin
 
     return jsonResponse({
       feed,
-      stats: stats || { totalArticles: 0, unreadArticles: 0 },
+      stats: stats
+        ? {
+            totalArticles: Number(stats.totalArticles),
+            unreadArticles: Number(stats.unreadArticles),
+          }
+        : { totalArticles: 0, unreadArticles: 0 },
     });
   });
 }

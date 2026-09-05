@@ -15,6 +15,13 @@
       "when": 1788513533248,
       "tag": "0001_slippery_sir_ram",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788597380257,
+      "tag": "0002_fixed_proemial_gods",
+      "breakpoints": true
     }
   ]
 }

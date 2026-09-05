@@ -31,7 +31,12 @@ let runtimePromise: Promise<DataRuntime> | null = null;
 
 export function getDataRuntime(): Promise<DataRuntime> {
   if (!runtimePromise) {
-    runtimePromise = createRuntime();
+    runtimePromise = createRuntime().catch((error) => {
+      // Don't poison the cache with a rejected promise — clear it so the
+      // next call retries instead of rethrowing the stale failure forever.
+      runtimePromise = null;
+      throw error;
+    });
   }
   return runtimePromise;
 }

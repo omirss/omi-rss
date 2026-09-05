@@ -21,13 +21,11 @@ export interface UserDetail extends UserProfile {
 
 export interface Folder {
   id: string;
-  userId: string;
   name: string;
   parentId: string | null;
   color: string | null;
   icon: string | null;
   position: number;
-  isExpanded: boolean;
   createdAt: IsoDateString;
   updatedAt: IsoDateString;
 }
@@ -40,7 +38,6 @@ export interface FolderNode extends Folder {
 
 export interface Feed {
   id: string;
-  userId: string;
   folderId: string | null;
   url: string;
   title: string;
@@ -228,6 +225,9 @@ export interface AnalyticsStreaks {
 export interface OpmlImportResult {
   imported: number;
   failed: number;
+  skipped: number;
+  capped: boolean;
+  reasons: { invalidUrl: number; duplicate: number; overLimit: number };
   errors: string[];
 }
 

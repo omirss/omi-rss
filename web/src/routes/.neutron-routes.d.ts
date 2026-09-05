@@ -49,11 +49,13 @@ declare module "@neutron-build/core" {
     | "/health"
     | "/login"
     | "/ready"
+    | "/reset-password"
     | "/saved"
     | "/search"
     | "/settings"
     | "/statistics"
     | `/uploads/${string}`
+    | "/verify-email"
   }
 }
 

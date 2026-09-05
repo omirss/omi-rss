@@ -1,8 +1,9 @@
 import { eq, and, sql, desc, gte, isNotNull } from "drizzle-orm";
-import { readingStats, userArticleStates, articles, feeds, folders } from "../../../data/db/schema.js";
+import { userArticleStates, articles, feeds, folders } from "../../../data/db/schema.js";
 import { getDb } from "../../../lib/api/db.js";
 import { handleLoader, jsonResponse } from "../../../lib/api/errors.js";
 import { requireAuth } from "../../../lib/api/auth.js";
+import { computeReadingStreaks } from "../../../services/analytics.js";
 
 export const config = { mode: "app" };
 
@@ -30,9 +31,6 @@ export async function loader({ context }: { context: Record<string, unknown> }) 
         totalFeeds: sql<number>`
           COUNT(DISTINCT ${feeds.id})
         `,
-        totalFolders: sql<number>`
-          COUNT(DISTINCT ${folders.id})
-        `,
       })
       .from(feeds)
       .leftJoin(articles, eq(articles.feedId, feeds.id))
@@ -43,8 +41,14 @@ export async function loader({ context }: { context: Record<string, unknown> }) 
           eq(userArticleStates.userId, auth.id),
         ),
       )
-      .leftJoin(folders, eq(folders.userId, auth.id))
       .where(eq(feeds.userId, auth.id));
+
+    const [folderCount] = await db
+      .select({
+        totalFolders: sql<number>`COUNT(*)`,
+      })
+      .from(folders)
+      .where(eq(folders.userId, auth.id));
 
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -86,87 +90,47 @@ export async function loader({ context }: { context: Record<string, unknown> }) 
       .orderBy(desc(sql`COUNT(DISTINCT ${userArticleStates.articleId})`))
       .limit(5);
 
-    const readingStreak = await calculateReadingStreak(db, auth.id);
+    const readDates = await db
+      .select({
+        date: sql<string>`DATE(${userArticleStates.readAt})`,
+      })
+      .from(userArticleStates)
+      .where(
+        and(
+          eq(userArticleStates.userId, auth.id),
+          eq(userArticleStates.isRead, true),
+          isNotNull(userArticleStates.readAt),
+        ),
+      )
+      .groupBy(sql`DATE(${userArticleStates.readAt})`)
+      .orderBy(desc(sql`DATE(${userArticleStates.readAt})`));
+
+    const dates = readDates.map((r: { date: string }) => new Date(r.date));
+    const { currentStreak, longestStreak } = computeReadingStreaks(dates);
 
     return jsonResponse({
       totals: {
-        ...totals,
-        readPercentage: totals.totalArticles > 0
-          ? Math.round((Number(totals.readArticles) / Number(totals.totalArticles)) * 100)
+        totalArticles: Number(totals?.totalArticles || 0),
+        readArticles: Number(totals?.readArticles || 0),
+        starredArticles: Number(totals?.starredArticles || 0),
+        totalFeeds: Number(totals?.totalFeeds || 0),
+        totalFolders: Number(folderCount?.totalFolders || 0),
+        readPercentage: Number(totals?.totalArticles || 0) > 0
+          ? Math.round((Number(totals?.readArticles || 0) / Number(totals?.totalArticles || 0)) * 100)
           : 0,
       },
       velocity: {
         averagePerDay: Math.round(Number(velocity?.averagePerDay || 0)),
       },
-      topFeeds,
-      readingStreak,
+      topFeeds: topFeeds.map(f => ({
+        ...f,
+        readCount: Number(f.readCount),
+      })),
+      readingStreak: {
+        currentStreak,
+        longestStreak,
+        lastReadDate: dates.length > 0 ? dates[0].toISOString() : null,
+      },
     });
   });
-}
-
-// Ported from the stats.routes.ts helper of the same name.
-async function calculateReadingStreak(db: Awaited<ReturnType<typeof getDb>>, userId: string): Promise<{
-  currentStreak: number;
-  longestStreak: number;
-  lastReadDate: string | null;
-}> {
-  const readDates = await db
-    .select({
-      date: sql<string>`DATE(${userArticleStates.readAt})`,
-    })
-    .from(userArticleStates)
-    .where(
-      and(
-        eq(userArticleStates.userId, userId),
-        eq(userArticleStates.isRead, true),
-        isNotNull(userArticleStates.readAt),
-      ),
-    )
-    .groupBy(sql`DATE(${userArticleStates.readAt})`)
-    .orderBy(desc(sql`DATE(${userArticleStates.readAt})`));
-
-  if (readDates.length === 0) {
-    return {
-      currentStreak: 0,
-      longestStreak: 0,
-      lastReadDate: null,
-    };
-  }
-
-  const dates = readDates.map((r: { date: string }) => new Date(r.date));
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  let currentStreak = 0;
-  let longestStreak = 0;
-  let tempStreak = 1;
-
-  const lastRead = dates[0];
-  const daysDiff = Math.floor((today.getTime() - lastRead.getTime()) / (1000 * 60 * 60 * 24));
-
-  if (daysDiff <= 1) {
-    currentStreak = 1;
-  }
-
-  for (let i = 1; i < dates.length; i++) {
-    const diff = Math.floor((dates[i - 1].getTime() - dates[i].getTime()) / (1000 * 60 * 60 * 24));
-
-    if (diff === 1) {
-      tempStreak++;
-      if (daysDiff <= 1 && i === 1) {
-        currentStreak = tempStreak;
-      }
-    } else {
-      longestStreak = Math.max(longestStreak, tempStreak);
-      tempStreak = 1;
-    }
-  }
-
-  longestStreak = Math.max(longestStreak, tempStreak);
-
-  return {
-    currentStreak,
-    longestStreak,
-    lastReadDate: dates[0].toISOString(),
-  };
 }

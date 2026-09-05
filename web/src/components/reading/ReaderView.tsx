@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from "preact/hooks";
 import type { ArticleListItem } from "../../lib/api-types.js";
+import { analyticsApi } from "../../lib/client.js";
 import { useToast } from "../Toast.js";
 import { EmptyState } from "../states.js";
 import { ChevronLeftIcon, CloseIcon, RssIcon } from "../Icons.js";
@@ -17,6 +18,32 @@ export interface ReaderViewProps {
   onToggleStar: (article: ArticleListItem) => Promise<boolean> | boolean;
 }
 
+interface ActiveRead {
+  articleId: string;
+  startedAt: number;
+  maxScroll: number;
+}
+
+// Fire-and-forget analytics: at most one article-read post per article per
+// page session, no matter how often it is opened or re-visited.
+const trackedArticleIds = new Set<string>();
+
+function flushReadTracking(active: ActiveRead | null): void {
+  if (!active || trackedArticleIds.has(active.articleId)) return;
+  trackedArticleIds.add(active.articleId);
+  const interactionTime = Math.max(1, Math.round((Date.now() - active.startedAt) / 1000));
+  analyticsApi
+    .trackArticleRead({
+      articleId: active.articleId,
+      scrollDepth: Math.round(Math.min(100, Math.max(0, active.maxScroll))),
+      interactionTime,
+      completed: active.maxScroll >= 90,
+    })
+    .catch(() => undefined);
+}
+
+const FOCUSABLE_SELECTOR = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 export function ReaderView({
   articles,
   index,
@@ -28,7 +55,26 @@ export function ReaderView({
   const { showToast } = useToast();
   const article = articles[index];
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
   const articleId = article?.id ?? null;
+  const activeReadRef = useRef<ActiveRead | null>(null);
+
+  // Reading-time tracking: start a clock per article, flush on navigate/close.
+  useEffect(() => {
+    const previous = activeReadRef.current;
+    if (previous && previous.articleId !== articleId) {
+      flushReadTracking(previous);
+    }
+    activeReadRef.current = articleId ? { articleId, startedAt: Date.now(), maxScroll: 0 } : null;
+  }, [articleId]);
+
+  // Final flush when the reader closes.
+  useEffect(() => {
+    return () => {
+      flushReadTracking(activeReadRef.current);
+      activeReadRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     if (article && !article.isRead) {
@@ -41,6 +87,26 @@ export function ReaderView({
       scrollRef.current.scrollTop = 0;
     }
   }, [articleId]);
+
+  // Focus management: move focus into the dialog, trap Tab within it, and
+  // restore focus to the invoking element on close.
+  useEffect(() => {
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const firstButton = panelRef.current?.querySelector<HTMLElement>("button");
+    (firstButton ?? panelRef.current)?.focus();
+    return () => {
+      previouslyFocused?.focus?.();
+    };
+  }, []);
+
+  const handleScroll = () => {
+    const el = scrollRef.current;
+    const active = activeReadRef.current;
+    if (!el || !active) return;
+    const reachable = el.scrollHeight - el.clientHeight;
+    const percent = reachable > 0 ? (el.scrollTop / reachable) * 100 : 100;
+    if (percent > active.maxScroll) active.maxScroll = percent;
+  };
 
   const bodyHtml = useMemo(() => {
     const raw = article?.content || article?.summary || "";
@@ -73,6 +139,26 @@ export function ReaderView({
     if (article) window.open(article.url, "_blank", "noopener,noreferrer");
   };
 
+  const trapTab = (event: KeyboardEvent) => {
+    const panel = panelRef.current;
+    if (!panel) return;
+    const focusables = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR))
+      .filter((el) => el.offsetParent !== null || el === document.activeElement);
+    if (focusables.length === 0) return;
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    const current = document.activeElement;
+    if (event.shiftKey) {
+      if (current === first || current === panel || !panel.contains(current)) {
+        event.preventDefault();
+        last.focus();
+      }
+    } else if (current === last || current === panel || !panel.contains(current)) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
   const handleKeydown = (event: KeyboardEvent) => {
     if (event.defaultPrevented) return;
     const target = event.target as HTMLElement | null;
@@ -85,6 +171,8 @@ export function ReaderView({
     if (event.key === "Escape") {
       event.preventDefault();
       onClose();
+    } else if (event.key === "Tab") {
+      trapTab(event);
     } else if (event.key === "ArrowRight" || event.key === "j") {
       if (hasNext) {
         event.preventDefault();
@@ -118,7 +206,7 @@ export function ReaderView({
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div class="reader-panel glass-panel" role="dialog" aria-modal="true" aria-label={article.title}>
+      <div class="reader-panel glass-panel" role="dialog" aria-modal="true" aria-label={article.title} ref={panelRef}>
         <header class="reader-header">
           <button type="button" class="btn btn-ghost btn-icon btn-sm" onClick={onClose} aria-label="Close reader">
             <CloseIcon size={17} />
@@ -168,7 +256,7 @@ export function ReaderView({
             <ChevronRightIcon size={17} />
           </button>
         </header>
-        <div class="reader-scroll" ref={scrollRef}>
+        <div class="reader-scroll" ref={scrollRef} onScroll={handleScroll}>
           <h2 class="reader-title">{article.title}</h2>
           <div class="reader-meta">
             {article.author ? <span>{article.author}</span> : null}

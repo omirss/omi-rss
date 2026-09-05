@@ -74,8 +74,14 @@ export async function loader({ context }: { context: Record<string, unknown> }) 
       articlesRead,
       averageReadingTime,
       estimatedWordsPerMinute: 200,
-      readingByHour,
-      readingByDayOfWeek,
+      readingByHour: readingByHour.map(row => ({
+        hour: Number(row.hour),
+        count: Number(row.count),
+      })),
+      readingByDayOfWeek: readingByDayOfWeek.map(row => ({
+        dayOfWeek: Number(row.dayOfWeek),
+        count: Number(row.count),
+      })),
     });
   });
 }

@@ -59,7 +59,7 @@ describe("auth token functions", () => {
     it("should verify a valid refresh token", () => {
       const token = signRefreshToken("123");
 
-      expect(verifyRefreshToken(token)).toEqual({ userId: "123" });
+      expect(verifyRefreshToken(token)).toEqual({ userId: "123", tokenVersion: 0 });
     });
 
     it("should reject an access token used as a refresh token", () => {

@@ -4,20 +4,24 @@ import { eq } from "drizzle-orm";
 import { users } from "../../data/db/schema.js";
 import { getDb } from "./db.js";
 import { AppError } from "./errors.js";
+import { tokenVersionMatches, verifyAccessTokenClaims } from "./tokens.js";
+import { consumeUserRateLimit } from "./rate-limit.js";
 
 // Ported from Express middleware/authentication.ts (v0.2.1) as a Neutron
 // route middleware. Same 401 bodies (no timestamp — these bypassed the
 // Express errorHandler), same user shape on context.
+//
+// v0.3.1 security audit hardening:
+//   - Refresh tokens are rejected: access tokens carry no `type` claim, so
+//     any token with one is refused (refresh-as-access).
+//   - The token's tokenVersion claim must match users.token_version;
+//     bumping the column (logout, password reset/change, account delete)
+//     invalidates all outstanding tokens.
+//   - After verification the request consumes a per-user rate-limit bucket
+//     (the per-client keying replacement for direct exposure).
 
 export interface AuthUser {
   id: string;
-  email: string;
-  username: string;
-  role: string;
-}
-
-interface JwtPayload {
-  userId: string;
   email: string;
   username: string;
   role: string;
@@ -42,7 +46,23 @@ export const requireAuth: MiddlewareFn = async (request, context, next) => {
       return unauthorized("No token provided");
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as JwtPayload;
+    let decoded: unknown;
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET!);
+    } catch (error) {
+      if (error instanceof jwt.TokenExpiredError) {
+        return unauthorized("Token expired");
+      }
+      if (error instanceof jwt.JsonWebTokenError) {
+        return unauthorized("Invalid token");
+      }
+      throw error;
+    }
+
+    const claims = verifyAccessTokenClaims(decoded);
+    if (!claims) {
+      return unauthorized("Invalid token");
+    }
 
     const db = await getDb();
     const [user] = await db
@@ -52,9 +72,10 @@ export const requireAuth: MiddlewareFn = async (request, context, next) => {
         username: users.username,
         role: users.role,
         isActive: users.isActive,
+        tokenVersion: users.tokenVersion,
       })
       .from(users)
-      .where(eq(users.id, decoded.userId))
+      .where(eq(users.id, claims.userId))
       .limit(1);
 
     if (!user) {
@@ -65,6 +86,12 @@ export const requireAuth: MiddlewareFn = async (request, context, next) => {
       return unauthorized("Account is disabled");
     }
 
+    if (!tokenVersionMatches(claims.tokenVersion, user.tokenVersion)) {
+      return unauthorized("Invalid token");
+    }
+
+    await consumeUserRateLimit(user.id);
+
     context.user = {
       id: user.id,
       email: user.email,
@@ -74,13 +101,6 @@ export const requireAuth: MiddlewareFn = async (request, context, next) => {
 
     return next();
   } catch (error) {
-    if (error instanceof jwt.TokenExpiredError) {
-      return unauthorized("Token expired");
-    }
-    if (error instanceof jwt.JsonWebTokenError) {
-      return unauthorized("Invalid token");
-    }
-
     console.error("Authentication error:", error);
     return new Response(JSON.stringify({ error: "Authentication failed" }), {
       status: 500,

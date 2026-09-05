@@ -196,11 +196,18 @@ function notifySessionExpired(): void {
 
 async function request(path: string, config: RequestConfig = {}): Promise<Response> {
   let response = await rawRequest(path, config);
-  if (response.status === 401 && !config.skipAuthRefresh && tokenStore.getTokens()?.refreshToken) {
-    const refreshed = await refreshTokens();
-    if (refreshed) {
-      response = await rawRequest(path, config);
+  if (response.status === 401 && !config.skipAuthRefresh) {
+    if (tokenStore.getTokens()?.refreshToken) {
+      const refreshed = await refreshTokens();
+      if (refreshed) {
+        response = await rawRequest(path, config);
+      } else {
+        tokenStore.clear();
+        notifySessionExpired();
+      }
     } else {
+      // 401 with no refresh path (tokens removed/expired mid-session):
+      // the session is dead, surface it app-wide instead of failing silently.
       tokenStore.clear();
       notifySessionExpired();
     }
@@ -284,6 +291,11 @@ export const authApi = {
     return requestJson<{ message: string }>("/api/auth/reset-password", {
       method: "POST",
       body: { token, password },
+      skipAuthRefresh: true,
+    });
+  },
+  async verifyEmail(token: string): Promise<{ message: string }> {
+    return requestJson<{ message: string }>(`/api/auth/verify-email/${encodeURIComponent(token)}`, {
       skipAuthRefresh: true,
     });
   },

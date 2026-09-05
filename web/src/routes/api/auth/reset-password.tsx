@@ -5,6 +5,7 @@ import { users } from "../../../data/db/schema.js";
 import { getDb } from "../../../lib/api/db.js";
 import { AppError, handle, jsonResponse } from "../../../lib/api/errors.js";
 import { readJsonBody } from "../../../lib/api/body.js";
+import { bumpTokenVersion } from "../../../lib/api/tokens.js";
 
 export const config = { mode: "app" };
 
@@ -40,7 +41,10 @@ export async function action({ request }: { request: Request }) {
       })
       .where(eq(users.id, user.id));
 
-    console.info(`Password reset for user: ${user.email}`);
+    // A reset password must kill every previously issued token.
+    await bumpTokenVersion(user.id);
+
+    console.info(`Password reset for user: ${user.id}`);
 
     return jsonResponse({ message: "Password reset successfully" });
   });

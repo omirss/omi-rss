@@ -4,6 +4,7 @@ import Parser from "rss-parser";
 import { eq, and, sql, gte, inArray } from "drizzle-orm";
 import { getDataRuntime, QUEUE_NAME, QUEUE_PREFIX } from "./data/runtime.js";
 import { getDb } from "./lib/api/db.js";
+import { validateAuthBootEnv } from "./lib/api/tokens.js";
 import { feeds, articles, userArticleStates, readingStats, notifications } from "./data/db/schema.js";
 import { fetchFeedXml } from "./services/feed-fetch.js";
 import { initializeEmailService, isEmailConfigured, sendEmail } from "./services/email.js";
@@ -361,7 +362,7 @@ async function processSendEmail(jobData: SendEmailJobData): Promise<{ success: b
   const { userId, email, subject, body, template, data } = jobData;
 
   try {
-    console.info(`Processing email job for ${email}: ${subject}`);
+    console.info(`Processing email job for user ${userId}: ${subject}`);
 
     const db = await getDb();
 
@@ -378,7 +379,7 @@ async function processSendEmail(jobData: SendEmailJobData): Promise<{ success: b
           status: "skipped",
         });
 
-      console.warn(`Email skipped (SMTP not configured) for ${email}: ${subject}`);
+      console.warn(`Email skipped (SMTP not configured) for user ${userId}: ${subject}`);
       return { success: true, status: "skipped" };
     }
 
@@ -404,7 +405,7 @@ async function processSendEmail(jobData: SendEmailJobData): Promise<{ success: b
           failedAt: new Date(),
         });
 
-      console.error(`Email delivery failed for ${email}: ${subject}`);
+      console.error(`Email delivery failed for user ${userId}: ${subject}`);
       return { success: false, status: "failed" };
     }
 
@@ -421,7 +422,7 @@ async function processSendEmail(jobData: SendEmailJobData): Promise<{ success: b
         sentAt: new Date(),
       });
 
-    console.info(`Email sent to ${email}: ${subject}`);
+    console.info(`Email sent to user ${userId}: ${subject}`);
     return { success: true, status: "sent" };
   } catch (error) {
     console.error("Email job failed:", error);
@@ -483,6 +484,8 @@ function extractImageUrl(feedData: any): string | null {
 }
 
 export async function run(context: WorkerContext): Promise<() => Promise<void>> {
+  validateAuthBootEnv();
+
   const runtime = await getDataRuntime();
 
   await initializeEmailService();

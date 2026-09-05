@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "node --env-file-if-exists=.env node_modules/@neutron-build/cli/dist/index.js dev",
     "build": "neutron-ts build",
-    "build:docker": "neutron-ts build --preset docker",
+    "build:docker": "neutron-ts build --preset docker && node scripts/patch-docker-server.mjs",
     "preview": "neutron-ts preview",
     "start": "neutron-ts start",
     "worker": "neutron-ts worker",

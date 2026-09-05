@@ -45,6 +45,54 @@ interface EngagementMetrics {
 
 export type AnalyticsTimeframe = "day" | "week" | "month" | "year" | "all";
 
+// Day index from local calendar fields — DST-safe (a 23h or 25h day still
+// advances the index by exactly 1).
+function toDayIndex(date: Date): number {
+  return Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86400000;
+}
+
+// The single reading-streak implementation shared by /api/stats/overview and
+// /api/analytics. `readDates` are timestamps of days with >= 1 article read;
+// duplicates are fine. A streak is "current" if the most recent read day is
+// today or yesterday (yesterday still counts as an alive streak).
+export function computeReadingStreaks(
+  readDates: Date[],
+  now: Date = new Date(),
+): { currentStreak: number; longestStreak: number } {
+  const dayIndexes = Array.from(new Set(readDates.map(toDayIndex))).sort((a, b) => a - b);
+  if (dayIndexes.length === 0) {
+    return { currentStreak: 0, longestStreak: 0 };
+  }
+
+  let longestStreak = 1;
+  let run = 1;
+  for (let i = 1; i < dayIndexes.length; i++) {
+    if (dayIndexes[i] - dayIndexes[i - 1] === 1) {
+      run++;
+      longestStreak = Math.max(longestStreak, run);
+    } else {
+      run = 1;
+    }
+  }
+
+  const todayIndex = toDayIndex(now);
+  const gapToLastRead = todayIndex - dayIndexes[dayIndexes.length - 1];
+
+  let currentStreak = 0;
+  if (gapToLastRead === 0 || gapToLastRead === 1) {
+    currentStreak = 1;
+    for (let i = dayIndexes.length - 2; i >= 0; i--) {
+      if (dayIndexes[i + 1] - dayIndexes[i] === 1) {
+        currentStreak++;
+      } else {
+        break;
+      }
+    }
+  }
+
+  return { currentStreak, longestStreak };
+}
+
 export class AnalyticsService {
   async getUserAnalytics(userId: string, timeframe: AnalyticsTimeframe = "month"): Promise<{
     reading: ReadingAnalytics;
@@ -162,8 +210,8 @@ export class AnalyticsService {
       .orderBy(desc(readingStats.date))
       .limit(60);
 
-    const { currentStreak, longestStreak } = this.calculateReadingStreaks(
-      stats.slice().reverse(),
+    const { currentStreak, longestStreak } = computeReadingStreaks(
+      stats.filter((s) => s.articlesRead > 0).map((s) => s.date),
     );
 
     return {
@@ -282,8 +330,8 @@ export class AnalyticsService {
     const mostActiveDay = Array.from(dailyDistribution.entries())
       .sort((a, b) => b[1] - a[1])[0]?.[0] || "Monday";
 
-    const { currentStreak, longestStreak } = this.calculateReadingStreaks(
-      stats.slice().sort((a, b) => a.date.getTime() - b.date.getTime()),
+    const { currentStreak, longestStreak } = computeReadingStreaks(
+      stats.filter((s) => s.articlesRead > 0).map((s) => s.date),
     );
 
     return {
@@ -570,53 +618,6 @@ export class AnalyticsService {
       case "all":
         return new Date(0);
     }
-  }
-
-  private calculateReadingStreaks(
-    stats: Array<{ date: Date; articlesRead: number }>,
-  ): { currentStreak: number; longestStreak: number } {
-    if (stats.length === 0) return { currentStreak: 0, longestStreak: 0 };
-
-    const sortedStats = stats.sort((a, b) => a.date.getTime() - b.date.getTime());
-
-    let currentStreak = 0;
-    let longestStreak = 0;
-    let tempStreak = 0;
-    let lastDate: Date | null = null;
-
-    for (const stat of sortedStats) {
-      if (stat.articlesRead > 0) {
-        if (!lastDate || this.isConsecutiveDay(lastDate, stat.date)) {
-          tempStreak++;
-        } else {
-          tempStreak = 1;
-        }
-
-        longestStreak = Math.max(longestStreak, tempStreak);
-        lastDate = stat.date;
-      } else {
-        tempStreak = 0;
-      }
-    }
-
-    const today = new Date();
-    if (lastDate && this.isConsecutiveDay(lastDate, today)) {
-      currentStreak = tempStreak;
-    } else if (lastDate && this.isSameDay(lastDate, today)) {
-      currentStreak = tempStreak;
-    }
-
-    return { currentStreak, longestStreak };
-  }
-
-  private isSameDay(date1: Date, date2: Date): boolean {
-    return date1.toISOString().split("T")[0] === date2.toISOString().split("T")[0];
-  }
-
-  private isConsecutiveDay(date1: Date, date2: Date): boolean {
-    const diff = Math.abs(date2.getTime() - date1.getTime());
-    const dayDiff = Math.floor(diff / (1000 * 60 * 60 * 24));
-    return dayDiff === 1;
   }
 
   private extractTopKeywords(

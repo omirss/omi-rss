@@ -64,7 +64,12 @@ export async function loader({ context }: { context: Record<string, unknown> }) 
       .groupBy(feeds.id)
       .orderBy(feeds.customTitle, feeds.title);
 
-    return jsonResponse({ feeds: userFeeds });
+    return jsonResponse({
+      feeds: userFeeds.map(feed => ({
+        ...feed,
+        unreadCount: Number(feed.unreadCount),
+      })),
+    });
   });
 }
 

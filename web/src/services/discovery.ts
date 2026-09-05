@@ -7,8 +7,9 @@ import { eq, and, desc } from "drizzle-orm";
 import Parser from "rss-parser";
 import { feeds, articles, folders, userArticleStates, readingStats } from "../data/db/schema.js";
 import { getDb } from "../lib/api/db.js";
+import { AppError } from "../lib/api/errors.js";
 import { getDataRuntime } from "../data/runtime.js";
-import { fetchFeedXml } from "./feed-fetch.js";
+import { assertSafeFeedUrl, fetchFeedXml } from "./feed-fetch.js";
 
 interface FeedSuggestion {
   url: string;
@@ -24,10 +25,24 @@ interface FeedSuggestion {
 }
 
 interface FeedCategory {
+  id: string;
   name: string;
   description: string;
   feeds: FeedSuggestion[];
 }
+
+// Category ids are the authoritative wire identifiers (GET /api/discovery/
+// categories returns {id, name, description}); callers may also pass the
+// exact display name for back-compat.
+export function categoryMatchesFilter(filters: string[], category: Pick<FeedCategory, "id" | "name">): boolean {
+  const normalized = filters.map(f => f.trim().toLowerCase());
+  return normalized.some(
+    f => f === category.id.toLowerCase() || f === category.name.toLowerCase(),
+  );
+}
+
+export const DISCOVERY_CATEGORIES = () =>
+  CURATED_FEEDS.map(({ id, name, description }) => ({ id, name, description }));
 
 interface UserInterests {
   categories: Map<string, number>;
@@ -40,6 +55,7 @@ interface UserInterests {
 
 const CURATED_FEEDS: FeedCategory[] = [
   {
+    id: "technology",
     name: "Technology",
     description: "Latest tech news and developments",
     feeds: [
@@ -54,6 +70,7 @@ const CURATED_FEEDS: FeedCategory[] = [
     ],
   },
   {
+    id: "science",
     name: "Science",
     description: "Scientific discoveries and research",
     feeds: [
@@ -66,6 +83,7 @@ const CURATED_FEEDS: FeedCategory[] = [
     ],
   },
   {
+    id: "business",
     name: "Business & Finance",
     description: "Business news and market analysis",
     feeds: [
@@ -78,6 +96,7 @@ const CURATED_FEEDS: FeedCategory[] = [
     ],
   },
   {
+    id: "programming",
     name: "Programming & Development",
     description: "Software development and programming",
     feeds: [
@@ -90,6 +109,7 @@ const CURATED_FEEDS: FeedCategory[] = [
     ],
   },
   {
+    id: "ai",
     name: "AI & Machine Learning",
     description: "Artificial Intelligence and ML news",
     feeds: [
@@ -102,6 +122,7 @@ const CURATED_FEEDS: FeedCategory[] = [
     ],
   },
   {
+    id: "news",
     name: "World News",
     description: "Global news and current events",
     feeds: [
@@ -116,11 +137,22 @@ const CURATED_FEEDS: FeedCategory[] = [
 
 const parser = new Parser();
 
+export interface OpmlImportOutcome {
+  imported: number;
+  failed: number;
+  skipped: number;
+  capped: boolean;
+  reasons: { invalidUrl: number; duplicate: number; overLimit: number };
+  errors: string[];
+}
+
+const MAX_OPML_ENTRIES = 500;
+const OPML_INSERT_CHUNK = 100;
+
 export class FeedDiscoveryService {
   async discoverFeeds(userId: string, options?: {
     categories?: string[];
     limit?: number;
-    language?: string;
   }): Promise<FeedSuggestion[]> {
     try {
       const userInterests = await this.analyzeUserInterests(userId);
@@ -131,7 +163,7 @@ export class FeedDiscoveryService {
       let suggestions: FeedSuggestion[] = [];
 
       for (const category of CURATED_FEEDS) {
-        if (options?.categories && !options.categories.includes(category.name)) {
+        if (options?.categories && !categoryMatchesFilter(options.categories, category)) {
           continue;
         }
 
@@ -174,7 +206,6 @@ export class FeedDiscoveryService {
 
   async searchPublicFeeds(query: string, options?: {
     category?: string;
-    language?: string;
     limit?: number;
   }): Promise<FeedSuggestion[]> {
     try {
@@ -182,7 +213,7 @@ export class FeedDiscoveryService {
       const queryLower = query.toLowerCase();
 
       for (const category of CURATED_FEEDS) {
-        if (options?.category && category.name !== options.category) {
+        if (options?.category && !categoryMatchesFilter([options.category], category)) {
           continue;
         }
 
@@ -223,18 +254,23 @@ export class FeedDiscoveryService {
     }
   }
 
-  async getRelatedFeeds(feedId: string, limit: number = 10): Promise<FeedSuggestion[]> {
+  async getRelatedFeeds(userId: string, feedId: string, limit: number = 10): Promise<FeedSuggestion[]> {
     try {
       const db = await getDb();
 
       const [feed] = await db
         .select()
         .from(feeds)
-        .where(eq(feeds.id, feedId))
+        .where(
+          and(
+            eq(feeds.id, feedId),
+            eq(feeds.userId, userId),
+          ),
+        )
         .limit(1);
 
       if (!feed) {
-        throw new Error("Feed not found");
+        throw new AppError("Feed not found", 404);
       }
 
       const recentArticles = await db
@@ -448,45 +484,79 @@ export class FeedDiscoveryService {
   async importOPML(
     userId: string,
     opmlContent: string,
-  ): Promise<{ imported: number; failed: number; errors: string[] }> {
-    try {
-      const entries = this.parseOPML(opmlContent);
-      const errors: string[] = [];
-      let imported = 0;
-      let failed = 0;
+  ): Promise<OpmlImportOutcome> {
+    const entries = this.parseOPML(opmlContent);
+    const capped = entries.length > MAX_OPML_ENTRIES;
 
-      const db = await getDb();
-      const subscribed = await db
-        .select()
-        .from(feeds)
-        .where(eq(feeds.userId, userId));
-      const knownUrls = new Set(subscribed.map(f => f.url));
+    const reasons = { invalidUrl: 0, duplicate: 0, overLimit: 0 };
+    const errors: string[] = [];
+    let failed = 0;
 
-      for (const entry of entries) {
-        if (knownUrls.has(entry.url)) {
-          continue;
-        }
+    const db = await getDb();
+    const subscribed = await db
+      .select({ url: feeds.url })
+      .from(feeds)
+      .where(eq(feeds.userId, userId));
+    const knownUrls = new Set(subscribed.map(f => f.url));
 
-        try {
-          await db.insert(feeds).values({
-            userId,
-            url: entry.url,
-            title: entry.title || "Imported Feed",
-            siteUrl: entry.siteUrl || null,
-          });
-          knownUrls.add(entry.url);
-          imported++;
-        } catch (error) {
-          failed++;
-          errors.push(`Failed to import ${entry.title || entry.url}`);
-        }
+    const toInsert: Array<typeof feeds.$inferInsert> = [];
+
+    for (let index = 0; index < entries.length; index++) {
+      const entry = entries[index];
+
+      if (index >= MAX_OPML_ENTRIES) {
+        reasons.overLimit++;
+        continue;
       }
 
-      return { imported, failed, errors };
-    } catch (error) {
-      console.error("Failed to import OPML:", error);
-      throw error;
+      if (knownUrls.has(entry.url)) {
+        reasons.duplicate++;
+        continue;
+      }
+
+      try {
+        await assertSafeFeedUrl(entry.url);
+      } catch {
+        reasons.invalidUrl++;
+        errors.push(`Skipped unsafe or invalid URL: ${entry.title || entry.url}`);
+        continue;
+      }
+
+      knownUrls.add(entry.url);
+      toInsert.push({
+        userId,
+        url: entry.url,
+        title: entry.title || "Imported Feed",
+        siteUrl: entry.siteUrl || null,
+      });
     }
+
+    let imported = 0;
+
+    if (toInsert.length > 0) {
+      await db.transaction(async (tx) => {
+        for (let i = 0; i < toInsert.length; i += OPML_INSERT_CHUNK) {
+          const chunk = toInsert.slice(i, i + OPML_INSERT_CHUNK);
+          try {
+            const inserted = await tx.insert(feeds).values(chunk).returning({ id: feeds.id });
+            imported += inserted.length;
+          } catch (error) {
+            failed += chunk.length;
+            console.error("Failed to import OPML chunk:", error);
+            errors.push(`Failed to import ${chunk.length} feed(s) in batch ${Math.floor(i / OPML_INSERT_CHUNK) + 1}`);
+          }
+        }
+      });
+    }
+
+    return {
+      imported,
+      failed,
+      skipped: reasons.invalidUrl + reasons.duplicate + reasons.overLimit,
+      capped,
+      reasons,
+      errors,
+    };
   }
 
   private parseOPML(opmlContent: string): Array<{ url: string; title?: string; siteUrl?: string }> {

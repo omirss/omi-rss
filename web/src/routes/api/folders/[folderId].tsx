@@ -68,7 +68,10 @@ export async function loader({ params, context }: { params: Record<string, strin
 
     return jsonResponse({
       folder,
-      feeds: folderFeeds,
+      feeds: folderFeeds.map(f => ({
+        ...f,
+        unreadCount: Number(f.unreadCount),
+      })),
     });
   });
 }
@@ -100,7 +103,7 @@ export async function action({ request, params, context }: { request: Request; p
         .from(feeds)
         .where(eq(feeds.folderId, folderId));
 
-      if (feedCount.count > 0) {
+      if (Number(feedCount.count) > 0) {
         throw new AppError("Cannot delete folder with feeds. Move or delete feeds first.", 400);
       }
 
@@ -109,7 +112,7 @@ export async function action({ request, params, context }: { request: Request; p
         .from(folders)
         .where(eq(folders.parentId, folderId));
 
-      if (subfolderCount.count > 0) {
+      if (Number(subfolderCount.count) > 0) {
         throw new AppError("Cannot delete folder with subfolders. Delete subfolders first.", 400);
       }
 

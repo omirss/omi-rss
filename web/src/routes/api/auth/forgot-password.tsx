@@ -5,7 +5,11 @@ import { users } from "../../../data/db/schema.js";
 import { getDb } from "../../../lib/api/db.js";
 import { handle, jsonResponse } from "../../../lib/api/errors.js";
 import { readJsonBody } from "../../../lib/api/body.js";
-import { authRateLimitKey, consumeAuthRateLimit } from "../../../lib/api/rate-limit.js";
+import {
+  authRateLimitKey,
+  consumeAnonAuthRateLimit,
+  consumeAuthRateLimit,
+} from "../../../lib/api/rate-limit.js";
 import { getDataRuntime } from "../../../data/runtime.js";
 
 export const config = { mode: "app" };
@@ -16,9 +20,14 @@ const forgotPasswordSchema = z.object({
 
 export async function action({ request }: { request: Request }) {
   return handle(async () => {
-    await consumeAuthRateLimit(authRateLimitKey(request));
-
     const data = forgotPasswordSchema.parse(await readJsonBody(request));
+
+    const clientKey = authRateLimitKey(request);
+    if (clientKey !== null) {
+      await consumeAuthRateLimit(clientKey);
+    } else {
+      await consumeAnonAuthRateLimit(data.email);
+    }
 
     const db = await getDb();
 
@@ -55,7 +64,7 @@ export async function action({ request }: { request: Request }) {
       },
     });
 
-    console.info(`Password reset requested for: ${user.email}`);
+    console.info(`Password reset requested for user: ${user.id}`);
 
     return jsonResponse({ message: "If an account exists, a password reset email has been sent." });
   });

@@ -11,7 +11,6 @@ export const middleware = requireAuth;
 const discoverSchema = z.object({
   categories: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(100).optional(),
-  language: z.string().optional(),
 });
 
 export async function loader({ request, context }: { request: Request; context: Record<string, unknown> }) {
@@ -24,12 +23,11 @@ export async function loader({ request, context }: { request: Request; context: 
       return validationFailure(parsed.error);
     }
 
-    const { categories, limit, language } = parsed.data;
+    const { categories, limit } = parsed.data;
 
     const suggestions = await feedDiscoveryService.discoverFeeds(auth.id, {
       categories: categories ? categories.split(",") : undefined,
       limit,
-      language,
     });
 
     return jsonResponse({

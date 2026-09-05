@@ -193,16 +193,26 @@ export default function HomePage() {
     if (!feeds || feeds.length === 0 || refreshing) return;
     setRefreshing(true);
     let queued = 0;
-    for (const feed of feeds) {
-      try {
-        await feedsApi.refresh(feed.id);
-        queued += 1;
-      } catch {
-        return;
+    let failed = 0;
+    try {
+      for (const feed of feeds) {
+        try {
+          await feedsApi.refresh(feed.id);
+          queued += 1;
+        } catch {
+          failed += 1;
+        }
       }
+    } finally {
+      setRefreshing(false);
     }
-    setRefreshing(false);
-    if (queued > 0) {
+    if (queued > 0 && failed > 0) {
+      showToast({
+        title: `Could not refresh ${failed} feed${failed === 1 ? "" : "s"}`,
+        message: `${queued} refresh${queued === 1 ? "" : "es"} queued. Check the warning markers on the Folders page.`,
+        kind: "error",
+      });
+    } else if (queued > 0) {
       showToast({
         title: `Refreshing ${queued} feed${queued === 1 ? "" : "s"}`,
         message: "New articles will appear in a moment.",

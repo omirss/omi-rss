@@ -10,13 +10,15 @@ export const config = { mode: "app" };
 // or missing on disk. Works in dev and prod since it goes through the
 // normal route table instead of a dev-server-only static middleware.
 
+// v0.3.1: .svg dropped from the map — SVG uploads execute script in the
+// origin context and uploads are served without auth; avatars are converted
+// to webp server-side anyway, so nothing legitimate serves as svg.
 const MIME_TYPES: Record<string, string> = {
   ".jpeg": "image/jpeg",
   ".jpg": "image/jpeg",
   ".png": "image/png",
   ".gif": "image/gif",
   ".webp": "image/webp",
-  ".svg": "image/svg+xml",
   ".ico": "image/x-icon",
   ".avif": "image/avif",
 };

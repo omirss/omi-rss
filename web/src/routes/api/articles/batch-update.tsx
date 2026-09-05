@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, inArray, sql, type SQL } from "drizzle-orm";
 import { articles, userArticleStates, feeds } from "../../../data/db/schema.js";
 import { getDb } from "../../../lib/api/db.js";
 import { AppError, handle, jsonResponse } from "../../../lib/api/errors.js";
@@ -29,56 +29,95 @@ export async function action({ request, context }: { request: Request; context: 
     const { articleIds, updates } = batchUpdateSchema.parse(await readJsonBody(request));
     const db = await getDb();
 
-    const ownedArticles = await db
-      .select({ id: articles.id })
-      .from(articles)
-      .innerJoin(feeds, eq(articles.feedId, feeds.id))
-      .where(
-        and(
-          inArray(articles.id, articleIds),
-          eq(feeds.userId, auth.id),
-        ),
-      );
+    const result = await db.transaction(async (tx) => {
+      const ownedArticles = await tx
+        .select({ id: articles.id })
+        .from(articles)
+        .innerJoin(feeds, eq(articles.feedId, feeds.id))
+        .where(
+          and(
+            inArray(articles.id, articleIds),
+            eq(feeds.userId, auth.id),
+          ),
+        );
 
-    const ownedArticleIds = ownedArticles.map(a => a.id);
+      const ownedArticleIds = ownedArticles.map(a => a.id);
 
-    if (ownedArticleIds.length === 0) {
-      throw new AppError("No valid articles found", 404);
-    }
-
-    for (const articleId of ownedArticleIds) {
-      const stateData: Record<string, unknown> = {
-        userId: auth.id,
-        articleId,
-        updatedAt: new Date(),
-      };
-
-      if (updates.isRead !== undefined) {
-        stateData.isRead = updates.isRead;
-        if (updates.isRead) {
-          stateData.readAt = new Date();
-        }
+      if (ownedArticleIds.length === 0) {
+        throw new AppError("No valid articles found", 404);
       }
 
-      if (updates.isStarred !== undefined) {
-        stateData.isStarred = updates.isStarred;
-        if (updates.isStarred) {
-          stateData.starredAt = new Date();
-        }
-      }
+      // Unspecified fields carry their current value through EXCLUDED (the
+      // SELECT coalesces them from the existing row, or uses the column
+      // default for brand-new rows), so partial updates never clobber state.
+      // Insert-select must also list EVERY userArticleStates column, in
+      // table order — drizzle validates the selection keys against the
+      // table definition and rejects partial/reordered selects.
+      const isReadExpr: SQL = updates.isRead === undefined
+        ? sql`COALESCE(${userArticleStates.isRead}, false)`
+        : sql`${updates.isRead}`;
+      const readAtExpr: SQL = updates.isRead === true
+        ? sql`now()`
+        : updates.isRead === false
+          ? sql`NULL`
+          : sql`${userArticleStates.readAt}`;
+      const isStarredExpr: SQL = updates.isStarred === undefined
+        ? sql`COALESCE(${userArticleStates.isStarred}, false)`
+        : sql`${updates.isStarred}`;
+      const starredAtExpr: SQL = updates.isStarred === true
+        ? sql`now()`
+        : updates.isStarred === false
+          ? sql`NULL`
+          : sql`${userArticleStates.starredAt}`;
 
-      await db
+      await tx
         .insert(userArticleStates)
-        .values(stateData as typeof userArticleStates.$inferInsert)
+        .select(
+          tx
+            .select({
+              userId: sql`${auth.id}::uuid`.as("userId"),
+              articleId: articles.id,
+              isRead: isReadExpr.as("isRead"),
+              isStarred: isStarredExpr.as("isStarred"),
+              readAt: readAtExpr.as("readAt"),
+              starredAt: starredAtExpr.as("starredAt"),
+              readingTime: userArticleStates.readingTime,
+              createdAt: sql`now()`.as("createdAt"),
+              updatedAt: sql`now()`.as("updatedAt"),
+            })
+            .from(articles)
+            .innerJoin(feeds, eq(articles.feedId, feeds.id))
+            .leftJoin(
+              userArticleStates,
+              and(
+                eq(userArticleStates.articleId, articles.id),
+                eq(userArticleStates.userId, auth.id),
+              ),
+            )
+            .where(
+              and(
+                inArray(articles.id, ownedArticleIds),
+                eq(feeds.userId, auth.id),
+              ),
+            ),
+        )
         .onConflictDoUpdate({
           target: [userArticleStates.userId, userArticleStates.articleId],
-          set: stateData,
+          set: {
+            isRead: sql`excluded.is_read`,
+            readAt: sql`excluded.read_at`,
+            isStarred: sql`excluded.is_starred`,
+            starredAt: sql`excluded.starred_at`,
+            updatedAt: sql`excluded.updated_at`,
+          },
         });
-    }
+
+      return ownedArticleIds.length;
+    });
 
     return jsonResponse({
       message: "Articles updated",
-      updatedCount: ownedArticleIds.length,
+      updatedCount: result,
     });
   });
 }

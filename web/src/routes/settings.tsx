@@ -145,24 +145,66 @@ export default function SettingsPage() {
     }
   };
 
+function sniffOpmlFile(file: File): Promise<string | null> {
+  return file
+    .text()
+    .then((text) => {
+      if (!text.trim()) return "The file is empty";
+      const parsed = new DOMParser().parseFromString(text, "application/xml");
+      const root = parsed.documentElement;
+      if (!root || root.getElementsByTagName("parsererror").length > 0) {
+        return "The file is not valid XML";
+      }
+      if (root.nodeName.toLowerCase() !== "opml") {
+        return "The file is not an OPML document";
+      }
+      const feedOutlines = Array.from(root.getElementsByTagName("outline")).filter((outline) =>
+        outline.getAttribute("xmlUrl"),
+      );
+      if (feedOutlines.length === 0) {
+        return "No feeds found in this OPML file";
+      }
+      return null;
+    })
+    .catch(() => "The file could not be read");
+}
+
   const onImportPicked = async (event: JSX.TargetedEvent<HTMLInputElement, Event>) => {
     const file = event.currentTarget.files?.[0];
     event.currentTarget.value = "";
     if (!file || importing) return;
     setImporting(true);
     try {
+      const sniffError = await sniffOpmlFile(file);
+      if (sniffError) {
+        showToast({ title: "Not a valid OPML file", message: sniffError, kind: "error" });
+        return;
+      }
       const response = await discoveryApi.importOpml(file);
       if (!response.success) {
         showToast({ title: "Import failed", message: response.error ?? "Please try again", kind: "error" });
         return;
       }
       const result = response.data as OpmlImportResult | undefined;
+      if (!result || (result.imported === 0 && result.failed === 0)) {
+        showToast({ title: "No feeds imported", message: "No new feeds were found in this file.", kind: "error" });
+        return;
+      }
+      if (result.imported === 0) {
+        showToast({
+          title: "No feeds imported",
+          message: result.errors[0] ?? `${result.failed} feed${result.failed === 1 ? "" : "s"} failed to import`,
+          kind: "error",
+        });
+        return;
+      }
       showToast({
         title: "OPML imported",
-        message: result
-          ? `${result.imported} feed${result.imported === 1 ? "" : "s"} imported${result.failed > 0 ? `, ${result.failed} failed` : ""}`
-          : undefined,
-        kind: result && result.failed > 0 ? "info" : "success",
+        message:
+          result.failed > 0
+            ? `${result.imported} feed${result.imported === 1 ? "" : "s"} imported, ${result.failed} failed`
+            : `${result.imported} feed${result.imported === 1 ? "" : "s"} imported`,
+        kind: result.failed > 0 ? "info" : "success",
       });
     } catch (error) {
       showToast({
