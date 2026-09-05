@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "preact/hooks";
+import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { JSX } from "preact";
 import { AppShell } from "../components/AppShell.js";
 import { EmptyState, ErrorState, SkeletonList } from "../components/states.js";
 import { AlertIcon, FileTextIcon, FolderIcon, PlusIcon, RssIcon } from "../components/Icons.js";
 import { useToast } from "../components/Toast.js";
 import { ApiError, feedsApi, foldersApi, toCount } from "../lib/client.js";
-import type { FeedWithUnread, FolderNode } from "../lib/api-types.js";
+import type { ExtractionStats, FeedWithUnread, FolderNode } from "../lib/api-types.js";
 import { Modal } from "../components/secondary/widgets.js";
 import {
   ChevronDownIcon,
@@ -96,6 +96,13 @@ function feedKeptLastGood(feed: FeedWithUnread): boolean {
   return status === "selector-miss" || status === "fetch-error";
 }
 
+// Amber only when failures are more than noise: 3+ absolute, or over a fifth
+// of the scanned window.
+function extractionFailing(stats: ExtractionStats): boolean {
+  if (stats.failed <= 0) return false;
+  return stats.failed >= 3 || (stats.scanned > 0 && stats.failed / stats.scanned > 0.2);
+}
+
 export default function FoldersPage() {
   const { showToast } = useToast();
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
@@ -114,6 +121,29 @@ export default function FoldersPage() {
   const [deleteTarget, setDeleteTarget] = useState<FolderNode | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [togglingFullTextId, setTogglingFullTextId] = useState<string | null>(null);
+  const [extractionStats, setExtractionStats] = useState<Map<string, ExtractionStats>>(new Map());
+  const extractionRequestedRef = useRef<Set<string>>(new Set());
+
+  // Extraction health lives on feed detail, not the list (no N+1 on load).
+  // Fetched lazily on row hover/focus — once per feed per page session.
+  const ensureExtractionStats = useCallback((feed: FeedWithUnread) => {
+    if (!feed.fullTextEnabled || extractionRequestedRef.current.has(feed.id)) return;
+    extractionRequestedRef.current.add(feed.id);
+    feedsApi
+      .get(feed.id)
+      .then((detail) => {
+        const stats = detail.extractionStats;
+        if (!stats) return;
+        setExtractionStats((current) => {
+          const next = new Map(current);
+          next.set(feed.id, stats);
+          return next;
+        });
+      })
+      .catch(() => {
+        extractionRequestedRef.current.delete(feed.id);
+      });
+  }, []);
 
   const load = useCallback(async () => {
     setPhase("loading");
@@ -281,8 +311,16 @@ export default function FoldersPage() {
     const unread = toCount(feed.unreadCount);
     const failing = feedIsFailing(feed);
     const keptLastGood = feedKeptLastGood(feed);
+    const stats = extractionStats.get(feed.id);
+    const extractionDegraded = stats ? extractionFailing(stats) : false;
     return (
-      <div class="folder-feed-row" style={`padding-left: calc(var(--sp-lg) + ${depth * 24}px);`} key={feed.id}>
+      <div
+        class="folder-feed-row"
+        style={`padding-left: calc(var(--sp-lg) + ${depth * 24}px);`}
+        key={feed.id}
+        onMouseEnter={() => ensureExtractionStats(feed)}
+        onFocus={() => ensureExtractionStats(feed)}
+      >
         <span class="folder-feed-icon">
           {feed.favicon ? <img src={feed.favicon} alt="" loading="lazy" /> : null}
           <span class={`folder-feed-fallback${feed.favicon ? " folder-feed-fallback-hidden" : ""}`}>
@@ -304,6 +342,16 @@ export default function FoldersPage() {
                 ? `Kept last good items — ${feed.lastFetchError || "page feed did not update"}`
                 : feed.lastFetchError || "This feed failed to update recently"
             }
+          >
+            <AlertIcon size={14} />
+          </span>
+        ) : null}
+        {extractionDegraded && stats ? (
+          <span
+            class="folder-feed-warning"
+            role="img"
+            aria-label={`Full-text extraction failing on ${stats.failed} of ${stats.scanned} recent articles`}
+            title={`Full-text extraction failing on ${stats.failed} of ${stats.scanned} recent articles`}
           >
             <AlertIcon size={14} />
           </span>

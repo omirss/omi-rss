@@ -10,6 +10,35 @@ export const config = { mode: "app" };
 
 export const middleware = requireAuth;
 
+// Extraction health is reported over a bounded recent-articles window so the
+// detail endpoint stays cheap on large feeds.
+const EXTRACTION_STATS_WINDOW = 200;
+
+async function extractionStatsFor(db: Awaited<ReturnType<typeof getDb>>, feedId: string) {
+  const [row] = await db
+    .select({
+      scanned: sql<number>`COUNT(*)`,
+      extracted: sql<number>`COUNT(*) FILTER (WHERE recent_articles.content_extracted IS NOT NULL AND recent_articles.content_extracted <> '')`,
+      failed: sql<number>`COUNT(*) FILTER (WHERE recent_articles.content_extracted = '')`,
+      pending: sql<number>`COUNT(*) FILTER (WHERE recent_articles.content_extracted IS NULL)`,
+    })
+    .from(sql`(
+      SELECT content_extracted FROM ${articles}
+      WHERE ${articles.feedId} = ${feedId}
+      ORDER BY ${articles.createdAt} DESC
+      LIMIT ${EXTRACTION_STATS_WINDOW}
+    ) AS recent_articles`);
+
+  if (!row) return null;
+  return {
+    scanned: Number(row.scanned),
+    extracted: Number(row.extracted),
+    failed: Number(row.failed),
+    pending: Number(row.pending),
+    windowLimit: EXTRACTION_STATS_WINDOW,
+  };
+}
+
 const updateFeedSchema = z.object({
   customTitle: z.string().optional(),
   folderId: z.string().uuid().nullable().optional(),
@@ -54,6 +83,8 @@ export async function loader({ params, context }: { params: Record<string, strin
       .from(articles)
       .where(eq(articles.feedId, feedId));
 
+    const extractionStats = feed.fullTextEnabled ? await extractionStatsFor(db, feedId) : undefined;
+
     return jsonResponse({
       feed,
       stats: stats
@@ -62,6 +93,7 @@ export async function loader({ params, context }: { params: Record<string, strin
             unreadArticles: Number(stats.unreadArticles),
           }
         : { totalArticles: 0, unreadArticles: 0 },
+      ...(extractionStats ? { extractionStats } : {}),
     });
   });
 }

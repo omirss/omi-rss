@@ -5,7 +5,7 @@ import { EmptyState, ErrorState, SkeletonList } from "../components/states.js";
 import { useToast } from "../components/Toast.js";
 import { useSession } from "../lib/auth.js";
 import { CheckIcon, CompassIcon, GlobeIcon, RssIcon, SearchIcon } from "../components/Icons.js";
-import { ApiError, discoveryApi, feedsApi, foldersApi } from "../lib/client.js";
+import { ApiError, addFeedPrefs, discoveryApi, feedsApi, foldersApi } from "../lib/client.js";
 import type { DiscoveryCategory, FeedSuggestion, FeedWithUnread, FolderNode } from "../lib/api-types.js";
 import { LinkIcon } from "../components/reading/icons.js";
 import { normalizeFeedUrl } from "../components/reading/format.js";
@@ -63,6 +63,7 @@ export default function DiscoverPage() {
   const [urlBusy, setUrlBusy] = useState(false);
   const [subscribingUrl, setSubscribingUrl] = useState<string | null>(null);
   const [addMode, setAddMode] = useState<AddMode>("feed");
+  const [fetchFullText, setFetchFullText] = useState(() => addFeedPrefs.getFullTextDefault());
   const [folderOptions, setFolderOptions] = useState<Array<{ id: string; path: string }>>([]);
   const [pageUrlValue, setPageUrlValue] = useState("");
   const [pageSelectorValue, setPageSelectorValue] = useState("");
@@ -171,7 +172,7 @@ export default function DiscoverPage() {
     }
     setSubscribingUrl(target.url);
     try {
-      const { feed } = await feedsApi.create({ url: target.url });
+      const { feed } = await feedsApi.create({ url: target.url, fullTextEnabled: fetchFullText });
       setSubscribedUrls((current) => new Set(current).add(normalizeFeedUrl(target.url)));
       showToast({
         title: `Subscribed to ${feed.title || target.title}`,
@@ -262,6 +263,11 @@ export default function DiscoverPage() {
     }
   };
 
+  const toggleFetchFullText = (value: boolean) => {
+    setFetchFullText(value);
+    addFeedPrefs.setFullTextDefault(value);
+  };
+
   const displayed = searchResults ?? suggestions;
   const listHeading = searchResults !== null ? `Results for "${searchText.trim()}"` : selectedCategory ? categoryLabel(categories, selectedCategory) : "Popular feeds";
 
@@ -310,6 +316,14 @@ export default function DiscoverPage() {
                   {urlBusy ? "Checking" : "Validate"}
                 </button>
               </form>
+              <label class="discover-fulltext-toggle" title="New subscriptions fetch the complete article body when articles are opened">
+                <input
+                  type="checkbox"
+                  checked={fetchFullText}
+                  onChange={(event) => toggleFetchFullText(event.currentTarget.checked)}
+                />
+                <span>Fetch full text</span>
+              </label>
               {urlPreview ? (
                 <div class="discover-preview">
                   <FeedAvatar src={urlPreview.favicon} name={urlPreview.title} />
@@ -358,7 +372,7 @@ export default function DiscoverPage() {
                   maxLength={500}
                   required
                 />
-                <span class="field-hint">Each matched link becomes an article.</span>
+                <span class="field-hint">Each matched link becomes an article. Articles are captured from the selected region.</span>
               </label>
               <label class="field">
                 <span class="label">Title (optional)</span>

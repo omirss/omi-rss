@@ -13,6 +13,7 @@ import type {
   CreatePageFeedRequest,
   DiscoveryCategory,
   Feed,
+  FeedDetail,
   FeedStats,
   FeedSuggestion,
   FeedWithUnread,
@@ -71,6 +72,7 @@ const KEYS = {
   token: "omi.auth.token",
   refreshToken: "omi.auth.refreshToken",
   user: "omi.auth.user",
+  addFeedFullText: "omi.addfeed.fulltext",
 } as const;
 
 export const tokenStore = {
@@ -100,6 +102,17 @@ export const tokenStore = {
     storage.removeItem(KEYS.token);
     storage.removeItem(KEYS.refreshToken);
     storage.removeItem(KEYS.user);
+  },
+};
+
+// Discover's add-feed "Fetch full text" default, persisted per session
+// (default on — extraction is the intended path).
+export const addFeedPrefs = {
+  getFullTextDefault(): boolean {
+    return storage.getItem(KEYS.addFeedFullText) !== "false";
+  },
+  setFullTextDefault(value: boolean): void {
+    storage.setItem(KEYS.addFeedFullText, value ? "true" : "false");
   },
 };
 
@@ -356,8 +369,8 @@ export const feedsApi = {
   async createPageFeed(body: CreatePageFeedRequest): Promise<{ feed: Feed }> {
     return requestJson<{ feed: Feed }>("/api/feeds/page", { method: "POST", body });
   },
-  async get(feedId: string): Promise<{ feed: Feed; stats: FeedStats }> {
-    return requestJson<{ feed: Feed; stats: FeedStats }>(`/api/feeds/${feedId}`);
+  async get(feedId: string): Promise<FeedDetail> {
+    return requestJson<FeedDetail>(`/api/feeds/${feedId}`);
   },
   async update(feedId: string, body: UpdateFeedRequest): Promise<{ feed: Feed }> {
     return requestJson<{ feed: Feed }>(`/api/feeds/${feedId}`, { method: "PUT", body });

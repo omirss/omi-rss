@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   tokenStore,
+  addFeedPrefs,
   ApiError,
   SESSION_EXPIRED_EVENT,
   authApi,
@@ -132,5 +133,58 @@ describe("toCount", () => {
     expect(toCount("42")).toBe(42);
     expect(toCount(7)).toBe(7);
     expect(toCount("not-a-number")).toBe(0);
+  });
+});
+
+describe("addFeedPrefs", () => {
+  beforeEach(() => {
+    tokenStore.clear();
+    addFeedPrefs.setFullTextDefault(true);
+  });
+
+  it("defaults full text on when nothing is stored", () => {
+    expect(addFeedPrefs.getFullTextDefault()).toBe(true);
+  });
+
+  it("persists an opt-out and reads it back", () => {
+    addFeedPrefs.setFullTextDefault(false);
+    expect(addFeedPrefs.getFullTextDefault()).toBe(false);
+    addFeedPrefs.setFullTextDefault(true);
+    expect(addFeedPrefs.getFullTextDefault()).toBe(true);
+  });
+});
+
+describe("feedsApi", () => {
+  beforeEach(() => {
+    tokenStore.clear();
+    vi.unstubAllGlobals();
+  });
+
+  it("sends fullTextEnabled when subscribing", async () => {
+    const bodies: unknown[] = [];
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      bodies.push(init?.body ? JSON.parse(String(init.body)) : null);
+      return jsonResponse({ feed: { id: "f1", fullTextEnabled: true } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    tokenStore.setTokens({ token: "t", refreshToken: "r" });
+
+    const { feedsApi } = await import("./client.js");
+    await feedsApi.create({ url: "https://example.com/feed.xml", fullTextEnabled: true });
+
+    expect(bodies[0]).toEqual({ url: "https://example.com/feed.xml", fullTextEnabled: true });
+  });
+
+  it("returns extractionStats from feed detail when present", async () => {
+    const extractionStats = { scanned: 5, extracted: 3, failed: 1, pending: 1, windowLimit: 200 };
+    const fetchMock = vi.fn(async () => jsonResponse({ feed: { id: "f1" }, stats: { totalArticles: 5, unreadArticles: 2 }, extractionStats }));
+    vi.stubGlobal("fetch", fetchMock);
+    tokenStore.setTokens({ token: "t", refreshToken: "r" });
+
+    const { feedsApi } = await import("./client.js");
+    const detail = await feedsApi.get("f1");
+
+    expect(detail.extractionStats).toEqual(extractionStats);
+    expect(detail.stats.unreadArticles).toBe(2);
   });
 });

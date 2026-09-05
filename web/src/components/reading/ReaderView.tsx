@@ -134,6 +134,10 @@ export function ReaderView({
 
   const minutes = estimateReadMinutes(detail?.contentExtracted || article?.content || article?.summary);
 
+  // The body renders contentExtracted whenever it is non-empty (it leads the
+  // fallback chain), so its presence means it was the source used.
+  const usedFullText = Boolean(detail?.contentExtracted);
+
   const hasPrev = index > 0;
   const hasNext = index < articles.length - 1;
 
@@ -282,6 +286,11 @@ export function ReaderView({
             <span>{article.feedTitle}</span>
             <span>{formatAbsoluteDate(article.publishedAt)}</span>
             {minutes > 0 ? <span>{minutes} min read</span> : null}
+            {usedFullText ? (
+              <span class="reader-badge" role="img" aria-label="Rendered from extracted full text" title="Rendered from the extracted full article">
+                Full text
+              </span>
+            ) : null}
           </div>
           {bodyHtml ? (
             <div class="reader-content" dangerouslySetInnerHTML={{ __html: bodyHtml }} />

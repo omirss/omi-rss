@@ -77,6 +77,23 @@ export interface FeedStats {
   unreadArticles: Count;
 }
 
+// Extraction health over the most recent articles (bounded window), present
+// on feed detail only when fullTextEnabled is on. contentExtracted: NULL =
+// never attempted, '' = attempted and failed terminally.
+export interface ExtractionStats {
+  scanned: Count;
+  extracted: Count;
+  failed: Count;
+  pending: Count;
+  windowLimit: number;
+}
+
+export interface FeedDetail {
+  feed: Feed;
+  stats: FeedStats;
+  extractionStats?: ExtractionStats;
+}
+
 export interface ArticleListItem {
   id: string;
   feedId: string;
@@ -287,6 +304,7 @@ export interface CreateFeedRequest {
   folderId?: string;
   customTitle?: string;
   updateInterval?: number;
+  fullTextEnabled?: boolean;
 }
 
 export interface UpdateFeedRequest {
