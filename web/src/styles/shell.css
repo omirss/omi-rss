@@ -6,7 +6,7 @@
 
 .shell-drawer {
   flex-shrink: 0;
-  width: 200px;
+  width: 180px;
   display: flex;
   flex-direction: column;
   margin: var(--sp-sm);
