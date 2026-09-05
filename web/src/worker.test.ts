@@ -132,6 +132,11 @@ describe("DNS-transient vs terminal classification in processExtractArticle", ()
       db: {
         select: () => ({
           from: () => ({
+            innerJoin: () => ({
+              where: () => ({
+                limit: async () => (Array.isArray(article) ? [] : [article]),
+              }),
+            }),
             where: () => ({
               limit: async () => (Array.isArray(article) ? [] : [article]),
             }),

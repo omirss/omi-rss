@@ -56,6 +56,9 @@ export interface Feed {
   sourceType: "rss" | "page";
   pageUrl: string | null;
   pageSelector: string | null;
+  // Present on detail payloads only — list payloads omit it (it can carry
+  // the owner's subscription cookies).
+  httpHeaders?: Record<string, string> | null;
   createdAt: IsoDateString;
   updatedAt: IsoDateString;
 }
@@ -89,7 +92,7 @@ export interface ExtractionStats {
 }
 
 export interface FeedDetail {
-  feed: Feed;
+  feed: Feed & { httpHeaders: Record<string, string> | null };
   stats: FeedStats;
   extractionStats?: ExtractionStats;
 }
@@ -313,6 +316,7 @@ export interface UpdateFeedRequest {
   updateInterval?: number;
   isActive?: boolean;
   fullTextEnabled?: boolean;
+  httpHeaders?: Record<string, string> | null;
 }
 
 export interface CreatePageFeedRequest {

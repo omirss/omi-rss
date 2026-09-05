@@ -310,9 +310,21 @@ export function ReaderView({
             </div>
           )}
           <div class="reader-footer">
-            <a class="reader-original-link" href={article.url} target="_blank" rel="noopener noreferrer">
-              Open the original article
-            </a>
+            <span class="reader-footer-links">
+              <a class="reader-original-link" href={article.url} target="_blank" rel="noopener noreferrer">
+                Open the original article
+              </a>
+              {article.url ? (
+                <>
+                  <a class="reader-archive-link" href={`https://web.archive.org/web/${article.url}`} target="_blank" rel="noopener noreferrer">
+                    archive.org
+                  </a>
+                  <a class="reader-archive-link" href={`https://archive.ph/newest/${article.url}`} target="_blank" rel="noopener noreferrer">
+                    archive.today
+                  </a>
+                </>
+              ) : null}
+            </span>
             <span class="reader-shortcuts">
               <kbd class="reader-kbd">j</kbd>
               <kbd class="reader-kbd">k</kbd>

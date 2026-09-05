@@ -5,6 +5,7 @@ import { getDb } from "../../../lib/api/db.js";
 import { AppError, handle, handleLoader, jsonResponse, noContent } from "../../../lib/api/errors.js";
 import { readJsonBody } from "../../../lib/api/body.js";
 import { requireAuth } from "../../../lib/api/auth.js";
+import { validateHttpHeaders } from "../../../lib/feed-headers.js";
 
 export const config = { mode: "app" };
 
@@ -45,6 +46,7 @@ const updateFeedSchema = z.object({
   updateInterval: z.number().min(5).max(1440).optional(),
   isActive: z.boolean().optional(),
   fullTextEnabled: z.boolean().optional(),
+  httpHeaders: z.record(z.string()).nullable().optional(),
 });
 
 export async function loader({ params, context }: { params: Record<string, string>; context: Record<string, unknown> }) {
@@ -136,10 +138,21 @@ export async function action({ request, params, context }: { request: Request; p
       throw new AppError("fullTextEnabled cannot be set on page feeds", 400);
     }
 
+    let httpHeaders: Record<string, string> | null | undefined;
+    if (data.httpHeaders !== undefined) {
+      const validated = validateHttpHeaders(data.httpHeaders);
+      if (!validated.ok) {
+        throw new AppError(validated.error, 400);
+      }
+      // An empty object clears the headers (stored as NULL).
+      httpHeaders = Object.keys(validated.value).length > 0 ? validated.value : null;
+    }
+
     const [updatedFeed] = await db
       .update(feeds)
       .set({
         ...data,
+        ...(httpHeaders !== undefined && { httpHeaders }),
         updatedAt: new Date(),
       })
       .where(eq(feeds.id, feedId))

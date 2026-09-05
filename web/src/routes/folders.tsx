@@ -6,6 +6,7 @@ import { AlertIcon, FileTextIcon, FolderIcon, PlusIcon, RssIcon } from "../compo
 import { useToast } from "../components/Toast.js";
 import { ApiError, feedsApi, foldersApi, toCount } from "../lib/client.js";
 import type { ExtractionStats, FeedWithUnread, FolderNode } from "../lib/api-types.js";
+import { validateHttpHeaders } from "../lib/feed-headers.js";
 import { Modal } from "../components/secondary/widgets.js";
 import {
   ChevronDownIcon,
@@ -123,6 +124,83 @@ export default function FoldersPage() {
   const [togglingFullTextId, setTogglingFullTextId] = useState<string | null>(null);
   const [extractionStats, setExtractionStats] = useState<Map<string, ExtractionStats>>(new Map());
   const extractionRequestedRef = useRef<Set<string>>(new Set());
+  const [editTarget, setEditTarget] = useState<FeedWithUnread | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editInterval, setEditInterval] = useState("30");
+  const [editCookie, setEditCookie] = useState("");
+  const [editRows, setEditRows] = useState<Array<{ key: string; value: string }>>([]);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
+
+  // Headers live on feed detail (the list omits them — they can carry the
+  // owner's cookies), so the dialog fetches them on open.
+  const openEditDialog = (feed: FeedWithUnread) => {
+    setEditTarget(feed);
+    setEditTitle(feed.customTitle ?? "");
+    setEditInterval(String(feed.updateInterval ?? 30));
+    setEditCookie("");
+    setEditRows([]);
+    setEditError(null);
+    feedsApi
+      .get(feed.id)
+      .then((detail) => {
+        const headers = detail.feed.httpHeaders ?? {};
+        const rows: Array<{ key: string; value: string }> = [];
+        for (const [key, value] of Object.entries(headers)) {
+          if (key.toLowerCase() === "cookie") {
+            setEditCookie(value);
+          } else {
+            rows.push({ key, value });
+          }
+        }
+        setEditRows(rows);
+      })
+      .catch(() => undefined);
+  };
+
+  const onEditSubmit = async (event: JSX.TargetedEvent<HTMLFormElement, Event>) => {
+    event.preventDefault();
+    if (!editTarget || editSaving) return;
+    setEditError(null);
+
+    const interval = parseInt(editInterval, 10);
+    if (!Number.isFinite(interval) || interval < 5 || interval > 1440) {
+      setEditError("Update interval must be between 5 and 1440 minutes");
+      return;
+    }
+
+    const headerObject: Record<string, string> = {};
+    for (const row of editRows) {
+      const key = row.key.trim();
+      if (key) headerObject[key] = row.value;
+    }
+    const cookie = editCookie.trim();
+    if (cookie) headerObject["Cookie"] = cookie;
+
+    const validated = validateHttpHeaders(headerObject);
+    if (!validated.ok) {
+      setEditError(validated.error);
+      return;
+    }
+
+    const hasHeaders = Object.keys(validated.value).length > 0;
+
+    setEditSaving(true);
+    try {
+      await feedsApi.update(editTarget.id, {
+        customTitle: editTitle.trim(),
+        updateInterval: interval,
+        httpHeaders: hasHeaders ? validated.value : null,
+      });
+      showToast({ title: "Feed updated", message: feedDisplayTitle(editTarget), kind: "success" });
+      setEditTarget(null);
+      await load();
+    } catch (error) {
+      setEditError(error instanceof ApiError ? error.message : "Could not save the feed");
+    } finally {
+      setEditSaving(false);
+    }
+  };
 
   // Extraction health lives on feed detail, not the list (no N+1 on load).
   // Fetched lazily on row hover/focus — once per feed per page session.
@@ -358,6 +436,15 @@ export default function FoldersPage() {
         ) : null}
         {unread > 0 ? <span class="chip chip-count">{unread}</span> : null}
         <span class="folder-feed-actions">
+          <button
+            type="button"
+            class="btn btn-ghost btn-icon btn-sm"
+            aria-label={`Edit ${feedDisplayTitle(feed)}`}
+            title="Edit feed (title, interval, headers)"
+            onClick={() => openEditDialog(feed)}
+          >
+            <PencilIcon size={15} />
+          </button>
           {feed.sourceType === "page" ? null : (
             <button
               type="button"
@@ -582,6 +669,107 @@ export default function FoldersPage() {
               </button>
               <button type="submit" class="btn btn-primary" disabled={!renameName.trim() || renaming}>
                 {renaming ? <span class="spinner" /> : null}
+                Save changes
+              </button>
+            </div>
+          </form>
+        </Modal>
+      ) : null}
+
+      {editTarget ? (
+        <Modal title={`Edit ${feedDisplayTitle(editTarget)}`} onClose={() => setEditTarget(null)}>
+          <form onSubmit={onEditSubmit}>
+            <label class="field">
+              <span class="label">Custom title</span>
+              <input
+                class="input"
+                type="text"
+                value={editTitle}
+                onInput={(event) => setEditTitle(event.currentTarget.value)}
+                maxLength={500}
+                placeholder={editTarget.title}
+              />
+            </label>
+            <label class="field" style="margin-top: var(--sp-md);">
+              <span class="label">Update interval (minutes)</span>
+              <input
+                class="input"
+                type="number"
+                min={5}
+                max={1440}
+                step={1}
+                value={editInterval}
+                onInput={(event) => setEditInterval(event.currentTarget.value)}
+              />
+              <span class="field-hint">How often the worker refreshes this feed (5 to 1440 minutes).</span>
+            </label>
+            <div class="field" style="margin-top: var(--sp-md);">
+              <span class="label">HTTP headers</span>
+              <label class="field">
+                <span class="label">Cookie (quick paste)</span>
+                <textarea
+                  class="input"
+                  value={editCookie}
+                  onInput={(event) => setEditCookie(event.currentTarget.value)}
+                  placeholder="session=...; subscriber=..."
+                  spellcheck={false}
+                />
+              </label>
+              <div class="feed-edit-header-rows">
+                {editRows.map((row, index) => (
+                  <div class="feed-edit-header-row" key={index}>
+                    <input
+                      class="input"
+                      type="text"
+                      value={row.key}
+                      placeholder="Header (e.g. X-Token)"
+                      spellcheck={false}
+                      onInput={(event) => {
+                        const value = event.currentTarget.value;
+                        setEditRows((current) => current.map((r, i) => (i === index ? { ...r, key: value } : r)));
+                      }}
+                    />
+                    <input
+                      class="input"
+                      type="text"
+                      value={row.value}
+                      placeholder="Value"
+                      spellcheck={false}
+                      onInput={(event) => {
+                        const value = event.currentTarget.value;
+                        setEditRows((current) => current.map((r, i) => (i === index ? { ...r, value } : r)));
+                      }}
+                    />
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-icon btn-sm"
+                      aria-label={`Remove header ${row.key || index + 1}`}
+                      onClick={() => setEditRows((current) => current.filter((_, i) => i !== index))}
+                    >
+                      <TrashIcon size={15} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm"
+                onClick={() => setEditRows((current) => [...current, { key: "", value: "" }])}
+              >
+                Add header
+              </button>
+              <span class="field-hint">
+                Sent with every fetch of this feed — paste your subscription cookie so paywalled content you pay for downloads in full.
+                Allowed: Cookie, User-Agent, Referer, Accept, Accept-Language, Authorization, and X-* headers.
+              </span>
+            </div>
+            {editError ? <p class="field-error">{editError}</p> : null}
+            <div class="modal-actions">
+              <button type="button" class="btn btn-ghost" onClick={() => setEditTarget(null)}>
+                Cancel
+              </button>
+              <button type="submit" class="btn btn-primary" disabled={editSaving}>
+                {editSaving ? <span class="spinner" /> : null}
                 Save changes
               </button>
             </div>

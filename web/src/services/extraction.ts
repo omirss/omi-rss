@@ -239,6 +239,14 @@ function safeHostname(url: string): string | null {
   }
 }
 
+function sameHostRedirect(fromUrl: string, toUrl: string): boolean {
+  try {
+    return new URL(fromUrl).hostname.toLowerCase() === new URL(toUrl).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
 export type ExtractionMethod = "readability" | "selector" | "meta";
 
 export interface ExtractionResult {
@@ -460,6 +468,7 @@ export interface ConditionalGetHeaders {
 export async function fetchDocument(
   url: string,
   conditional?: ConditionalGetHeaders,
+  customHeaders?: Record<string, string>,
 ): Promise<FetchedDocument> {
   await assertSafeFeedUrl(url);
 
@@ -470,7 +479,7 @@ export async function fetchDocument(
       await sleep(RETRY_DELAY_MS);
     }
     try {
-      const result = await fetchDocumentWithRedirects(url, conditional);
+      const result = await fetchDocumentWithRedirects(url, conditional, customHeaders);
       if (RETRYABLE_STATUSES.has(result.status) && attempt < RETRY_ATTEMPTS) {
         lastError = new Error(`HTTP ${result.status} fetching document: ${url}`);
         continue;
@@ -512,8 +521,17 @@ async function fetchWithTimeout(
   }
 }
 
-async function fetchDocumentWithRedirects(url: string, conditional?: ConditionalGetHeaders): Promise<FetchedDocument> {
+async function fetchDocumentWithRedirects(
+  url: string,
+  conditional?: ConditionalGetHeaders,
+  customHeaders?: Record<string, string>,
+): Promise<FetchedDocument> {
   let currentUrl = url;
+  // Bring-your-own-subscription headers survive redirect hops only while
+  // the destination stays on the ORIGINAL request's host — cookies and
+  // authorization are origin-scoped, so a cross-origin hop drops them
+  // instead of leaking the owner's credentials to the redirect target.
+  let currentCustomHeaders = customHeaders;
 
   for (let hop = 0; hop <= MAX_REDIRECT_HOPS; hop++) {
     const headers: Record<string, string> = {
@@ -522,6 +540,7 @@ async function fetchDocumentWithRedirects(url: string, conditional?: Conditional
     };
     if (conditional?.etag) headers["If-None-Match"] = conditional.etag;
     if (conditional?.lastModified) headers["If-Modified-Since"] = conditional.lastModified;
+    Object.assign(headers, currentCustomHeaders);
 
     // Each hop re-enters the host gate for its DESTINATION host.
     const response = await withHostGate(currentUrl, () => fetchWithTimeout(currentUrl, headers));
@@ -535,7 +554,11 @@ async function fetchDocumentWithRedirects(url: string, conditional?: Conditional
       if (hop === MAX_REDIRECT_HOPS) {
         throw new AppError(`Blocked feed URL (exceeded ${MAX_REDIRECT_HOPS} redirect hops): ${url}`, 400);
       }
-      currentUrl = await assertRedirectLocation(currentUrl, location);
+      const nextUrl = await assertRedirectLocation(currentUrl, location);
+      if (currentCustomHeaders && !sameHostRedirect(url, nextUrl)) {
+        currentCustomHeaders = undefined;
+      }
+      currentUrl = nextUrl;
       continue;
     }
 

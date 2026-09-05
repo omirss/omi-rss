@@ -5,6 +5,7 @@ vi.mock("../lib/api/db.js", () => ({ getDb: vi.fn() }));
 import { loader as articleListLoader } from "../routes/api/articles/index.js";
 import { loader as articleDetailLoader } from "../routes/api/articles/[articleId].js";
 import { loader as feedsListLoader } from "../routes/api/feeds/index.js";
+import { loader as feedDetailLoader } from "../routes/api/feeds/[feedId].js";
 import { getDb } from "../lib/api/db.js";
 
 // Payload-shape contract tests: article LIST payloads must not carry the
@@ -126,5 +127,38 @@ describe("feeds list payload", () => {
 
     const body = (await response.json()) as { feeds: Array<Record<string, unknown>> };
     expect(body.feeds[0].settings).toEqual({ pageStatus: "selector-miss" });
+  });
+
+  it("omits httpHeaders from the projection (owner cookies never ride the list)", async () => {
+    const { db, selectCalls } = makeDb([
+      [{ id: "f1", title: "Feed", unreadCount: 0 }],
+    ]);
+    vi.mocked(getDb).mockResolvedValue(db as never);
+
+    const response = await thrownResponse(feedsListLoader({ context }));
+
+    const feedFields = selectCalls[0].fields as Record<string, unknown>;
+    expect(Object.keys(feedFields)).not.toContain("httpHeaders");
+
+    const body = (await response.json()) as { feeds: Array<Record<string, unknown>> };
+    expect(body.feeds[0]).not.toHaveProperty("httpHeaders");
+  });
+});
+
+describe("feed detail payload", () => {
+  it("includes the owner's httpHeaders (detail is owner-only)", async () => {
+    const { db } = makeDb([
+      [{ id: "f1", userId: "u1", fullTextEnabled: false, httpHeaders: { cookie: "s=t" } }],
+      [{ totalArticles: 1, unreadArticles: 1 }],
+    ]);
+    vi.mocked(getDb).mockResolvedValue(db as never);
+
+    const response = await thrownResponse(
+      feedDetailLoader({ params: { feedId: "f1" }, context }),
+    );
+
+    expect(response).toBeInstanceOf(Response);
+    const body = (await response.json()) as { feed: Record<string, unknown> };
+    expect(body.feed.httpHeaders).toEqual({ cookie: "s=t" });
   });
 });

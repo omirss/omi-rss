@@ -154,9 +154,12 @@ async function enqueuePendingExtractions(db: Database, feed: FeedRow, runStarted
 export async function processExtractArticle(articleId: string): Promise<{ articleId: string; status: ArticleExtractionOutcome | string }> {
   const db = await getDb();
 
+  // Single query: article fields plus the feed's bring-your-own-subscription
+  // headers (join, no second roundtrip).
   const [article] = await db
-    .select({ id: articles.id, url: articles.url, contentExtracted: articles.contentExtracted })
+    .select({ id: articles.id, url: articles.url, contentExtracted: articles.contentExtracted, httpHeaders: feeds.httpHeaders })
     .from(articles)
+    .innerJoin(feeds, eq(articles.feedId, feeds.id))
     .where(eq(articles.id, articleId))
     .limit(1);
 
@@ -190,7 +193,7 @@ export async function processExtractArticle(articleId: string): Promise<{ articl
   }
 
   try {
-    const doc = await fetchDocument(url);
+    const doc = await fetchDocument(url, undefined, article!.httpHeaders ?? undefined);
     if (doc.status !== 200 || !doc.body) {
       await storeExtraction(db, articleId, "");
       return { articleId, status: `http-${doc.status}` };
@@ -270,7 +273,9 @@ async function processPageFeedSingle(feed: FeedRow): Promise<{ feedId: string; n
   pageFeedInFlight.add(feed.id);
   try {
     const db = await getDb();
-    const result = await runPageFeedUpdate(feed, fetchDocument, createPageFeedStore(db));
+    // The feed's bring-your-own-subscription headers ride along on every
+    // page-feed poll fetch.
+    const result = await runPageFeedUpdate(feed, (url, conditional) => fetchDocument(url, conditional, feed.httpHeaders ?? undefined), createPageFeedStore(db));
     if (result.newItems > 0) {
       console.info(`Page feed ${feed.title} added ${result.newItems} items (${result.status})`);
     }
@@ -378,7 +383,7 @@ async function processUpdateSingle(feedId: string): Promise<{ feedId: string; ne
     console.info(`Updating feed: ${feed.title} (${feed.url})`);
 
     const runStartedAt = Date.now();
-    const feedXml = await withHostGate(feed.url, () => fetchFeedXml(feed.url));
+    const feedXml = await withHostGate(feed.url, () => fetchFeedXml(feed.url, feed.httpHeaders ?? undefined));
     const feedData = await parser.parseString(feedXml);
 
     await db

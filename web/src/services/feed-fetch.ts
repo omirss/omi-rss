@@ -96,6 +96,18 @@ interface FeedHttpResponse {
   body: string | null;
 }
 
+// Custom headers (bring-your-own-subscription) survive a redirect hop only
+// while the destination stays on the ORIGINAL request's host: cookies and
+// authorization are origin-scoped, so a cross-origin hop drops them instead
+// of leaking the owner's credentials to whoever the feed redirects to.
+function sameHostRedirect(fromUrl: string, toUrl: string): boolean {
+  try {
+    return new URL(fromUrl).hostname.toLowerCase() === new URL(toUrl).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
 // Resolves a redirect hop to an absolute URL and re-validates it through the
 // same assert — exported for unit tests.
 export async function assertRedirectLocation(currentUrl: string, location: string): Promise<string> {
@@ -109,8 +121,9 @@ export async function assertRedirectLocation(currentUrl: string, location: strin
   return next.toString();
 }
 
-async function fetchFeedOnce(url: string): Promise<FeedHttpResponse> {
+async function fetchFeedOnce(url: string, customHeaders?: Record<string, string>): Promise<FeedHttpResponse> {
   let currentUrl = url;
+  let currentCustomHeaders = customHeaders;
   const controller = new AbortController();
 
   for (let hop = 0; hop <= FEED_MAX_REDIRECT_HOPS; hop++) {
@@ -121,6 +134,7 @@ async function fetchFeedOnce(url: string): Promise<FeedHttpResponse> {
         headers: {
           "User-Agent": FEED_USER_AGENT,
           Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
+          ...(currentCustomHeaders ?? {}),
         },
         redirect: "manual",
         signal: controller.signal,
@@ -134,7 +148,11 @@ async function fetchFeedOnce(url: string): Promise<FeedHttpResponse> {
         if (hop === FEED_MAX_REDIRECT_HOPS) {
           throw unsafeFeedUrl(url, `exceeded ${FEED_MAX_REDIRECT_HOPS} redirect hops`);
         }
-        currentUrl = await assertRedirectLocation(currentUrl, location);
+        const nextUrl = await assertRedirectLocation(currentUrl, location);
+        if (currentCustomHeaders && !sameHostRedirect(url, nextUrl)) {
+          currentCustomHeaders = undefined;
+        }
+        currentUrl = nextUrl;
         continue;
       }
 
@@ -156,7 +174,7 @@ async function fetchFeedOnce(url: string): Promise<FeedHttpResponse> {
   throw unsafeFeedUrl(url, `exceeded ${FEED_MAX_REDIRECT_HOPS} redirect hops`);
 }
 
-export async function fetchFeedXml(url: string): Promise<string> {
+export async function fetchFeedXml(url: string, customHeaders?: Record<string, string>): Promise<string> {
   await assertSafeFeedUrl(url);
 
   const maxAttempts = FEED_RETRY_DELAYS_MS.length + 1;
@@ -169,7 +187,7 @@ export async function fetchFeedXml(url: string): Promise<string> {
     }
 
     try {
-      const { status, body } = await fetchFeedOnce(url);
+      const { status, body } = await fetchFeedOnce(url, customHeaders);
 
       if (body !== null) {
         return body;

@@ -110,4 +110,73 @@ describe("PUT /api/feeds/:id", () => {
 
     expect(response.status).toBe(404);
   });
+
+  it("accepts allowlisted httpHeaders and persists them", async () => {
+    const updated = { id: "f1", sourceType: "rss", httpHeaders: { cookie: "s=t" } };
+    const { db, updates } = fakeDb([{ id: "f1", userId: "u1", sourceType: "rss" }], [updated]);
+    vi.mocked(getDb).mockResolvedValue(db as never);
+
+    const response = await action({
+      request: putRequest({ httpHeaders: { Cookie: "s=t", "X-Custom": "v" } }),
+      params: { feedId: "f1" },
+      context,
+    });
+
+    expect(response.status).toBe(200);
+    expect(updates).toHaveLength(1);
+    expect(updates[0].httpHeaders).toEqual({ cookie: "s=t", "x-custom": "v" });
+  });
+
+  it("rejects forbidden httpHeaders names (Host, Content-Length) with 400", async () => {
+    const { db, updates } = fakeDb([{ id: "f1", userId: "u1", sourceType: "rss" }], []);
+    vi.mocked(getDb).mockResolvedValue(db as never);
+
+    for (const [name, value] of [["Host", "evil.example"], ["Content-Length", "999"], ["Connection", "close"]] as Array<[string, string]>) {
+      const response = await action({
+        request: putRequest({ httpHeaders: { [name]: value } }),
+        params: { feedId: "f1" },
+        context,
+      });
+      expect(response.status).toBe(400);
+      const body = (await response.json()) as { error: string };
+      expect(body.error).toContain(name);
+    }
+    expect(updates).toHaveLength(0);
+  });
+
+  it("clears stored headers on null and on empty object", async () => {
+    const updated = { id: "f1", sourceType: "rss", httpHeaders: null };
+    const { db, updates } = fakeDb([{ id: "f1", userId: "u1", sourceType: "rss" }], [updated]);
+    vi.mocked(getDb).mockResolvedValue(db as never);
+
+    const cleared = await action({
+      request: putRequest({ httpHeaders: null }),
+      params: { feedId: "f1" },
+      context,
+    });
+    expect(cleared.status).toBe(200);
+    expect(updates[0].httpHeaders).toBeNull();
+
+    const emptied = await action({
+      request: putRequest({ httpHeaders: {} }),
+      params: { feedId: "f1" },
+      context,
+    });
+    expect(emptied.status).toBe(200);
+    expect(updates[1].httpHeaders).toBeNull();
+  });
+
+  it("rejects oversized header values with 400", async () => {
+    const { db, updates } = fakeDb([{ id: "f1", userId: "u1", sourceType: "rss" }], []);
+    vi.mocked(getDb).mockResolvedValue(db as never);
+
+    const response = await action({
+      request: putRequest({ httpHeaders: { Cookie: "a".repeat(4097) } }),
+      params: { feedId: "f1" },
+      context,
+    });
+
+    expect(response.status).toBe(400);
+    expect(updates).toHaveLength(0);
+  });
 });

@@ -344,6 +344,29 @@
   border: var(--hairline) dashed var(--c-glass-stroke);
 }
 
+/* Feed edit dialog: key/value header rows */
+.feed-edit-header-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-xs);
+  margin-top: var(--sp-sm);
+}
+
+.feed-edit-header-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-xs);
+}
+
+.feed-edit-header-row .input {
+  height: 36px;
+  font: var(--t-caption);
+}
+
+.feed-edit-header-row .input:first-child {
+  flex: 0 1 40%;
+}
+
 /* Settings rows */
 .settings-row {
   display: flex;

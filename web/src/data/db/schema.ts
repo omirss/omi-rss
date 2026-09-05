@@ -84,6 +84,10 @@ export const feeds = pgTable("feeds", {
   sourceType: varchar("source_type", { length: 20 }).default("rss").notNull(),
   pageUrl: text("page_url"),
   pageSelector: text("page_selector"),
+  // v0.4.2 bring-your-own-subscription: allowlisted request headers sent
+  // with every fetch of this feed (refresh, extraction, page-feed poll).
+  // NULL = no custom headers. Never included in list payloads.
+  httpHeaders: jsonb("http_headers").$type<Record<string, string>>(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => [

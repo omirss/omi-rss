@@ -426,6 +426,19 @@
   border-top: var(--hairline) solid var(--c-divider);
 }
 
+.reader-footer-links {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-lg);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.reader-archive-link {
+  font: var(--t-caption);
+  color: var(--c-text-medium);
+}
+
 .reader-original-link {
   font: 600 var(--t-label);
   color: var(--c-accent);
