@@ -38,12 +38,24 @@ discovery provider drops in later without touching the reader core.
 **Nothing in Webroll adds requirements to omi-rss v0.2.** It is referenced
 here so its existence is deliberate, not forgotten.
 
-## Current state (v0.3.0)
+## Current state (v0.4.0)
 
-The full-stack Neutron migration (below) is landed and live-verified; the
-Express server and the Flutter web UI are retired (git history preserves
-them). Remaining: store submissions for the extension, publishing the Docker
-image to a registry (owner decision).
+The extraction axis landed: full-text extraction (FullTextRSS role) and
+page-to-feed generation (scoped RSSHub role) ship as one server-side
+engine — readability + linkedom + sanitize-html per a measured research
+spike — with per-feed opt-in, SSRF-safe fetching, per-host politeness,
+and a resilient page-feed updater (content-hash identity, keep-last-good
+on selector miss, conditional GET). The extension gained a region picker
+("generate feed from this page"); the webui gained the full-text toggle
+and page-feed creation. Remaining: store submissions, Docker registry
+publish (owner decisions); greader API evaluation stays a v1.x question.
+
+## v0.4.0 — Extraction and page feeds (2026-09-05)
+
+See Current state above and the commit history for detail. The original
+ambition — FreshRSS + FullTextRSS + RSSHub combined — is now: reader
+(v0.2), platform (Neutron, v0.3), extraction + page feeds (v0.4);
+greader-compatible API remains the open evaluation.
 
 ## v0.3.0 — Full-stack Neutron migration (2026-09-04/05)
 
