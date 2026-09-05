@@ -3,7 +3,7 @@ import jwt from "jsonwebtoken";
 import { eq } from "drizzle-orm";
 import { users } from "../../data/db/schema.js";
 import { getDb } from "./db.js";
-import { AppError } from "./errors.js";
+import { AppError, jsonResponse } from "./errors.js";
 import { tokenVersionMatches, verifyAccessTokenClaims } from "./tokens.js";
 import { consumeUserRateLimit } from "./rate-limit.js";
 
@@ -101,6 +101,15 @@ export const requireAuth: MiddlewareFn = async (request, context, next) => {
 
     return next();
   } catch (error) {
+    // Operational AppErrors (e.g. the 429 from consumeUserRateLimit) must
+    // keep their own status and message — the generic 500 below would mask
+    // rate limits as "Authentication failed".
+    if (error instanceof AppError) {
+      return jsonResponse(
+        { error: error.message, timestamp: new Date().toISOString() },
+        error.statusCode
+      );
+    }
     console.error("Authentication error:", error);
     return new Response(JSON.stringify({ error: "Authentication failed" }), {
       status: 500,

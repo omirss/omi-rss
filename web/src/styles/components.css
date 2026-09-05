@@ -44,7 +44,7 @@
 }
 
 .btn-primary:hover:not(:disabled) {
-  filter: brightness(1.08);
+  filter: brightness(1.05);
 }
 
 .btn-primary:active:not(:disabled) {
@@ -274,6 +274,10 @@ button.chip:hover {
   padding: var(--sp-md) var(--sp-lg);
   pointer-events: auto;
   animation: toast-in 200ms ease-out;
+  /* Override glass-panel's 30px blur: toasts float over the already-blurred
+     reader/modal backdrops and double blur turns to mush. */
+  backdrop-filter: blur(var(--blur-md));
+  -webkit-backdrop-filter: blur(var(--blur-md));
 }
 
 .toast-icon {
@@ -302,7 +306,7 @@ button.chip:hover {
   flex-shrink: 0;
   color: var(--c-text-low);
   display: inline-flex;
-  padding: 2px;
+  padding: var(--sp-xxs);
   border-radius: var(--r-sm);
 }
 
@@ -382,10 +386,19 @@ button.chip:hover {
      reader backdrop in reading.css. */
   z-index: 300;
   background: var(--c-overlay);
+  backdrop-filter: blur(var(--blur-sm));
+  -webkit-backdrop-filter: blur(var(--blur-sm));
+  animation: overlay-in 150ms ease-out;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: var(--sp-xl);
+}
+
+@keyframes overlay-in {
+  from {
+    opacity: 0;
+  }
 }
 
 .modal {
@@ -411,6 +424,7 @@ button.chip:hover {
 
 .segmented {
   display: inline-flex;
+  /* 3px inset is derived: item radius 9 = r-md 12 - 3. */
   padding: 3px;
   gap: 2px;
   background: var(--c-glass-fill);
@@ -497,4 +511,28 @@ button.chip:hover {
   padding: var(--sp-xxl);
   font: var(--t-label);
   color: var(--c-text-medium);
+}
+
+@media (max-width: 960px) {
+  /* Touch targets: grow compact controls to 44px on mobile without
+     touching desktop density. */
+  .btn-sm,
+  .btn-icon {
+    height: 44px;
+    min-width: 44px;
+  }
+
+  .btn-icon.btn-sm {
+    width: 44px;
+    height: 44px;
+  }
+
+  .segmented-item {
+    height: 44px;
+    min-width: 44px;
+  }
+
+  .chip {
+    height: 36px;
+  }
 }

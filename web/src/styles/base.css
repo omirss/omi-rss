@@ -13,6 +13,8 @@ body {
 
 html {
   -webkit-text-size-adjust: 100%;
+  scrollbar-width: thin;
+  scrollbar-color: var(--c-glass-stroke) transparent;
 }
 
 body {
@@ -125,7 +127,7 @@ hr {
 }
 
 ::selection {
-  background: var(--c-accent-soft);
+  background: color-mix(in srgb, var(--c-accent) 40%, transparent);
 }
 
 :focus-visible {

@@ -596,6 +596,12 @@
   color: var(--c-text-medium);
 }
 
+@media (max-width: 960px) {
+  .feed-move-select {
+    height: 44px;
+  }
+}
+
 @media (max-width: 640px) {
   .settings-row-content {
     padding-left: 0;

@@ -474,7 +474,10 @@
     top: 0;
     bottom: 0;
     left: 0;
-    z-index: 120;
+    /* Above the topbar (z-index 200): the full-width topbar otherwise
+       occludes the drawer header (logo + close button). Backdrop sits
+       just below the drawer. Toasts (400) stay above both. */
+    z-index: 320;
     width: 288px;
     margin: 0;
     transform: translateX(-100%);
@@ -490,7 +493,7 @@
     display: block;
     position: fixed;
     inset: 0;
-    z-index: 110;
+    z-index: 310;
     background: var(--c-overlay);
   }
 
@@ -522,6 +525,15 @@
 
   .drawer-collapse.drawer-close-btn {
     display: inline-flex;
+    padding: var(--sp-lg);
+  }
+
+  .drawer-link {
+    height: 44px;
+  }
+
+  .drawer-footer-logout {
+    height: 44px;
   }
 
   .topbar {
