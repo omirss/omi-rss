@@ -1,0 +1,38 @@
+{
+  "name": "omi-rss-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node --env-file-if-exists=.env node_modules/@neutron-build/cli/dist/index.js dev",
+    "build": "neutron-ts build",
+    "build:docker": "neutron-ts build --preset docker",
+    "preview": "neutron-ts preview",
+    "start": "neutron-ts start",
+    "worker": "neutron-ts worker",
+    "check": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate --config drizzle.config.mjs",
+    "db:migrate": "drizzle-kit migrate --config drizzle.config.mjs"
+  },
+  "dependencies": {
+    "@neutron-build/cli": "0.2.1",
+    "@neutron-build/core": "0.2.0",
+    "@neutron-build/data": "0.1.1",
+    "@neutron-build/ops": "0.1.2",
+    "@neutron-build/security": "0.1.2",
+    "bullmq": "5.58.0",
+    "drizzle-orm": "0.45.2",
+    "ioredis": "5.8.1",
+    "postgres": "3.4.9",
+    "preact": "^10.25.4",
+    "preact-render-to-string": "^6.6.5",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.9.4",
+    "@types/node": "22.19.11",
+    "drizzle-kit": "0.31.10",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7"
+  }
+}
