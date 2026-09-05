@@ -50,10 +50,11 @@ class SyncManager {
     const localData = await this.getSyncData();
     const merged = this.mergeData(localData, remoteData);
 
-    // Apply merged data
+    // Apply merged data. Feeds first: articles reference feed ids, and the
+    // upsert may have assigned different ids than the import file used.
+    const feedIdMap = await this.saveFeeds(merged.data.feeds);
     await Promise.all([
-      this.saveFeeds(merged.data.feeds),
-      this.saveArticles(merged.data.articles),
+      this.saveArticles(merged.data.articles, feedIdMap),
       chrome.storage.sync.set(merged.data.settings),
       chrome.storage.local.set({ readArticles: merged.data.readStatus }),
       chrome.storage.local.set({ savedArticles: merged.data.savedArticles }),
@@ -150,27 +151,60 @@ class SyncManager {
     return deviceId;
   }
 
+  // Feeds/articles live in IndexedDB (storageService). The old
+  // chrome.storage.local 'feeds'/'articles' keys were never written by
+  // anything, which made exports contain "0 feeds, 0 articles".
   async getFeeds() {
-    // Get feeds from local storage or API service
-    const { feeds } = await chrome.storage.local.get('feeds');
-    return feeds || [];
+    try {
+      return await storageService.getAllFeeds();
+    } catch (err) {
+      console.error('Failed to read feeds for sync:', err);
+      return [];
+    }
   }
 
   async getArticles() {
-    // Get articles from local storage
-    const { articles } = await chrome.storage.local.get('articles');
-    return articles || [];
+    try {
+      return await storageService.getAllArticles();
+    } catch (err) {
+      console.error('Failed to read articles for sync:', err);
+      return [];
+    }
   }
 
+  // Upsert imported feeds by URL. Returns a map from the feed id used in the
+  // import file to the actual stored id, so articles can be re-pointed.
   async saveFeeds(feeds) {
-    await chrome.storage.local.set({ feeds });
-    // Notify popup/sidepanel
-    chrome.runtime.sendMessage({ action: 'feeds-updated', feeds });
+    const idMap = new Map();
+    for (const feed of Array.isArray(feeds) ? feeds : []) {
+      const existing = feed.url ? await storageService.getFeedByUrl(feed.url).catch(() => null) : null;
+      if (existing) {
+        if (feed.id !== undefined && feed.id !== existing.id) {
+          idMap.set(feed.id, existing.id);
+        }
+        await storageService.updateFeed(existing.id, feed);
+      } else {
+        await storageService.addFeed(feed);
+        if (feed.id !== undefined) idMap.set(feed.id, feed.id);
+      }
+    }
+    chrome.runtime.sendMessage({ action: 'feeds-updated', feeds }).catch(() => {});
+    return idMap;
   }
 
-  async saveArticles(articles) {
-    await chrome.storage.local.set({ articles });
-    chrome.runtime.sendMessage({ action: 'articles-updated', articles });
+  async saveArticles(articles, feedIdMap = new Map()) {
+    const grouped = new Map();
+    for (const article of Array.isArray(articles) ? articles : []) {
+      const feedId = feedIdMap.has(article.feedId) ? feedIdMap.get(article.feedId) : article.feedId;
+      if (!grouped.has(feedId)) grouped.set(feedId, []);
+      grouped.get(feedId).push(article);
+    }
+    for (const [feedId, group] of grouped) {
+      // addArticles dedupes by feedId + guid, so a round-trip import on the
+      // same profile is a safe merge rather than duplicates.
+      await storageService.addArticles(group, feedId);
+    }
+    chrome.runtime.sendMessage({ action: 'articles-updated', articles }).catch(() => {});
   }
 
   // Sync status

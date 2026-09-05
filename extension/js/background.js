@@ -32,7 +32,10 @@ async function refreshAuthState() {
 chrome.runtime.onInstalled.addListener(async (details) => {
   console.log('Omi RSS Extension installed:', details.reason);
 
-  // Set up context menus
+  // Set up context menus (clear first: 'install' also fires on update, and
+  // recreating an existing id throws)
+  await chrome.contextMenus.removeAll();
+
   chrome.contextMenus.create({
     id: 'save-article',
     title: 'Save to Omi RSS',
@@ -133,6 +136,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     case 'get-articles':
       getServerArticles(request.feedId, request.options)
         .then(sendResponse)
+        .catch(err => sendResponse({ error: err.message }));
+      return true;
+
+    case 'get-article':
+      apiService.getArticle(request.articleId)
+        .then(response => sendResponse({ article: normalizeServerArticle(response.article || response) }))
         .catch(err => sendResponse({ error: err.message }));
       return true;
 
@@ -420,13 +429,16 @@ function extractArticleFromPage() {
 }
 
 // Resolve the tab a message action should run against.
-// Messages from the popup have no sender.tab, so fall back to the active tab.
+// Messages from the popup have no sender.tab, so fall back to the active tab
+// in the last focused window (not just any active tab - devtools and
+// background windows can hold an "active" tab in their own window and must
+// never receive injections meant for what the user is looking at).
 // Extension pages (pop-out popup, sidepanel in a tab) report themselves as
 // sender.tab but cannot be script-injected, so they also fall back — and the
 // fallback must itself skip non-injectable tabs (the pop-out can be focused).
 async function getTargetTab(tab) {
   if (tab && tab.url && !tab.url.startsWith('chrome-extension://')) return tab;
-  const candidates = await chrome.tabs.query({ active: true });
+  const candidates = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
   const injectable = candidates.filter(
     (candidate) => candidate.url && /^https?:\/\//.test(candidate.url),
   );
@@ -477,15 +489,24 @@ async function checkForFeed(tab) {
 
 // Inject the page-feed picker into a tab. The picker file self-activates on
 // load and guards against double-injection, so repeated calls just restart it.
+// picker-selectors.js holds the pure selector helpers page-picker.js uses.
 async function startPagePicker(tab) {
   tab = await getTargetTab(tab);
   if (!tab || !tab.id || !tab.url || !/^https?:\/\//.test(tab.url)) {
     return { error: 'The picker only works on http(s) pages' };
   }
-  await chrome.scripting.executeScript({
-    target: { tabId: tab.id },
-    files: ['js/page-picker.js']
-  });
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      files: ['js/picker-selectors.js', 'js/page-picker.js']
+    });
+  } catch (error) {
+    console.error('Picker injection failed:', error);
+    const reason = error.message.includes('cannot access')
+      ? 'this page cannot be scripted (browser-protected page?)'
+      : error.message;
+    return { error: `Could not attach the picker: ${reason}` };
+  }
   return { success: true, tabId: tab.id };
 }
 
@@ -517,7 +538,6 @@ async function subscribePageFeed(data = {}) {
 // Authentication handlers
 async function handleLogin(credentials) {
   try {
-    await apiService.initializeAuth();
     const response = await apiService.login(credentials.email, credentials.password);
 
     isAuthenticated = true;

@@ -214,11 +214,7 @@ function renderArticles() {
     const feed = state.feeds.find(f => f.id === article.feedId);
     return `
       <article class="glass-article-item ${article.isRead ? 'read' : 'unread'}" data-article-id="${article.id}">
-        ${article.image ? `
-          <div class="article-image">
-            <img src="${article.image}" alt="" loading="lazy">
-          </div>
-        ` : ''}
+        ${article.image ? '<div class="article-image"></div>' : ''}
         <div class="article-content">
           <h3 class="article-title">${escapeHtml(article.title)}</h3>
           <div class="article-meta">
@@ -251,26 +247,35 @@ function renderArticles() {
       </article>
     `;
   }).join('');
-  
-  // Add click handlers
+
+  // Add click handlers and build list images via setAttribute (never string
+  // interpolation - article.image is remote data).
   elements.articlesContainer.querySelectorAll('.glass-article-item').forEach(item => {
+    const articleId = item.dataset.articleId;
+    const article = state.articles.find(a => String(a.id) === articleId);
+    if (article?.image && OmiSanitize.isSafeUrl(article.image)) {
+      const container = item.querySelector('.article-image');
+      const img = document.createElement('img');
+      img.setAttribute('src', article.image);
+      img.setAttribute('alt', '');
+      img.setAttribute('loading', 'lazy');
+      container.appendChild(img);
+    }
+
     // Click on article to open it
     item.addEventListener('click', (e) => {
       if (!e.target.closest('.glass-action-btn')) {
-        const articleId = item.dataset.articleId;
-        const article = state.articles.find(a => String(a.id) === articleId);
         if (article) {
           openArticle(article);
         }
       }
     });
-    
+
     // Handle action buttons
     item.querySelectorAll('.glass-action-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         const action = btn.dataset.action;
-        const articleId = item.dataset.articleId;
         handleArticleAction(action, articleId);
       });
     });
@@ -305,7 +310,10 @@ async function openArticle(article) {
     }
   }
   
-  // Render article content
+  // Render article content. Header text goes through escapeHtml; the body
+  // and the lead image are built with DOM APIs only - content HTML passes
+  // through the OmiSanitize allowlist walker, and the image src is set with
+  // setAttribute after URL validation (never string interpolation).
   elements.readerContent.innerHTML = `
     <header class="reader-article-header">
       <h1>${escapeHtml(article.title)}</h1>
@@ -316,15 +324,20 @@ async function openArticle(article) {
         ${article.author ? `<span>• By ${escapeHtml(article.author)}</span>` : ''}
       </div>
     </header>
-    ${article.image ? `
-      <figure class="reader-image">
-        <img src="${article.image}" alt="">
-      </figure>
-    ` : ''}
-    <div class="reader-body">
-      ${content || '<p>No content available</p>'}
-    </div>
   `;
+  if (article.image && OmiSanitize.isSafeUrl(article.image)) {
+    const figure = document.createElement('figure');
+    figure.className = 'reader-image';
+    const img = document.createElement('img');
+    img.setAttribute('src', article.image);
+    img.setAttribute('alt', '');
+    figure.appendChild(img);
+    elements.readerContent.appendChild(figure);
+  }
+  const bodyDiv = document.createElement('div');
+  bodyDiv.className = 'reader-body';
+  OmiSanitize.renderSanitized(bodyDiv, content || '<p>No content available</p>');
+  elements.readerContent.appendChild(bodyDiv);
   
   // Mark as read if not already
   if (!article.isRead) {
@@ -544,10 +557,12 @@ async function subscribeFeed(url) {
       throw new Error(result.error);
     }
 
-    // Check if feed already exists
-    const existingFeed = state.feeds.find(f => f.url === url);
+    // Check if feed already exists (authoritative storage check - the
+    // in-memory list can be stale, and the raw ConstraintError from the
+    // IndexedDB unique url index is user-hostile noise)
+    const existingFeed = await storageService.getFeedByUrl(url);
     if (existingFeed) {
-      showNotification('Feed already subscribed');
+      showNotification('Already added', 'info');
       return;
     }
 
@@ -569,6 +584,10 @@ async function subscribeFeed(url) {
     showNotification('Feed added successfully');
     await loadInitialData();
   } catch (error) {
+    if (error && (error.name === 'ConstraintError' || /already exists/i.test(error.message || ''))) {
+      showNotification('Already added', 'info');
+      return;
+    }
     console.error('Failed to add feed:', error);
     showError('Failed to add feed. Please check the URL.');
   } finally {

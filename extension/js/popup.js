@@ -175,12 +175,18 @@ async function handleLogin(e) {
   showLoading(true);
   
   try {
-    // Update server URL if changed (merge with existing settings)
-    if (serverUrl) {
+    // Persist the server URL only when the user actually typed a value that
+    // differs from the current setting - never silently on submit.
+    const serverUrlRaw = serverUrl.trim();
+    if (serverUrlRaw) {
       const { settings: currentSettings = {} } = await chrome.storage.local.get('settings');
-      await chrome.storage.local.set({
-        settings: { ...currentSettings, apiUrl: serverUrl }
-      });
+      const current = normalizeServerUrl(currentSettings.apiUrl) || DEFAULT_SERVER_URL;
+      const next = normalizeServerUrl(serverUrlRaw) || DEFAULT_SERVER_URL;
+      if (next !== current) {
+        await chrome.storage.local.set({
+          settings: { ...currentSettings, apiUrl: next }
+        });
+      }
     }
     
     const response = await chrome.runtime.sendMessage({
@@ -488,7 +494,7 @@ function renderFeeds() {
       </div>
       <div class="feed-info">
         <div class="feed-title">${escapeHtml(feed.title)}${feed.sourceType === 'page' ? '<span class="feed-type-badge">page</span>' : ''}</div>
-        <div class="feed-meta">${feed.unreadCount || 0} unread • Updated ${formatTime(feed.lastUpdated)}</div>
+        <div class="feed-meta">${feed.unreadCount || 0} unread • Updated ${formatTime(feed.lastFetchedAt || feed.lastUpdated)}</div>
       </div>
       ${feed.unreadCount > 0 ? `<div class="feed-count">${feed.unreadCount}</div>` : ''}
     </div>
@@ -687,13 +693,38 @@ async function openArticle(article) {
     });
   }
 
-  renderArticleDetail(article);
+  // List payloads are slim: fetch the full article on open so the detail
+  // view renders contentExtracted from the authoritative record.
+  const detail = await fetchArticleDetail(article.id);
+  const merged = detail ? { ...article, ...detail } : article;
+
+  renderArticleDetail(merged);
   showView('detail');
 }
 
-// Render the article detail view. Server articles may carry
-// contentExtracted (sanitized full-text HTML) - prefer it over the feed
-// summary when present.
+async function fetchArticleDetail(articleId) {
+  if (!articleId || !isAuthenticated || await checkOfflineMode()) {
+    return null;
+  }
+  try {
+    const response = await chrome.runtime.sendMessage({
+      action: 'get-article',
+      articleId
+    });
+    if (response?.error) {
+      throw new Error(response.error);
+    }
+    return response?.article || null;
+  } catch (error) {
+    // Offline / stale token / server hiccup: fall back to list fields.
+    console.error('Failed to fetch article detail:', error);
+    return null;
+  }
+}
+
+// Render the article detail view. Full content comes from the per-article
+// detail fetch (GET /api/articles/:id); it is passed through the client-side
+// sanitizer walker as defense-in-depth even though the server sanitizes.
 function renderArticleDetail(article) {
   currentArticle = article;
 
@@ -710,11 +741,11 @@ function renderArticleDetail(article) {
     + (fullText ? '<span class="full-text-badge">Full text</span>' : '');
 
   const body = document.getElementById('detail-body');
-  if (article.contentExtracted) {
-    // Sanitized server-side (extraction pipeline runs sanitize-html).
-    body.innerHTML = article.contentExtracted;
+  const fullHtml = article.contentExtracted || '';
+  if (fullHtml) {
+    OmiSanitize.renderSanitized(body, fullHtml);
   } else {
-    const fallback = article.content || article.excerpt || 'No content available.';
+    const fallback = article.content || article.excerpt || article.summary || 'No content available.';
     body.textContent = '';
     const paragraph = document.createElement('p');
     paragraph.textContent = fallback;
@@ -964,14 +995,14 @@ function showLoading(show) {
 }
 
 // Show an in-popup toast. type: info | success | warning | error
+// Message is server-influenced (error strings) - render as text only.
 function showNotification(message, type = 'info') {
   const notification = document.createElement('div');
   notification.className = `notification notification-${type}`;
-  notification.innerHTML = `
-    <div class="notification-content">
-      ${message}
-    </div>
-  `;
+  const content = document.createElement('div');
+  content.className = 'notification-content';
+  content.textContent = String(message);
+  notification.appendChild(content);
 
   document.body.appendChild(notification);
 

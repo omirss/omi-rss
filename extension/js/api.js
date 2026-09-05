@@ -1,15 +1,12 @@
 // API Service for browser extension
 class ApiService {
-  constructor() {
-    this.token = null;
-    this.refreshToken = null;
-    this.initializeAuth();
-  }
-
-  async initializeAuth() {
-    const auth = await chrome.storage.local.get(['access_token', 'refresh_token']);
-    this.token = auth.access_token || null;
-    this.refreshToken = auth.refresh_token || null;
+  // Tokens are read from chrome.storage.local on every request. The service
+  // worker can suspend at any time, so caching tokens on the instance risks
+  // stale copies (spurious 401s after login/logout elsewhere or after a
+  // SW wake). chrome.storage reads are async and cheap enough per call.
+  async getAuthTokens() {
+    const { access_token, refresh_token } = await chrome.storage.local.get(['access_token', 'refresh_token']);
+    return { token: access_token || null, refreshToken: refresh_token || null };
   }
 
   async getBaseUrl() {
@@ -30,8 +27,9 @@ class ApiService {
       endpoint.startsWith('/auth/register') ||
       endpoint.startsWith('/auth/refresh');
 
-    if (this.token && !isAuthFree) {
-      headers['Authorization'] = `Bearer ${this.token}`;
+    const { token, refreshToken } = await this.getAuthTokens();
+    if (token && !isAuthFree) {
+      headers['Authorization'] = `Bearer ${token}`;
     }
 
     const buildInit = () => ({
@@ -44,11 +42,14 @@ class ApiService {
 
     let response = await fetch(url, buildInit());
 
-    if (response.status === 401 && this.refreshToken && !isAuthFree) {
+    if (response.status === 401 && refreshToken && !isAuthFree) {
       const refreshed = await this.refreshAccessToken();
       if (refreshed) {
-        headers['Authorization'] = `Bearer ${this.token}`;
-        response = await fetch(url, buildInit());
+        const { token: newToken } = await this.getAuthTokens();
+        if (newToken) {
+          headers['Authorization'] = `Bearer ${newToken}`;
+          response = await fetch(url, buildInit());
+        }
       }
     }
 
@@ -77,7 +78,8 @@ class ApiService {
   }
 
   async refreshAccessToken() {
-    if (!this.refreshToken) {
+    const { refreshToken } = await this.getAuthTokens();
+    if (!refreshToken) {
       return false;
     }
 
@@ -85,25 +87,24 @@ class ApiService {
       const response = await fetch(`${await this.getBaseUrl()}/auth/refresh`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken: this.refreshToken })
+        body: JSON.stringify({ refreshToken })
       });
 
       if (response.ok) {
         const data = await response.json();
-        this.token = data.accessToken || data.token || null;
-        this.refreshToken = data.refreshToken || this.refreshToken;
-        await chrome.storage.local.set({
-          access_token: this.token,
-          refresh_token: this.refreshToken
-        });
-        return true;
+        const token = data.accessToken || data.token || null;
+        if (token) {
+          await chrome.storage.local.set({
+            access_token: token,
+            refresh_token: data.refreshToken || refreshToken
+          });
+          return true;
+        }
       }
     } catch (error) {
       console.error('Token refresh failed:', error);
     }
 
-    this.token = null;
-    this.refreshToken = null;
     await chrome.storage.local.remove(['access_token', 'refresh_token']);
     return false;
   }
@@ -115,12 +116,9 @@ class ApiService {
       body: { emailOrUsername: email, password }
     });
 
-    this.token = response.accessToken || response.token || null;
-    this.refreshToken = response.refreshToken || null;
-
     await chrome.storage.local.set({
-      access_token: this.token,
-      refresh_token: this.refreshToken,
+      access_token: response.accessToken || response.token || null,
+      refresh_token: response.refreshToken || null,
       user: response.user || null
     });
 
@@ -134,8 +132,6 @@ class ApiService {
       // Ignore logout errors
     }
 
-    this.token = null;
-    this.refreshToken = null;
     await chrome.storage.local.remove(['access_token', 'refresh_token', 'user', 'auth']);
   }
 
