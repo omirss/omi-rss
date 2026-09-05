@@ -17,6 +17,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -43,6 +44,10 @@ export default function LoginPage() {
       }
       if (password.length < 8) {
         setError("Password must be at least 8 characters");
+        return;
+      }
+      if (password !== confirmPassword) {
+        setError("Passwords do not match");
         return;
       }
     } else if (!emailOrUsername.trim() || !password) {
@@ -169,6 +174,27 @@ export default function LoginPage() {
               </div>
               {tab === "register" ? <span class="field-hint">At least 8 characters</span> : null}
             </label>
+            {tab === "register" ? (
+              <label class="field">
+                <span class="label">Confirm password</span>
+                <div class="input-wrap">
+                  <input
+                    class="input"
+                    type={passwordVisible ? "text" : "password"}
+                    value={confirmPassword}
+                    onInput={(event) => setConfirmPassword(event.currentTarget.value)}
+                    autocomplete="new-password"
+                    minLength={8}
+                    style="padding-right: 44px;"
+                  />
+                </div>
+                {confirmPassword && password !== confirmPassword ? (
+                  <span class="field-hint" style="color: var(--c-error);">
+                    Passwords do not match
+                  </span>
+                ) : null}
+              </label>
+            ) : null}
           </div>
 
           {error ? (
