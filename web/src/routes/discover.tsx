@@ -4,9 +4,9 @@ import { AppShell } from "../components/AppShell.js";
 import { EmptyState, ErrorState, SkeletonList } from "../components/states.js";
 import { useToast } from "../components/Toast.js";
 import { useSession } from "../lib/auth.js";
-import { CheckIcon, CompassIcon, RssIcon, SearchIcon } from "../components/Icons.js";
-import { ApiError, discoveryApi, feedsApi } from "../lib/client.js";
-import type { DiscoveryCategory, FeedSuggestion, FeedWithUnread } from "../lib/api-types.js";
+import { CheckIcon, CompassIcon, GlobeIcon, RssIcon, SearchIcon } from "../components/Icons.js";
+import { ApiError, discoveryApi, feedsApi, foldersApi } from "../lib/client.js";
+import type { DiscoveryCategory, FeedSuggestion, FeedWithUnread, FolderNode } from "../lib/api-types.js";
 import { LinkIcon } from "../components/reading/icons.js";
 import { normalizeFeedUrl } from "../components/reading/format.js";
 import "../components/reading/reading.css";
@@ -16,6 +16,26 @@ export const config = { mode: "app" };
 const SEARCH_DEBOUNCE_MS = 400;
 
 type LoadStatus = "loading" | "ready" | "error";
+type AddMode = "feed" | "page";
+
+const PAGE_INTERVAL_OPTIONS: Array<{ value: number; label: string }> = [
+  { value: 15, label: "Every 15 minutes" },
+  { value: 30, label: "Every 30 minutes" },
+  { value: 60, label: "Every hour" },
+  { value: 120, label: "Every 2 hours" },
+  { value: 360, label: "Every 6 hours" },
+  { value: 1440, label: "Every day" },
+];
+
+function folderOptionsOf(folders: FolderNode[], prefix: string[] = []): Array<{ id: string; path: string }> {
+  const rows: Array<{ id: string; path: string }> = [];
+  for (const node of folders) {
+    const path = [...prefix, node.name].join(" / ");
+    rows.push({ id: node.id, path });
+    rows.push(...folderOptionsOf(node.children, [...prefix, node.name]));
+  }
+  return rows;
+}
 
 function FeedAvatar({ src, name }: { src?: string; name: string }) {
   return (
@@ -42,6 +62,15 @@ export default function DiscoverPage() {
   const [urlPreview, setUrlPreview] = useState<FeedSuggestion | null>(null);
   const [urlBusy, setUrlBusy] = useState(false);
   const [subscribingUrl, setSubscribingUrl] = useState<string | null>(null);
+  const [addMode, setAddMode] = useState<AddMode>("feed");
+  const [folderOptions, setFolderOptions] = useState<Array<{ id: string; path: string }>>([]);
+  const [pageUrlValue, setPageUrlValue] = useState("");
+  const [pageSelectorValue, setPageSelectorValue] = useState("");
+  const [pageTitleValue, setPageTitleValue] = useState("");
+  const [pageFolderId, setPageFolderId] = useState("");
+  const [pageInterval, setPageInterval] = useState(30);
+  const [pageBusy, setPageBusy] = useState(false);
+  const [pageError, setPageError] = useState<string | null>(null);
 
   const suggestionTokenRef = useRef(0);
   const searchTokenRef = useRef(0);
@@ -80,8 +109,13 @@ export default function DiscoverPage() {
     if (sessionStatus !== "authenticated") return;
     void (async () => {
       try {
-        const [categoriesResponse] = await Promise.all([discoveryApi.categories(), fetchFeeds()]);
+        const [categoriesResponse, foldersResponse] = await Promise.all([
+          discoveryApi.categories(),
+          foldersApi.list(),
+          fetchFeeds(),
+        ]);
         setCategories(categoriesResponse.data);
+        setFolderOptions(folderOptionsOf(foldersResponse.folders));
       } catch {
         setCategories([]);
       }
@@ -191,6 +225,43 @@ export default function DiscoverPage() {
     }
   };
 
+  const onSubmitPageFeed = async (event: JSX.TargetedEvent<HTMLFormElement, Event>) => {
+    event.preventDefault();
+    const pageUrl = pageUrlValue.trim();
+    const pageSelector = pageSelectorValue.trim();
+    setPageError(null);
+    if (!pageUrl || !pageSelector || pageBusy) return;
+    if (!pageSelector.startsWith(".") && !pageSelector.startsWith("#") && !/^[a-z]+[\s.:#[]/i.test(pageSelector)) {
+      setPageError("The selector should be a CSS selector, for example .post-list a[href]");
+      return;
+    }
+    setPageBusy(true);
+    try {
+      const { feed } = await feedsApi.createPageFeed({
+        pageUrl,
+        pageSelector,
+        title: pageTitleValue.trim() || undefined,
+        folderId: pageFolderId || undefined,
+        updateInterval: pageInterval,
+      });
+      showToast({
+        title: "Page feed created",
+        message: `${feed.title || pageUrl}. Items will appear on Home shortly.`,
+        kind: "success",
+      });
+      setPageUrlValue("");
+      setPageSelectorValue("");
+      setPageTitleValue("");
+      setPageFolderId("");
+      setPageInterval(30);
+      void fetchFeeds();
+    } catch (error) {
+      setPageError(error instanceof ApiError ? error.message : "Could not create the page feed. Please try again.");
+    } finally {
+      setPageBusy(false);
+    }
+  };
+
   const displayed = searchResults ?? suggestions;
   const listHeading = searchResults !== null ? `Results for "${searchText.trim()}"` : selectedCategory ? categoryLabel(categories, selectedCategory) : "Popular feeds";
 
@@ -198,41 +269,153 @@ export default function DiscoverPage() {
     <AppShell title="Discover">
       <div class="page">
         <div class="discover-add glass-card">
-          <form class="discover-add-form" onSubmit={(event) => void onSubmitUrl(event)}>
-            <div class="input-wrap">
-              <LinkIcon size={16} />
-              <input
-                class="input"
-                type="url"
-                value={urlValue}
-                onInput={(event) => setUrlValue(event.currentTarget.value)}
-                placeholder="Add a feed by URL (https://example.com/feed.xml)"
-                aria-label="Feed URL"
-              />
-            </div>
-            <button type="submit" class="btn btn-primary btn-sm" disabled={!urlValue.trim() || urlBusy}>
-              {urlBusy ? <span class="spinner" /> : null}
-              {urlBusy ? "Checking" : "Validate"}
+          <div class="segmented" role="tablist" aria-label="Add feed mode">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={addMode === "feed"}
+              class={`segmented-item${addMode === "feed" ? " segmented-item-active" : ""}`}
+              onClick={() => setAddMode("feed")}
+            >
+              <RssIcon size={14} />
+              Feed URL
             </button>
-          </form>
-          {urlPreview ? (
-            <div class="discover-preview">
-              <FeedAvatar src={urlPreview.favicon} name={urlPreview.title} />
-              <div class="discover-preview-body">
-                <span class="discover-preview-title">{urlPreview.title}</span>
-                {urlPreview.description ? <span class="discover-preview-desc">{urlPreview.description}</span> : null}
+            <button
+              type="button"
+              role="tab"
+              aria-selected={addMode === "page"}
+              class={`segmented-item${addMode === "page" ? " segmented-item-active" : ""}`}
+              onClick={() => setAddMode("page")}
+            >
+              <GlobeIcon size={14} />
+              Page feed
+            </button>
+          </div>
+          {addMode === "feed" ? (
+            <>
+              <form class="discover-add-form" onSubmit={(event) => void onSubmitUrl(event)}>
+                <div class="input-wrap">
+                  <LinkIcon size={16} />
+                  <input
+                    class="input"
+                    type="url"
+                    value={urlValue}
+                    onInput={(event) => setUrlValue(event.currentTarget.value)}
+                    placeholder="Add a feed by URL (https://example.com/feed.xml)"
+                    aria-label="Feed URL"
+                  />
+                </div>
+                <button type="submit" class="btn btn-primary btn-sm" disabled={!urlValue.trim() || urlBusy}>
+                  {urlBusy ? <span class="spinner" /> : null}
+                  {urlBusy ? "Checking" : "Validate"}
+                </button>
+              </form>
+              {urlPreview ? (
+                <div class="discover-preview">
+                  <FeedAvatar src={urlPreview.favicon} name={urlPreview.title} />
+                  <div class="discover-preview-body">
+                    <span class="discover-preview-title">{urlPreview.title}</span>
+                    {urlPreview.description ? <span class="discover-preview-desc">{urlPreview.description}</span> : null}
+                  </div>
+                  <button
+                    type="button"
+                    class="btn btn-primary btn-sm"
+                    onClick={() => void subscribe(urlPreview)}
+                    disabled={subscribingUrl !== null || isSubscribed(urlPreview.url)}
+                  >
+                    {subscribingUrl === urlPreview.url ? <span class="spinner" /> : <CheckIcon size={15} />}
+                    {isSubscribed(urlPreview.url) ? "Subscribed" : "Subscribe"}
+                  </button>
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <form class="discover-page-form" onSubmit={(event) => void onSubmitPageFeed(event)}>
+              <label class="field">
+                <span class="label">Page URL</span>
+                <div class="input-wrap">
+                  <GlobeIcon size={16} />
+                  <input
+                    class="input"
+                    type="url"
+                    value={pageUrlValue}
+                    onInput={(event) => setPageUrlValue(event.currentTarget.value)}
+                    placeholder="https://example.com/news"
+                    aria-label="Page URL"
+                    required
+                  />
+                </div>
+              </label>
+              <label class="field">
+                <span class="label">CSS selector</span>
+                <input
+                  class="input"
+                  type="text"
+                  value={pageSelectorValue}
+                  onInput={(event) => setPageSelectorValue(event.currentTarget.value)}
+                  placeholder=".article-list a[href]"
+                  aria-label="CSS selector for page items"
+                  maxLength={500}
+                  required
+                />
+                <span class="field-hint">Each matched link becomes an article.</span>
+              </label>
+              <label class="field">
+                <span class="label">Title (optional)</span>
+                <input
+                  class="input"
+                  type="text"
+                  value={pageTitleValue}
+                  onInput={(event) => setPageTitleValue(event.currentTarget.value)}
+                  placeholder="Defaults to the page title"
+                  maxLength={500}
+                  aria-label="Page feed title"
+                />
+              </label>
+              <label class="field">
+                <span class="label">Folder (optional)</span>
+                <select
+                  class="input"
+                  value={pageFolderId}
+                  onChange={(event) => setPageFolderId(event.currentTarget.value)}
+                  aria-label="Folder for the page feed"
+                >
+                  <option value="">No folder</option>
+                  {folderOptions.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.path}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label class="field">
+                <span class="label">Check interval</span>
+                <select
+                  class="input"
+                  value={pageInterval}
+                  onChange={(event) => setPageInterval(Number(event.currentTarget.value))}
+                  aria-label="Page feed check interval"
+                >
+                  {PAGE_INTERVAL_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div class="discover-page-actions">
+                <button type="submit" class="btn btn-primary btn-sm" disabled={!pageUrlValue.trim() || !pageSelectorValue.trim() || pageBusy}>
+                  {pageBusy ? <span class="spinner" /> : <GlobeIcon size={15} />}
+                  {pageBusy ? "Creating" : "Create page feed"}
+                </button>
               </div>
-              <button
-                type="button"
-                class="btn btn-primary btn-sm"
-                onClick={() => void subscribe(urlPreview)}
-                disabled={subscribingUrl !== null || isSubscribed(urlPreview.url)}
-              >
-                {subscribingUrl === urlPreview.url ? <span class="spinner" /> : <CheckIcon size={15} />}
-                {isSubscribed(urlPreview.url) ? "Subscribed" : "Subscribe"}
-              </button>
-            </div>
-          ) : null}
+              {pageError ? (
+                <p class="field-error discover-page-error" role="alert">
+                  {pageError}
+                </p>
+              ) : null}
+            </form>
+          )}
         </div>
 
         <div class="input-wrap">

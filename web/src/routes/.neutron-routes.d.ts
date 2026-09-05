@@ -33,6 +33,7 @@ declare module "@neutron-build/core" {
     | `/api/feeds/${string}`
     | `/api/feeds/${string}/mark-all-read`
     | `/api/feeds/${string}/refresh`
+    | "/api/feeds/page"
     | "/api/folders"
     | `/api/folders/${string}`
     | "/api/folders/reorder"

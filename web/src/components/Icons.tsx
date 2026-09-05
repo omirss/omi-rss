@@ -197,3 +197,19 @@ export const RefreshIcon = createIcon(
     <path d="M20 4v4h-4" />
   </>,
 );
+
+export const FileTextIcon = createIcon(
+  <>
+    <path d="M6 3h8l4 4v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" />
+    <path d="M14 3v4h4" />
+    <path d="M8.5 12h7M8.5 15.5h7M8.5 19h4" />
+  </>,
+);
+
+export const GlobeIcon = createIcon(
+  <>
+    <circle cx="12" cy="12" r="8.5" />
+    <path d="M3.5 12h17" />
+    <path d="M12 3.5c2.2 2.3 3.4 5.3 3.4 8.5s-1.2 6.2-3.4 8.5c-2.2-2.3-3.4-5.3-3.4-8.5s1.2-6.2 3.4-8.5z" />
+  </>,
+);

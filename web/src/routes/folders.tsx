@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "preact/hooks";
 import type { JSX } from "preact";
 import { AppShell } from "../components/AppShell.js";
 import { EmptyState, ErrorState, SkeletonList } from "../components/states.js";
-import { AlertIcon, FolderIcon, PlusIcon, RssIcon } from "../components/Icons.js";
+import { AlertIcon, FileTextIcon, FolderIcon, PlusIcon, RssIcon } from "../components/Icons.js";
 import { useToast } from "../components/Toast.js";
 import { ApiError, feedsApi, foldersApi, toCount } from "../lib/client.js";
 import type { FeedWithUnread, FolderNode } from "../lib/api-types.js";
@@ -81,6 +81,10 @@ function feedIsFailing(feed: FeedWithUnread): boolean {
   return feed.errorCount > 0 || Boolean(feed.lastFetchError);
 }
 
+function feedKeptLastGood(feed: FeedWithUnread): boolean {
+  return feed.sourceType === "page" && Boolean(feed.lastFetchError?.startsWith("Selector matched 0"));
+}
+
 export default function FoldersPage() {
   const { showToast } = useToast();
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
@@ -98,6 +102,7 @@ export default function FoldersPage() {
   const [renaming, setRenaming] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<FolderNode | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [togglingFullTextId, setTogglingFullTextId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setPhase("loading");
@@ -171,6 +176,32 @@ export default function FoldersPage() {
     }
   };
 
+  const toggleFullText = async (feed: FeedWithUnread) => {
+    if (togglingFullTextId) return;
+    const next = !feed.fullTextEnabled;
+    setTogglingFullTextId(feed.id);
+    setFeeds((current) => current.map((item) => (item.id === feed.id ? { ...item, fullTextEnabled: next } : item)));
+    try {
+      await feedsApi.update(feed.id, { fullTextEnabled: next });
+      showToast({
+        title: next ? "Full text enabled" : "Full text disabled",
+        message: next
+          ? `${feedDisplayTitle(feed)}. New articles fetch the full page body.`
+          : feedDisplayTitle(feed),
+        kind: "success",
+      });
+    } catch (error) {
+      setFeeds((current) => current.map((item) => (item.id === feed.id ? { ...item, fullTextEnabled: !next } : item)));
+      showToast({
+        title: "Could not change full text",
+        message: error instanceof ApiError ? error.message : "Please try again",
+        kind: "error",
+      });
+    } finally {
+      setTogglingFullTextId(null);
+    }
+  };
+
   const onCreateSubmit = async (event: JSX.TargetedEvent<HTMLFormElement, Event>) => {
     event.preventDefault();
     const name = createName.trim();
@@ -238,6 +269,7 @@ export default function FoldersPage() {
   const renderFeedRow = (feed: FeedWithUnread, depth: number) => {
     const unread = toCount(feed.unreadCount);
     const failing = feedIsFailing(feed);
+    const keptLastGood = feedKeptLastGood(feed);
     return (
       <div class="folder-feed-row" style={`padding-left: calc(var(--sp-lg) + ${depth * 24}px);`} key={feed.id}>
         <span class="folder-feed-icon">
@@ -247,18 +279,37 @@ export default function FoldersPage() {
           </span>
         </span>
         <span class="folder-feed-title" title={feedDisplayTitle(feed)}>{feedDisplayTitle(feed)}</span>
+        {feed.sourceType === "page" ? <span class="folder-feed-flag" title="Page feed">Page</span> : null}
+        {feed.fullTextEnabled ? (
+          <span class="folder-feed-flag folder-feed-flag-full-text" title="Full text enabled">Full text</span>
+        ) : null}
         {failing ? (
           <span
-            class="folder-feed-warning"
+            class={`folder-feed-warning${keptLastGood ? " folder-feed-warning-kept" : ""}`}
             role="img"
-            aria-label="Feed failed to update recently"
-            title={feed.lastFetchError || "This feed failed to update recently"}
+            aria-label={keptLastGood ? "Selector stopped matching; kept the last good items" : "Feed failed to update recently"}
+            title={
+              keptLastGood
+                ? `Kept last good items — ${feed.lastFetchError || "selector matched 0 elements"}`
+                : feed.lastFetchError || "This feed failed to update recently"
+            }
           >
             <AlertIcon size={14} />
           </span>
         ) : null}
         {unread > 0 ? <span class="chip chip-count">{unread}</span> : null}
         <span class="folder-feed-actions">
+          <button
+            type="button"
+            class={`btn btn-ghost btn-icon btn-sm folder-feed-action-toggle${feed.fullTextEnabled ? " is-on" : ""}`}
+            disabled={togglingFullTextId !== null}
+            aria-pressed={feed.fullTextEnabled}
+            aria-label={`Toggle full text for ${feedDisplayTitle(feed)}`}
+            title={feed.fullTextEnabled ? "Full text enabled. Click to disable." : "Full text disabled. Click to enable."}
+            onClick={() => void toggleFullText(feed)}
+          >
+            <FileTextIcon size={15} />
+          </button>
           <label class="folder-feed-move-label">
             <span class="folder-feed-move-caption">Folder</span>
             <select

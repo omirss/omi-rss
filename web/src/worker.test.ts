@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isFeedDue } from "./worker.js";
+import { isFeedDue, extractionBudgetExceeded, articleExtractionOutcome } from "./worker.js";
 
 // Unit tests for the update-all due-feed filter, extracted from the Express
 // SQL: active AND (never fetched OR fetched strictly longer than
@@ -46,5 +46,46 @@ describe("isFeedDue", () => {
 
   it("should not be due with a fetched feed and a null interval (SQL NULL comparison)", () => {
     expect(isFeedDue({ isActive: true, lastFetchedAt: minutesAgo(120), updateInterval: null }, NOW)).toBe(false);
+  });
+});
+
+describe("extractionBudgetExceeded", () => {
+  const startedAt = 1000000;
+
+  it("allows extraction while under both the article count and time budget", () => {
+    expect(extractionBudgetExceeded(startedAt, 0, startedAt + 1000)).toBe(false);
+    expect(extractionBudgetExceeded(startedAt, 19, startedAt + 9999)).toBe(false);
+  });
+
+  it("stops after 20 articles", () => {
+    expect(extractionBudgetExceeded(startedAt, 20, startedAt + 1000)).toBe(true);
+    expect(extractionBudgetExceeded(startedAt, 25, startedAt + 1000)).toBe(true);
+  });
+
+  it("stops after 10 seconds even with articles remaining", () => {
+    expect(extractionBudgetExceeded(startedAt, 3, startedAt + 10000)).toBe(true);
+    expect(extractionBudgetExceeded(startedAt, 3, startedAt + 15000)).toBe(true);
+  });
+});
+
+describe("articleExtractionOutcome", () => {
+  it("skips safely on unsafe article URLs without fetching (SSRF)", async () => {
+    expect(await articleExtractionOutcome({ url: "file:///etc/passwd" }, null)).toBe("skip-unsafe-url");
+    expect(await articleExtractionOutcome({ url: "http://127.0.0.1:6380/x" }, null)).toBe("skip-unsafe-url");
+    expect(await articleExtractionOutcome({ url: "https://192.168.1.10/internal" }, null)).toBe("skip-unsafe-url");
+  });
+
+  it("fetches safe literal-IP URLs without DNS lookups", async () => {
+    expect(await articleExtractionOutcome({ url: "https://8.8.8.8/post" }, null)).toBe("fetch");
+  });
+
+  it("is terminal once an article has been extracted (fetch once, never re-fetch)", async () => {
+    expect(await articleExtractionOutcome({ url: "https://8.8.8.8/post" }, "")).toBe("already-extracted");
+    expect(await articleExtractionOutcome({ url: "https://8.8.8.8/post" }, "<p>done</p>")).toBe("already-extracted");
+  });
+
+  it("handles missing articles and empty URLs", async () => {
+    expect(await articleExtractionOutcome(undefined, null)).toBe("missing");
+    expect(await articleExtractionOutcome({ url: "" }, null)).toBe("skip-no-url");
   });
 });

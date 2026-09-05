@@ -58,6 +58,7 @@ export function FilterBar({ filter, onFilterChange, feeds, feedId, onFeedChange,
               >
                 {failing ? "! " : ""}
                 {label}
+                {feed.sourceType === "page" ? " [page]" : ""}
                 {unread > 0 ? ` (${unread})` : ""}
               </option>
             );

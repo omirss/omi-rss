@@ -109,11 +109,11 @@ export function ReaderView({
   };
 
   const bodyHtml = useMemo(() => {
-    const raw = article?.content || article?.summary || "";
+    const raw = article?.contentExtracted || article?.content || article?.summary || "";
     return sanitizeArticleHtml(raw);
   }, [articleId]);
 
-  const minutes = estimateReadMinutes(article?.content || article?.summary);
+  const minutes = estimateReadMinutes(article?.contentExtracted || article?.content || article?.summary);
 
   const hasPrev = index > 0;
   const hasNext = index < articles.length - 1;

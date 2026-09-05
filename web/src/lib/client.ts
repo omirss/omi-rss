@@ -10,6 +10,7 @@ import type {
   Count,
   CreateFeedRequest,
   CreateFolderRequest,
+  CreatePageFeedRequest,
   DiscoveryCategory,
   Feed,
   FeedStats,
@@ -351,6 +352,9 @@ export const feedsApi = {
   },
   async create(body: CreateFeedRequest): Promise<{ feed: Feed }> {
     return requestJson<{ feed: Feed }>("/api/feeds", { method: "POST", body });
+  },
+  async createPageFeed(body: CreatePageFeedRequest): Promise<{ feed: Feed }> {
+    return requestJson<{ feed: Feed }>("/api/feeds/page", { method: "POST", body });
   },
   async get(feedId: string): Promise<{ feed: Feed; stats: FeedStats }> {
     return requestJson<{ feed: Feed; stats: FeedStats }>(`/api/feeds/${feedId}`);

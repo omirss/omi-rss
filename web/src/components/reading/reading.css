@@ -458,6 +458,35 @@
   padding: var(--sp-lg);
 }
 
+.discover-page-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--sp-md);
+  align-items: start;
+}
+
+.discover-page-form .field {
+  margin: 0;
+}
+
+.discover-page-form select.input {
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238a90b0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right var(--sp-md) center;
+  padding-right: 34px;
+}
+
+.discover-page-actions {
+  display: flex;
+  align-items: flex-end;
+  min-height: 44px;
+}
+
+.discover-page-error {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
 .discover-add-form {
   display: flex;
   gap: var(--sp-sm);

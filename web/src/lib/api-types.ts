@@ -52,6 +52,10 @@ export interface Feed {
   errorCount: number;
   isActive: boolean;
   settings: Record<string, unknown>;
+  fullTextEnabled: boolean;
+  sourceType: "rss" | "page";
+  pageUrl: string | null;
+  pageSelector: string | null;
   createdAt: IsoDateString;
   updatedAt: IsoDateString;
 }
@@ -80,6 +84,7 @@ export interface ArticleListItem {
   url: string;
   summary: string | null;
   content: string | null;
+  contentExtracted: string | null;
   author: string | null;
   publishedAt: IsoDateString | null;
   imageUrl: string | null;
@@ -286,6 +291,15 @@ export interface UpdateFeedRequest {
   folderId?: string | null;
   updateInterval?: number;
   isActive?: boolean;
+  fullTextEnabled?: boolean;
+}
+
+export interface CreatePageFeedRequest {
+  pageUrl: string;
+  pageSelector: string;
+  title?: string;
+  folderId?: string;
+  updateInterval?: number;
 }
 
 export interface ArticleStateUpdate {

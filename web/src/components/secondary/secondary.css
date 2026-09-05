@@ -275,6 +275,37 @@
   cursor: help;
 }
 
+.folder-feed-warning-kept {
+  color: var(--c-accent);
+  opacity: 0.85;
+}
+
+.folder-feed-flag {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: var(--r-sm);
+  font: 600 10px/1 var(--font-sans);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--c-text-medium);
+  background: var(--c-glass-fill);
+  border: var(--hairline) solid var(--c-glass-stroke);
+  cursor: default;
+}
+
+.folder-feed-flag-full-text {
+  color: var(--c-accent);
+  background: var(--c-accent-soft);
+  border-color: transparent;
+}
+
+.folder-feed-action-toggle.is-on {
+  color: var(--c-accent);
+}
+
 .folder-feed-actions {
   margin-left: auto;
   flex-shrink: 0;
