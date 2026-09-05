@@ -13,7 +13,7 @@ export function EmptyState({
   action?: ComponentChildren;
 }) {
   return (
-    <div class="empty-state">
+    <div class="empty-state animate-in">
       <div class="empty-state-icon">{icon}</div>
       <div class="empty-state-title">{title}</div>
       {description ? <p class="empty-state-description">{description}</p> : null}
@@ -32,7 +32,7 @@ export function ErrorState({
   onRetry?: () => void;
 }) {
   return (
-    <div class="error-state">
+    <div class="error-state animate-in">
       <div class="error-state-icon">
         <AlertIcon size={24} />
       </div>

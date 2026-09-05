@@ -5,6 +5,7 @@ import type { RouteHref } from "@neutron-build/core/client";
 import { useSession } from "../lib/auth.js";
 import { AccountMenu } from "./AccountMenu.js";
 import { EmptyState } from "./states.js";
+import { PageTransition } from "./PageTransition.js";
 import {
   AnalyticsIcon,
   BookmarkIcon,
@@ -149,7 +150,9 @@ export function AppShell({
           <div class="topbar-spacer" />
           <AccountMenu />
         </header>
-        <main class="shell-content">{children}</main>
+        <main class="shell-content">
+          <PageTransition>{children}</PageTransition>
+        </main>
       </div>
     </div>
   );

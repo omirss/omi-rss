@@ -13,7 +13,7 @@ export interface ArticleListProps {
 
 export function ArticleList({ articles, onOpen, onToggleStar, showSnippet, footer }: ArticleListProps) {
   return (
-    <div class="article-list">
+    <div class="article-list animate-in">
       {articles.map((article, index) => (
         <ArticleRow
           key={article.id}

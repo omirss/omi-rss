@@ -23,7 +23,7 @@ export function formatDayShort(day: string): string {
 
 export function Section({ title, children }: { title?: string; children: ComponentChildren }) {
   return (
-    <section class="sec-section">
+    <section class="sec-section animate-in">
       {title ? <div class="sec-title">{title}</div> : null}
       {children}
     </section>
