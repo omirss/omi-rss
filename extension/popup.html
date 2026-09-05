@@ -412,11 +412,11 @@
 
     <!-- Feed detection modal -->
     <div id="feed-modal" class="glass-modal" style="display: none;">
-      <div class="glass-modal-backdrop" onclick="closeFeedModal()"></div>
+      <div class="glass-modal-backdrop"></div>
       <div class="glass-modal-content">
         <div class="modal-header">
           <h2>RSS Feeds Found</h2>
-          <button class="glass-btn close-btn" onclick="closeFeedModal()">
+          <button class="glass-btn close-btn">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
               <line x1="18" y1="6" x2="6" y2="18"/>
               <line x1="6" y1="6" x2="18" y2="18"/>
@@ -424,6 +424,15 @@
           </button>
         </div>
         <div class="modal-body">
+          <div class="modal-add-row">
+            <input type="url" id="feed-url-input" placeholder="Paste feed URL..." autocomplete="off" spellcheck="false">
+            <button class="btn btn-primary" id="feed-url-add-btn">Add</button>
+          </div>
+          <label class="glass-checkbox full-text-toggle" title="Extract full article text on the server">
+            <input type="checkbox" id="full-text-toggle">
+            <span class="checkmark"></span>
+            <span class="label-text">Full text</span>
+          </label>
           <div id="detected-feeds">
             <!-- Detected feeds will be listed here -->
           </div>

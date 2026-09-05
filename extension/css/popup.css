@@ -433,6 +433,21 @@ body {
   border: 1px solid rgba(74, 222, 128, 0.4);
 }
 
+/* Full-text marker on feed list rows (muted vs the detail-view badge) */
+.feed-ft-badge {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  vertical-align: 1px;
+  background: rgba(74, 222, 128, 0.1);
+  color: #86efac;
+  border: 1px solid rgba(74, 222, 128, 0.28);
+}
+
 /* Article detail view */
 .detail-content {
   flex: 1;
@@ -1411,6 +1426,43 @@ body {
 
 .detected-feed .btn {
   width: 100%;
+}
+
+/* Manual add-by-URL row + full-text toggle in the subscribe modal */
+.modal-add-row {
+  display: flex;
+  gap: var(--sp-sm);
+  margin-bottom: var(--sp-md);
+}
+
+.modal-add-row input {
+  flex: 1;
+  min-width: 0;
+  padding: var(--sp-sm) var(--sp-md);
+  background: var(--glass-bg-dark);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r-control);
+  color: var(--text-primary);
+  font-size: 12px;
+  transition: all var(--transition-smooth);
+}
+
+.modal-add-row input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+
+.modal-add-row input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.modal-add-row .btn {
+  white-space: nowrap;
+}
+
+.full-text-toggle {
+  margin-bottom: var(--sp-md);
 }
 
 /* Footer Links */

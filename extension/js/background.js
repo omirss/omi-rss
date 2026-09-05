@@ -188,7 +188,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
     // Local feed operations
     case 'subscribe-feed':
-      subscribeFeed(request.url)
+      subscribeFeed(request.url, request.fullTextEnabled)
         .then(sendResponse)
         .catch(err => sendResponse({ error: err.message }));
       return true;
@@ -615,7 +615,7 @@ chrome.action.onClicked.addListener(async (tab) => {
 });
 
 // Subscribe to a new feed: local-first, then pushed to the server when signed in
-async function subscribeFeed(url) {
+async function subscribeFeed(url, fullTextEnabled) {
   try {
     // Check if feed already exists locally
     const existingFeed = await storageService.getFeedByUrl(url);
@@ -662,7 +662,7 @@ async function subscribeFeed(url) {
     let serverSynced = false;
     if (await getAccessToken()) {
       try {
-        await apiService.createFeed(url);
+        await apiService.createFeed(url, null, fullTextEnabled);
         serverSynced = true;
       } catch (error) {
         console.error('Server subscribe failed (kept locally):', error);

@@ -163,9 +163,22 @@ function initializeEventListeners() {
   if (closeBtn) {
     closeBtn.addEventListener('click', closeFeedModal);
   }
+  const modalBackdrop = document.querySelector('.glass-modal-backdrop');
+  if (modalBackdrop) {
+    modalBackdrop.addEventListener('click', closeFeedModal);
+  }
   
   // Add feed button
   document.getElementById('add-feed-btn').addEventListener('click', handleAddFeed);
+
+  // Subscribe modal: manual URL add + full-text default toggle
+  document.getElementById('feed-url-add-btn').addEventListener('click', handleAddFeedByUrl);
+  document.getElementById('feed-url-input').addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') handleAddFeedByUrl();
+  });
+  document.getElementById('full-text-toggle').addEventListener('change', (e) => {
+    setFullTextDefault(e.target.checked);
+  });
 }
 
 // Handle login
@@ -497,7 +510,7 @@ function renderFeeds() {
           </svg>`}
       </div>
       <div class="feed-info">
-        <div class="feed-title">${escapeHtml(feed.title)}${feed.sourceType === 'page' ? '<span class="feed-type-badge">page</span>' : ''}</div>
+        <div class="feed-title">${escapeHtml(feed.title)}${feed.sourceType === 'page' ? '<span class="feed-type-badge">page</span>' : ''}${feed.fullTextEnabled && feed.sourceType !== 'page' ? '<span class="feed-ft-badge" title="Full text extraction enabled">full text</span>' : ''}</div>
         <div class="feed-meta">${feed.unreadCount || 0} unread • Updated ${formatTime(feed.lastFetchedAt || feed.lastUpdated)}</div>
       </div>
       ${feed.unreadCount > 0 ? `<div class="feed-count">${feed.unreadCount}</div>` : ''}
@@ -941,10 +954,17 @@ async function handleServerUrlChange(e) {
 }
 
 // Show feed modal
-function showFeedModal(detectedFeeds) {
+async function showFeedModal(detectedFeeds) {
   const modal = document.getElementById('feed-modal');
   const feedsContainer = document.getElementById('detected-feeds');
-  
+
+  // Default new subscriptions to the stored full-text preference (ON unless
+  // explicitly disabled)
+  const fullTextToggle = document.getElementById('full-text-toggle');
+  if (fullTextToggle) {
+    fullTextToggle.checked = await getFullTextDefault();
+  }
+
   feedsContainer.innerHTML = detectedFeeds.map((feed, index) => `
     <div class="detected-feed">
       <div class="detected-feed-title">${escapeHtml(feed.title)}</div>
@@ -957,8 +977,9 @@ function showFeedModal(detectedFeeds) {
   feedsContainer.querySelectorAll('.btn').forEach(btn => {
     btn.addEventListener('click', async () => {
       const feedUrl = btn.dataset.feedUrl;
-      await subscribeFeed(feedUrl);
-      closeFeedModal();
+      if (await subscribeFeed(feedUrl)) {
+        closeFeedModal();
+      }
     });
   });
   
@@ -970,12 +991,41 @@ function closeFeedModal() {
   document.getElementById('feed-modal').style.display = 'none';
 }
 
+// Stored default for the subscribe-time full-text toggle
+async function getFullTextDefault() {
+  const { settings } = await chrome.storage.local.get('settings');
+  return settings?.fullTextDefault !== false;
+}
+
+async function setFullTextDefault(enabled) {
+  const { settings = {} } = await chrome.storage.local.get('settings');
+  await chrome.storage.local.set({
+    settings: { ...settings, fullTextDefault: enabled }
+  });
+}
+
+// Subscribe via the manual URL row in the feed modal
+async function handleAddFeedByUrl() {
+  const input = document.getElementById('feed-url-input');
+  const url = input.value.trim();
+  if (!url) {
+    input.focus();
+    return;
+  }
+  if (await subscribeFeed(url)) {
+    input.value = '';
+    closeFeedModal();
+  }
+}
+
 // Subscribe to feed
 async function subscribeFeed(feedUrl) {
   try {
+    const fullTextToggle = document.getElementById('full-text-toggle');
     const response = await chrome.runtime.sendMessage({
       action: 'subscribe-feed',
-      url: feedUrl
+      url: feedUrl,
+      fullTextEnabled: fullTextToggle ? fullTextToggle.checked : await getFullTextDefault()
     });
 
     if (response.success) {
@@ -988,8 +1038,10 @@ async function subscribeFeed(feedUrl) {
       throw new Error(response.error || 'Subscribe failed');
     }
     await loadFeeds();
+    return true;
   } catch (error) {
     showError('Failed to subscribe: ' + error.message);
+    return false;
   }
 }
 

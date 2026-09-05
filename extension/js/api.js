@@ -148,10 +148,14 @@ class ApiService {
     return this.request(`/feeds/${feedId}`);
   }
 
-  async createFeed(url, folderId = null) {
+  async createFeed(url, folderId = null, fullTextEnabled) {
+    const body = folderId ? { url, folderId } : { url };
+    if (typeof fullTextEnabled === 'boolean') {
+      body.fullTextEnabled = fullTextEnabled;
+    }
     return this.request('/feeds', {
       method: 'POST',
-      body: folderId ? { url, folderId } : { url }
+      body
     });
   }
 
