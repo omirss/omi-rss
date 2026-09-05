@@ -9,6 +9,9 @@ let savedItems = [];
 let isAuthenticated = false;
 let user = null;
 let currentArticle = null;
+// Per-list load failures - when set, the tab renders the ErrorState
+// (webui states.tsx pattern) instead of the empty state
+const listErrors = { feeds: null, articles: null, saved: null };
 
 // DOM elements
 const app = document.getElementById('app');
@@ -157,6 +160,16 @@ function initializeEventListeners() {
 
   // Load more
   document.getElementById('load-more-btn').addEventListener('click', loadMoreArticles);
+
+  // Error-state retry buttons (one per list)
+  document.querySelectorAll('[data-retry]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const kind = btn.dataset.retry;
+      if (kind === 'feeds') loadFeeds();
+      else if (kind === 'articles') loadArticles();
+      else if (kind === 'saved') loadSavedItems();
+    });
+  });
   
   // Modal - Updated to handle glass modal
   const closeBtn = document.querySelector('.close-btn');
@@ -468,37 +481,44 @@ async function loadData() {
 async function loadFeeds() {
   try {
     const response = await chrome.runtime.sendMessage({ action: 'get-feeds' });
-    
+
     if (response.error) {
       throw new Error(response.error);
     }
-    
+
     feeds = response.feeds || [];
+    listErrors.feeds = null;
     renderFeeds();
-    
+
     // Save for offline use
     saveForOffline('feeds', feeds);
   } catch (error) {
     console.error('Failed to load feeds:', error);
     feeds = [];
+    listErrors.feeds = error;
     renderFeeds();
   }
+}
+
+// Show one of list / empty / error for a tab. Returns the error element.
+function setListVisibility(kind, listEl, emptyEl, hasData) {
+  const errorEl = document.getElementById(`${kind}-error`);
+  const inError = !!listErrors[kind];
+  listEl.style.display = !inError && hasData ? 'block' : 'none';
+  emptyEl.style.display = !inError && !hasData ? 'flex' : 'none';
+  if (errorEl) errorEl.style.display = inError ? 'flex' : 'none';
+  return errorEl;
 }
 
 // Render feeds
 function renderFeeds() {
   const feedsList = document.getElementById('feeds-list');
   const emptyState = document.getElementById('feeds-empty');
-  
-  if (feeds.length === 0) {
-    feedsList.style.display = 'none';
-    emptyState.style.display = 'flex';
+  setListVisibility('feeds', feedsList, emptyState, feeds.length > 0);
+
+  if (listErrors.feeds || feeds.length === 0) {
     return;
   }
-  
-  feedsList.style.display = 'block';
-  emptyState.style.display = 'none';
-  
   feedsList.innerHTML = feeds.map(feed => `
     <div class="feed-item" data-feed-id="${feed.id}">
       <div class="feed-icon">
@@ -549,36 +569,43 @@ async function loadArticles(offset = 0) {
   try {
     const feedId = document.getElementById('feed-filter').value;
     const unreadOnly = document.getElementById('unread-filter').checked;
-    
+
     const response = await chrome.runtime.sendMessage({
       action: 'get-articles',
       feedId,
       options: { offset, unread: unreadOnly }
     });
-    
+
     if (response.error) {
       throw new Error(response.error);
     }
-    
+
     if (offset === 0) {
       articles = response.articles || [];
+      listErrors.articles = null;
     } else {
       articles.push(...(response.articles || []));
     }
-    
+
     renderArticles();
-    
+
     // Save for offline use (only save if it's the first page)
     if (offset === 0) {
       saveForOffline('articles', articles);
     }
-    
+
     // Show/hide load more button
     const loadMoreBtn = document.getElementById('load-more-btn');
     loadMoreBtn.style.display = response.hasMore ? 'block' : 'none';
   } catch (error) {
     console.error('Failed to load articles:', error);
+    if (offset > 0) {
+      // Pagination failure: keep the already-rendered list, surface a toast
+      showError('Failed to load more articles');
+      return;
+    }
     articles = [];
+    listErrors.articles = error;
     renderArticles();
   }
 }
@@ -587,19 +614,18 @@ async function loadArticles(offset = 0) {
 function renderArticles() {
   const articlesList = document.getElementById('articles-list');
   const emptyState = document.getElementById('articles-empty');
-  
-  if (articles.length === 0) {
-    articlesList.style.display = 'none';
-    emptyState.style.display = 'flex';
+  setListVisibility('articles', articlesList, emptyState, articles.length > 0);
+
+  if (listErrors.articles || articles.length === 0) {
+    const loadMoreBtn = document.getElementById('load-more-btn');
+    loadMoreBtn.style.display = 'none';
     return;
   }
-  
-  articlesList.style.display = 'block';
-  emptyState.style.display = 'none';
-  
+
   articlesList.innerHTML = articles.map(article => `
     <div class="article-item ${article.isRead ? '' : 'unread'}" data-article-id="${article.id}">
       <div class="article-header">
+        ${article.isRead ? '' : '<span class="unread-dot"></span>'}
         <div class="article-title">${escapeHtml(article.title)}</div>
         <div class="article-time">${formatTime(article.publishedAt)}</div>
       </div>
@@ -789,20 +815,21 @@ async function loadSavedItems() {
       const response = await chrome.runtime.sendMessage({
         action: 'get-saved-items'
       });
-      
+
       if (response.error) {
         throw new Error(response.error);
       }
-      
+
       savedItems = response.savedItems || [];
     } else {
       // Load from local storage
       const { savedArticles } = await chrome.storage.local.get('savedArticles');
       savedItems = savedArticles || [];
     }
-    
+
+    listErrors.saved = null;
     renderSavedItems();
-    
+
     // Save for offline use
     if (savedItems.length > 0) {
       saveForOffline('saved', savedItems);
@@ -810,8 +837,15 @@ async function loadSavedItems() {
   } catch (error) {
     console.error('Failed to load saved items:', error);
     // Fallback to local storage
-    const { savedArticles } = await chrome.storage.local.get('savedArticles');
-    savedItems = savedArticles || [];
+    try {
+      const { savedArticles } = await chrome.storage.local.get('savedArticles');
+      savedItems = savedArticles || [];
+      listErrors.saved = null;
+    } catch (fallbackError) {
+      console.error('Local fallback failed:', fallbackError);
+      savedItems = [];
+      listErrors.saved = fallbackError;
+    }
     renderSavedItems();
   }
 }
@@ -820,16 +854,12 @@ async function loadSavedItems() {
 function renderSavedItems() {
   const savedList = document.getElementById('saved-list');
   const emptyState = document.getElementById('saved-empty');
-  
-  if (savedItems.length === 0) {
-    savedList.style.display = 'none';
-    emptyState.style.display = 'flex';
+  setListVisibility('saved', savedList, emptyState, savedItems.length > 0);
+
+  if (listErrors.saved || savedItems.length === 0) {
     return;
   }
-  
-  savedList.style.display = 'block';
-  emptyState.style.display = 'none';
-  
+
   // Filter by current filter
   const filterChips = document.querySelectorAll('.filter-pill');
   let activeFilter = 'all';
@@ -1061,14 +1091,28 @@ function showLoading(show) {
   views.loading.style.display = show ? 'flex' : 'none';
 }
 
-// Show an in-popup toast. type: info | success | warning | error
+// Show an in-popup toast. One recipe shared with the sidepanel and webui:
+// top-center, icon + 600 title, type-colored icon.
+// type: info | success | warning | error
 // Message is server-influenced (error strings) - render as text only.
+const toastIcons = {
+  info: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>',
+  success: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>',
+  warning: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+  error: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>'
+};
+
 function showNotification(message, type = 'info') {
   const notification = document.createElement('div');
   notification.className = `notification notification-${type}`;
+  notification.setAttribute('role', 'status');
+  const icon = document.createElement('span');
+  icon.className = 'notification-icon';
+  icon.innerHTML = toastIcons[type] || toastIcons.info;
   const content = document.createElement('div');
   content.className = 'notification-content';
   content.textContent = String(message);
+  notification.appendChild(icon);
   notification.appendChild(content);
 
   document.body.appendChild(notification);

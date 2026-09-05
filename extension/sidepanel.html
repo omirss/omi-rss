@@ -18,6 +18,7 @@
         <div class="logo-container">
           <img src="icons/icon-48.png" alt="Omi RSS" class="logo">
           <h1>Omi RSS Reader</h1>
+          <span class="local-tag" title="This panel reads local storage only; it is not synced to your server account">local</span>
         </div>
         <div class="header-actions">
           <button id="refresh-btn" class="glass-btn icon-btn" title="Refresh">
@@ -131,6 +132,19 @@
           </div>
           <h3>No articles found</h3>
           <p>Start by adding RSS feeds to see articles here</p>
+        </div>
+
+        <div class="error-state" id="load-error" style="display: none;">
+          <div class="error-state-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="12" y1="8" x2="12" y2="12"/>
+              <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+          </div>
+          <h3>Couldn't load articles</h3>
+          <p>Reading the local article store failed. Try again.</p>
+          <button type="button" class="btn" id="retry-load">Try again</button>
         </div>
         
         <div id="articles-container" class="articles-container">

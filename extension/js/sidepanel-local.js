@@ -54,6 +54,7 @@ function cacheElements() {
   elements.searchInput = document.getElementById('search');
   elements.loadingState = document.getElementById('loading');
   elements.emptyState = document.getElementById('empty');
+  elements.errorState = document.getElementById('load-error');
   elements.articlesContainer = document.getElementById('articles-container');
   elements.articleReader = document.getElementById('article-reader');
 }
@@ -86,6 +87,9 @@ function initializeEventListeners() {
   document.getElementById('toggle-read')?.addEventListener('click', toggleReadStatus);
   document.getElementById('save-article')?.addEventListener('click', saveArticle);
   document.getElementById('open-external')?.addEventListener('click', openInBrowser);
+
+  // Error-state retry
+  document.getElementById('retry-load')?.addEventListener('click', loadInitialData);
   
   // Listen for storage changes
   chrome.storage.onChanged.addListener((changes, namespace) => {
@@ -98,7 +102,7 @@ function initializeEventListeners() {
 // Load initial data
 async function loadInitialData() {
   showLoading(true);
-  
+
   try {
     await Promise.all([
       loadFeeds(),
@@ -109,6 +113,14 @@ async function loadInitialData() {
     showError('Failed to load data. Please try refreshing.');
   } finally {
     showLoading(false);
+  }
+}
+
+// Hide the error state (called when a load succeeds)
+function clearErrorState() {
+  state.loadError = null;
+  if (elements.errorState) {
+    elements.errorState.style.display = 'none';
   }
 }
 
@@ -128,7 +140,7 @@ async function loadFeeds() {
 async function loadArticles(feedId = null) {
   try {
     let articles;
-    
+
     if (feedId) {
       articles = await storageService.getArticlesByFeed(feedId);
     } else if (state.currentView === 'unread') {
@@ -140,16 +152,18 @@ async function loadArticles(feedId = null) {
     } else {
       articles = await storageService.getAllArticles();
     }
-    
+
     // Sort by date
     articles.sort((a, b) => new Date(b.publishedAt) - new Date(a.publishedAt));
-    
+
     state.articles = articles;
+    state.loadError = null;
     renderArticles();
     updateCounts();
   } catch (error) {
     console.error('Failed to load articles:', error);
     state.articles = [];
+    state.loadError = error;
     renderArticles();
   }
 }
@@ -189,16 +203,27 @@ function renderFeeds() {
 // Render articles list
 function renderArticles() {
   if (!elements.articlesContainer) return;
-  
+
+  // Local store failure: webui ErrorState pattern, not the empty state
+  if (state.loadError) {
+    elements.loadingState.style.display = 'none';
+    elements.emptyState.style.display = 'none';
+    if (elements.errorState) elements.errorState.style.display = 'flex';
+    elements.articlesContainer.innerHTML = '';
+    return;
+  }
+
   if (state.articles.length === 0) {
     elements.loadingState.style.display = 'none';
+    if (elements.errorState) elements.errorState.style.display = 'none';
     elements.emptyState.style.display = 'flex';
     elements.articlesContainer.innerHTML = '';
     return;
   }
-  
+
   elements.loadingState.style.display = 'none';
   elements.emptyState.style.display = 'none';
+  if (elements.errorState) elements.errorState.style.display = 'none';
   
   // Filter by search query if present
   let articles = state.articles;
@@ -213,10 +238,10 @@ function renderArticles() {
   elements.articlesContainer.innerHTML = articles.map(article => {
     const feed = state.feeds.find(f => f.id === article.feedId);
     return `
-      <article class="glass-article-item ${article.isRead ? 'read' : 'unread'}" data-article-id="${article.id}">
+      <article class="article-item ${article.isRead ? 'read' : 'unread'}" data-article-id="${article.id}">
         ${article.image ? '<div class="article-image"></div>' : ''}
         <div class="article-content">
-          <h3 class="article-title">${escapeHtml(article.title)}</h3>
+          <h3 class="article-title">${article.isRead ? '' : '<span class="unread-dot"></span>'}${escapeHtml(article.title)}</h3>
           <div class="article-meta">
             <span class="article-source">${escapeHtml(feed?.title || 'Unknown source')}</span>
             <span class="article-time">${formatTime(article.publishedAt)}</span>
@@ -250,7 +275,7 @@ function renderArticles() {
 
   // Add click handlers and build list images via setAttribute (never string
   // interpolation - article.image is remote data).
-  elements.articlesContainer.querySelectorAll('.glass-article-item').forEach(item => {
+  elements.articlesContainer.querySelectorAll('.article-item').forEach(item => {
     const articleId = item.dataset.articleId;
     const article = state.articles.find(a => String(a.id) === articleId);
     if (article?.image && OmiSanitize.isSafeUrl(article.image)) {
@@ -759,24 +784,44 @@ function showLoading(show) {
   }
 }
 
-// Show notification
+// Show notification - the one toast recipe shared with the popup and webui:
+// top-center, icon + 600 title, type-colored icon (see sidepanel.css
+// .notification). Error color comes from the token red, never Material red.
+const toastIcons = {
+  info: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>',
+  success: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>',
+  warning: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+  error: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>'
+};
+
 function showNotification(message, type = 'info') {
   const notification = document.createElement('div');
-  notification.className = `glass-notification ${type}`;
-  notification.textContent = message;
-  
+  notification.className = `notification notification-${type}`;
+  notification.setAttribute('role', 'status');
+
+  const icon = document.createElement('span');
+  icon.className = 'notification-icon';
+  icon.innerHTML = toastIcons[type] || toastIcons.info;
+
+  const content = document.createElement('div');
+  content.className = 'notification-content';
+  content.textContent = String(message);
+
+  notification.appendChild(icon);
+  notification.appendChild(content);
   document.body.appendChild(notification);
-  
+
   // Animate in
   setTimeout(() => {
     notification.classList.add('show');
   }, 10);
-  
-  // Remove after delay
+
+  // Remove after delay; errors linger longer so they can be read
+  const visibleMs = type === 'error' ? 6000 : 3000;
   setTimeout(() => {
     notification.classList.remove('show');
     setTimeout(() => notification.remove(), 300);
-  }, 3000);
+  }, visibleMs);
 }
 
 // Show error
@@ -870,151 +915,34 @@ function debounce(func, wait) {
   };
 }
 
-// Add necessary styles
+// Runtime-only styles that have no home in sidepanel.css. Dialog, toast and
+// form styles live in sidepanel.css so every surface shares one system.
 const style = document.createElement('style');
 style.textContent = `
   .spinning {
     animation: spin 1s linear infinite;
   }
-  
+
   @keyframes spin {
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
   }
-  
-  .glass-notification {
-    position: fixed;
-    bottom: 20px;
-    right: 20px;
-    padding: 16px 24px;
-    background: rgba(255, 255, 255, 0.1);
-    backdrop-filter: blur(10px);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 12px;
-    color: white;
-    transform: translateY(100px);
-    transition: transform 0.3s ease;
-    z-index: 1000;
-  }
-  
-  .glass-notification.show {
-    transform: translateY(0);
-  }
-  
-  .glass-notification.error {
-    background: rgba(244, 67, 54, 0.2);
-    border-color: rgba(244, 67, 54, 0.3);
-  }
-  
-  .glass-dialog-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.5);
-    backdrop-filter: blur(5px);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-  }
-  
-  .glass-dialog {
-    background: rgba(255, 255, 255, 0.1);
-    backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 16px;
-    padding: 24px;
-    max-width: 500px;
-    width: 90%;
-    max-height: 80vh;
-    overflow-y: auto;
-  }
-  
-  .glass-dialog h3 {
-    margin: 0 0 16px 0;
-    color: white;
-  }
-  
-  .glass-input {
-    width: 100%;
-    padding: 12px 16px;
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 8px;
-    color: white;
-    font-size: 14px;
-    margin-bottom: 16px;
-  }
-  
-  .glass-input::placeholder {
-    color: rgba(255, 255, 255, 0.5);
-  }
-  
-  .dialog-actions {
-    display: flex;
-    gap: 12px;
-    justify-content: flex-end;
-  }
-  
-  .glass-btn {
-    padding: 8px 16px;
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 8px;
-    color: white;
-    cursor: pointer;
-    font-size: 14px;
-    transition: all 0.2s;
-  }
-  
-  .glass-btn:hover {
-    background: rgba(255, 255, 255, 0.2);
-  }
-  
-  .glass-btn.primary {
-    background: var(--primary-gradient);
-    border: none;
-  }
-  
-  .feed-list {
-    margin: 16px 0;
-  }
-  
-  .feed-option {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 0;
-    color: white;
-    cursor: pointer;
-  }
-  
-  .feed-option input[type="checkbox"] {
-    width: 16px;
-    height: 16px;
-  }
-  
-  .glass-article-item.read {
-    opacity: 0.7;
-  }
-  
+
   .glass-action-btn {
     background: none;
     border: none;
-    color: rgba(255, 255, 255, 0.7);
+    color: var(--text-tertiary);
     cursor: pointer;
-    padding: 4px;
+    padding: var(--sp-xs);
     transition: color 0.2s;
   }
-  
+
   .glass-action-btn:hover {
-    color: white;
+    color: var(--text-primary);
   }
-  
+
   .glass-action-btn.active {
-    color: var(--primary-color);
+    color: var(--accent);
   }
 `;
 document.head.appendChild(style);

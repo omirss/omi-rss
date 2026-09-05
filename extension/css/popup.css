@@ -50,14 +50,76 @@
 
   --r-control: 8px;
   --r-card: 12px;
+  --r-lg: 20px;
+
+  --panel-fill: rgba(20, 26, 56, 0.92);
+  --overlay: rgba(0, 0, 0, 0.4);
 
   --focus-ring: 0 0 0 3px var(--accent-soft), 0 0 0 2px var(--accent);
   --shadow-float: 0 6px 24px rgba(0, 0, 0, 0.25);
+  --shadow-panel: 0 16px 48px rgba(0, 0, 0, 0.35);
 
   /* Animation */
   --transition-fast: 0.15s ease;
   --transition-smooth: 0.15s ease;
   --transition-slow: 0.3s ease;
+
+  color-scheme: dark;
+}
+
+/* Light mode: webui Glass light tokens (web/src/styles/presets.css
+   [data-preset="glass"][data-mode="light"]) via prefers-color-scheme */
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+
+    --primary-light: #3d55c9;
+    --primary-glow: rgba(82, 99, 208, 0.22);
+
+    --accent: #3d55c9;
+    --accent-soft: rgba(61, 85, 201, 0.14);
+
+    --glass-bg: rgba(255, 255, 255, 0.38);
+    --glass-bg-light: rgba(26, 31, 60, 0.059);
+    --glass-bg-dark: rgba(26, 31, 60, 0.05);
+    --glass-border: rgba(26, 31, 60, 0.149);
+    --glass-shadow: rgba(26, 31, 60, 0.18);
+
+    --bg-primary: #f0f2fa;
+    --bg-secondary: #fbfcfe;
+    --bg-tertiary: #edf0fa;
+    --bg-gradient: linear-gradient(160deg, #edf0fa 0%, #e2e7f6 52%, #f3f0fa 100%);
+
+    --text-primary: #141833;
+    --text-secondary: #343a58;
+    --text-tertiary: #5e638a;
+    --text-muted: #8187ab;
+
+    --success: #16a34a;
+    --error: #dc2626;
+    --warning: #d97706;
+    --info: #3d55c9;
+
+    --panel-fill: rgba(255, 255, 255, 0.92);
+    --overlay: rgba(0, 0, 0, 0.2);
+
+    --shadow-float: 0 6px 24px rgba(26, 31, 60, 0.14);
+    --shadow-panel: 0 16px 48px rgba(26, 31, 60, 0.18);
+  }
+
+  .glass-bg {
+    background:
+      radial-gradient(circle at 20% 20%, rgba(127, 168, 245, 0.16) 0%, transparent 50%),
+      radial-gradient(circle at 80% 80%, rgba(84, 200, 245, 0.14) 0%, transparent 50%),
+      radial-gradient(circle at 40% 60%, rgba(176, 140, 232, 0.1) 0%, transparent 50%);
+  }
+
+  .particles {
+    background-image:
+      radial-gradient(2px 2px at 20px 30px, rgba(20, 24, 51, 0.07), transparent),
+      radial-gradient(2px 2px at 40px 70px, rgba(82, 99, 208, 0.08), transparent),
+      radial-gradient(1px 1px at 90px 40px, rgba(20, 24, 51, 0.05), transparent);
+  }
 }
 
 * {
@@ -359,10 +421,10 @@ body {
   gap: var(--sp-sm);
   padding: var(--sp-lg) var(--sp-md);
   background: var(--glass-bg);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
   border: 1px solid var(--glass-border);
-  border-radius: var(--r-card);
+  border-radius: var(--r-lg);
   color: var(--text-secondary);
   cursor: pointer;
   transition: all var(--transition-smooth);
@@ -407,45 +469,31 @@ body {
   font-size: 12px;
 }
 
-/* Page-feed badge on feed list items */
+/* Badges: one language, the webui .reader-badge chip (accent on accent-soft,
+   600 10px, height 16, radius 8) - applies to full-text and page markers */
 .feed-type-badge,
-.full-text-badge {
-  display: inline-block;
-  margin-left: 6px;
-  padding: 1px 7px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
-  vertical-align: 1px;
-}
-
-.feed-type-badge {
-  background: rgba(79, 172, 254, 0.15);
-  color: #7cc4fe;
-  border: 1px solid rgba(79, 172, 254, 0.4);
-}
-
-.full-text-badge {
-  background: rgba(74, 222, 128, 0.15);
-  color: #86efac;
-  border: 1px solid rgba(74, 222, 128, 0.4);
-}
-
-/* Full-text marker on feed list rows (muted vs the detail-view badge) */
+.full-text-badge,
 .feed-ft-badge {
-  display: inline-block;
-  margin-left: 4px;
-  padding: 1px 6px;
-  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  padding: 0 6px;
+  margin-left: 6px;
+  border-radius: var(--r-control);
+  font-family: inherit;
   font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.4px;
-  vertical-align: 1px;
-  background: rgba(74, 222, 128, 0.1);
-  color: #86efac;
-  border: 1px solid rgba(74, 222, 128, 0.28);
+  line-height: 1;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  vertical-align: 2px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  cursor: default;
+}
+
+.feed-ft-badge {
+  margin-left: 4px;
 }
 
 /* Article detail view */
@@ -456,9 +504,11 @@ body {
 }
 
 .detail-content h2 {
-  font-size: 18px;
-  font-weight: 600;
-  line-height: 1.35;
+  /* Webui reader title is 700 24px; 22px keeps two-line titles compact in the
+     380px popup column while staying in the same scale family */
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.3;
   margin: var(--sp-sm) 0;
   color: var(--text-primary);
 }
@@ -474,7 +524,7 @@ body {
 }
 
 .detail-body {
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1.65;
   color: var(--text-primary);
   word-wrap: break-word;
@@ -488,7 +538,7 @@ body {
 
 .detail-body pre {
   overflow-x: auto;
-  background: rgba(10, 14, 33, 0.35);
+  background: var(--glass-bg-dark);
   padding: var(--sp-md);
   border-radius: var(--r-control);
   font-size: 12px;
@@ -519,15 +569,28 @@ body {
   border-top: 1px solid var(--glass-border);
 }
 
+/* Footer: webui reader hierarchy - one accent CTA, archive links muted
+   (reading.css: original 600 14 accent; archive.org/today 12 text-medium) */
 .detail-footer a {
-  color: var(--accent);
+  color: var(--text-tertiary);
   text-decoration: none;
   font-weight: 500;
   transition: color var(--transition-smooth);
 }
 
 .detail-footer a:hover {
-  color: var(--primary-light);
+  color: var(--text-secondary);
+  text-decoration: underline;
+}
+
+.detail-footer a.footer-primary {
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.detail-footer a.footer-primary:hover {
+  color: var(--accent);
   text-decoration: underline;
 }
 
@@ -821,18 +884,18 @@ body {
   padding: 0 var(--sp-lg);
 }
 
-/* Feed Items */
+/* Feed Items - webui row rhythm: sibling cards 16 pad / 16 gap / radius 20 */
 .feed-item {
   display: flex;
   align-items: center;
   gap: var(--sp-md);
-  padding: var(--sp-md);
-  margin-bottom: var(--sp-sm);
+  padding: var(--sp-lg);
+  margin-bottom: var(--sp-lg);
   background: var(--glass-bg);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
   border: 1px solid var(--glass-border);
-  border-radius: var(--r-card);
+  border-radius: var(--r-lg);
   cursor: pointer;
   transition: all var(--transition-smooth);
   position: relative;
@@ -854,7 +917,7 @@ body {
 .feed-item:hover {
   background: var(--glass-bg-light);
   border-color: var(--primary);
-  transform: translateY(-2px);
+  transform: translateY(-1px);
   box-shadow: 0 6px 20px var(--glass-shadow);
 }
 
@@ -903,32 +966,32 @@ body {
   color: var(--text-tertiary);
 }
 
+/* Unread count: webui .chip-count language (accent on accent-soft) */
 .feed-count {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-width: 28px;
-  height: 28px;
-  padding: 0 8px;
-  background: var(--gradient-primary);
-  border-radius: 999px;
-  color: white;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  background: var(--accent-soft);
+  border-radius: 9px;
+  color: var(--accent);
   font-size: 12px;
   font-weight: 600;
-  box-shadow: 0 2px 8px var(--primary-glow);
   position: relative;
   z-index: 1;
 }
 
-/* Article Items */
+/* Article Items - webui row rhythm: 16 pad / 16 gap / radius 20 */
 .article-item {
-  padding: var(--sp-md);
-  margin-bottom: var(--sp-sm);
+  padding: var(--sp-lg);
+  margin-bottom: var(--sp-lg);
   background: var(--glass-bg);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
   border: 1px solid var(--glass-border);
-  border-radius: var(--r-card);
+  border-radius: var(--r-lg);
   cursor: pointer;
   transition: all var(--transition-smooth);
   position: relative;
@@ -950,7 +1013,7 @@ body {
 .article-item:hover {
   background: var(--glass-bg-light);
   border-color: var(--primary);
-  transform: translateY(-2px);
+  transform: translateY(-1px);
   box-shadow: 0 6px 20px var(--glass-shadow);
 }
 
@@ -958,8 +1021,15 @@ body {
   opacity: 1;
 }
 
-.article-item.unread {
-  border-left: 3px solid var(--primary);
+/* Unread signal: the webui accent dot (one pattern across surfaces) */
+.unread-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--accent-soft);
+  margin-top: 5px;
 }
 
 .article-item.unread .article-title {
@@ -1011,15 +1081,15 @@ body {
   z-index: 1;
 }
 
-/* Saved Items */
+/* Saved Items - webui row rhythm: 16 pad / 16 gap / radius 20 */
 .saved-item {
   background: var(--glass-bg);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
   border: 1px solid var(--glass-border);
-  border-radius: var(--r-card);
-  padding: var(--sp-md);
-  margin-bottom: var(--sp-md);
+  border-radius: var(--r-lg);
+  padding: var(--sp-lg);
+  margin-bottom: var(--sp-lg);
   cursor: pointer;
   transition: all var(--transition-smooth);
   position: relative;
@@ -1041,7 +1111,7 @@ body {
 .saved-item:hover {
   background: var(--glass-bg-light);
   border-color: var(--primary);
-  transform: translateY(-2px);
+  transform: translateY(-1px);
   box-shadow: 0 6px 20px var(--glass-shadow);
 }
 
@@ -1142,6 +1212,44 @@ body {
   line-height: 1.6;
 }
 
+/* Error State - webui ErrorState anatomy (states.tsx): 56px icon chip with
+   error color, 18/600 title, message, retry action */
+.error-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-md);
+  padding: var(--sp-xxl) var(--sp-lg);
+  text-align: center;
+}
+
+.error-state-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  color: var(--error);
+}
+
+.error-state h3 {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.error-state p {
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  max-width: 280px;
+}
+
 /* Buttons */
 .btn {
   display: inline-flex;
@@ -1202,6 +1310,13 @@ body {
 
 .btn-primary::before {
   opacity: 0;
+}
+
+/* Webui .btn-sm: 30px height, 600 12px label */
+.btn-sm {
+  height: 30px;
+  padding: 0 var(--sp-md);
+  font-size: 12px;
 }
 
 .btn-secondary {
@@ -1377,7 +1492,7 @@ body {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.4);
+  background: var(--overlay);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
 }
@@ -1385,7 +1500,7 @@ body {
 .glass-modal-content {
   width: 90%;
   max-width: 400px;
-  background: rgba(20, 26, 56, 0.92);
+  background: var(--panel-fill);
   backdrop-filter: blur(30px) saturate(1.5);
   -webkit-backdrop-filter: blur(30px) saturate(1.5);
   border: 1px solid var(--glass-border);
@@ -1553,28 +1668,29 @@ body {
   }
 }
 
-/* Notification - follows the webui toast anatomy (web/src/styles/components.css):
-   panel fill + blur(30px) saturate(1.5), 12/16 padding, type-colored border,
-   float shadow, 200ms ease-out motion. */
+/* Toast - the one recipe shared by popup, sidepanel and webui
+   (web/src/styles/components.css .toast): top-center, panel fill,
+   blur(16px), radius 20, icon + 600 title, type-colored icon only */
 .notification {
   position: fixed;
-  bottom: var(--sp-lg);
+  top: var(--sp-lg);
   left: 50%;
-  transform: translateX(-50%) translateY(100px);
+  transform: translateX(-50%) translateY(-8px);
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-sm);
   padding: var(--sp-md) var(--sp-lg);
-  background: rgba(20, 26, 56, 0.92);
-  backdrop-filter: blur(30px) saturate(1.5);
-  -webkit-backdrop-filter: blur(30px) saturate(1.5);
+  background: var(--panel-fill);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   border: 1px solid var(--glass-border);
-  border-radius: var(--r-card);
+  border-radius: var(--r-lg);
   color: var(--text-primary);
-  font-size: 14px;
-  font-weight: 500;
-  transition: transform 200ms ease-out, opacity 200ms ease-out;
-  z-index: 1000;
-  max-width: 320px;
-  box-shadow: var(--shadow-float);
+  z-index: 1200;
+  max-width: 340px;
+  box-shadow: var(--shadow-panel);
   opacity: 0;
+  transition: transform 200ms ease-out, opacity 200ms ease-out;
 }
 
 .notification.show {
@@ -1582,20 +1698,32 @@ body {
   opacity: 1;
 }
 
-.notification-info {
-  border-color: rgba(79, 172, 254, 0.6);
+.notification-icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  margin-top: 2px;
 }
 
-.notification-success {
-  border-color: rgba(74, 222, 128, 0.6);
+.notification-content {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.45;
 }
 
-.notification-warning {
-  border-color: rgba(251, 191, 36, 0.6);
+.notification-info .notification-icon {
+  color: var(--accent);
 }
 
-.notification-error {
-  border-color: rgba(248, 113, 113, 0.6);
+.notification-success .notification-icon {
+  color: var(--success);
+}
+
+.notification-warning .notification-icon {
+  color: var(--warning);
+}
+
+.notification-error .notification-icon {
+  color: var(--error);
 }
 
 /* Scrollbar */
@@ -1656,8 +1784,8 @@ body {
 /* High contrast mode support */
 @media (prefers-contrast: high) {
   :root {
-    --glass-border: rgba(255, 255, 255, 0.5);
-    --text-tertiary: #999999;
+    --glass-border: rgba(139, 144, 179, 0.8);
+    --text-tertiary: #6b7096;
   }
 }
 

@@ -12,7 +12,7 @@ export interface ThemePresetInfo {
 }
 
 export const THEME_PRESETS: ThemePresetInfo[] = [
-  { id: "glass", name: "Glass", swatchFrom: "#667eea", swatchTo: "#764ba2" },
+  { id: "glass", name: "Glass", swatchFrom: "#5263d0", swatchTo: "#7d5fad" },
   { id: "glass_light", name: "Glass Light", swatchFrom: "#7b8ff0", swatchTo: "#9c7cbe" },
   { id: "aurora", name: "Aurora", swatchFrom: "#14b8a6", swatchTo: "#0ea5e9" },
   { id: "ember", name: "Ember", swatchFrom: "#f59e0b", swatchTo: "#ef6c00" },

@@ -50,14 +50,76 @@
 
   --r-control: 8px;
   --r-card: 12px;
+  --r-lg: 20px;
+
+  --panel-fill: rgba(20, 26, 56, 0.92);
+  --overlay: rgba(0, 0, 0, 0.4);
 
   --focus-ring: 0 0 0 3px var(--accent-soft), 0 0 0 2px var(--accent);
   --shadow-float: 0 6px 24px rgba(0, 0, 0, 0.25);
+  --shadow-panel: 0 16px 48px rgba(0, 0, 0, 0.35);
 
   /* Animation */
   --transition-fast: 0.15s ease;
   --transition-smooth: 0.15s ease;
   --transition-slow: 0.3s ease;
+
+  color-scheme: dark;
+}
+
+/* Light mode: webui Glass light tokens (web/src/styles/presets.css
+   [data-preset="glass"][data-mode="light"]) via prefers-color-scheme */
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+
+    --primary-light: #3d55c9;
+    --primary-glow: rgba(82, 99, 208, 0.22);
+
+    --accent: #3d55c9;
+    --accent-soft: rgba(61, 85, 201, 0.14);
+
+    --glass-bg: rgba(255, 255, 255, 0.38);
+    --glass-bg-light: rgba(26, 31, 60, 0.059);
+    --glass-bg-dark: rgba(26, 31, 60, 0.05);
+    --glass-border: rgba(26, 31, 60, 0.149);
+    --glass-shadow: rgba(26, 31, 60, 0.18);
+
+    --bg-primary: #f0f2fa;
+    --bg-secondary: #fbfcfe;
+    --bg-tertiary: #edf0fa;
+    --bg-gradient: linear-gradient(160deg, #edf0fa 0%, #e2e7f6 52%, #f3f0fa 100%);
+
+    --text-primary: #141833;
+    --text-secondary: #343a58;
+    --text-tertiary: #5e638a;
+    --text-muted: #8187ab;
+
+    --success: #16a34a;
+    --error: #dc2626;
+    --warning: #d97706;
+    --info: #3d55c9;
+
+    --panel-fill: rgba(255, 255, 255, 0.92);
+    --overlay: rgba(0, 0, 0, 0.2);
+
+    --shadow-float: 0 6px 24px rgba(26, 31, 60, 0.14);
+    --shadow-panel: 0 16px 48px rgba(26, 31, 60, 0.18);
+  }
+
+  .glass-bg {
+    background:
+      radial-gradient(circle at 20% 20%, rgba(127, 168, 245, 0.16) 0%, transparent 50%),
+      radial-gradient(circle at 80% 80%, rgba(84, 200, 245, 0.14) 0%, transparent 50%),
+      radial-gradient(circle at 40% 60%, rgba(176, 140, 232, 0.1) 0%, transparent 50%);
+  }
+
+  .particles {
+    background-image:
+      radial-gradient(2px 2px at 20px 30px, rgba(20, 24, 51, 0.07), transparent),
+      radial-gradient(2px 2px at 40px 70px, rgba(82, 99, 208, 0.08), transparent),
+      radial-gradient(1px 1px at 90px 40px, rgba(20, 24, 51, 0.05), transparent);
+  }
 }
 
 * {
@@ -412,10 +474,16 @@ body {
 
 .glass-nav-item .count {
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  background: var(--accent-soft);
+  border-radius: 9px;
+  color: var(--accent);
   font-size: 12px;
-  background: var(--glass-bg-dark);
-  padding: 2px var(--sp-sm);
-  border-radius: 999px;
   font-weight: 600;
   position: relative;
   z-index: 1;
@@ -451,7 +519,8 @@ body {
 }
 
 .loading-state,
-.empty-state {
+.empty-state,
+.error-state {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -502,21 +571,21 @@ body {
   line-height: 1.6;
 }
 
-/* Articles Container */
+/* Articles Container - webui sibling rhythm: 16px gap */
 .articles-container {
   padding: var(--sp-lg);
   display: flex;
   flex-direction: column;
-  gap: var(--sp-md);
+  gap: var(--sp-lg);
 }
 
-/* Article Items */
+/* Article Items - webui card: radius 20, blur(16px) saturate(1.4) */
 .article-item {
   background: var(--glass-bg);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
   border: 1px solid var(--glass-border);
-  border-radius: var(--r-card);
+  border-radius: var(--r-lg);
   padding: var(--sp-lg);
   cursor: pointer;
   transition: all var(--transition-smooth);
@@ -539,16 +608,28 @@ body {
 .article-item:hover {
   background: var(--glass-bg-light);
   border-color: var(--primary);
-  transform: translateY(-2px);
-  box-shadow: 0 8px 25px var(--glass-shadow);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px var(--glass-shadow);
 }
 
 .article-item:hover::before {
   opacity: 1;
 }
 
-.article-item.unread {
-  border-left: 3px solid var(--primary);
+.article-item.read {
+  opacity: 0.7;
+}
+
+/* Unread signal: the webui accent dot (one pattern across surfaces) */
+.unread-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--accent-soft);
+  display: inline-block;
+  margin-right: 2px;
 }
 
 .article-item.unread .article-title {
@@ -600,7 +681,7 @@ body {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(20, 26, 56, 0.9);
+  background: var(--panel-fill);
   backdrop-filter: blur(30px) saturate(1.5);
   -webkit-backdrop-filter: blur(30px) saturate(1.5);
   display: flex;
@@ -649,10 +730,43 @@ body {
 }
 
 .glass-reader-content h1 {
-  font-size: 28px;
-  line-height: 1.2;
-  margin-bottom: var(--sp-lg);
+  /* Webui reader title scale (700 24, --t-display-sm) */
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.25;
+  margin-bottom: var(--sp-md);
   color: var(--text-primary);
+}
+
+/* Classes emitted by sidepanel-local.js openArticle() */
+.reader-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-sm);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  padding-bottom: var(--sp-lg);
+  border-bottom: 1px solid var(--glass-border);
+  margin-bottom: var(--sp-lg);
+}
+
+.reader-body {
+  font-size: 16px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+
+.reader-image {
+  margin: 0 0 var(--sp-lg) 0;
+}
+
+.reader-image img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--r-control);
+  box-shadow: 0 4px 20px var(--glass-shadow);
 }
 
 .glass-reader-content .article-info {
@@ -908,8 +1022,8 @@ body {
 /* High contrast mode support */
 @media (prefers-contrast: high) {
   :root {
-    --glass-border: rgba(255, 255, 255, 0.5);
-    --text-tertiary: #999999;
+    --glass-border: rgba(139, 144, 179, 0.8);
+    --text-tertiary: #6b7096;
   }
 }
 
@@ -932,18 +1046,270 @@ body {
   .glass-sidebar {
     width: 240px;
   }
-  
+
   .glass-nav-item {
     padding: var(--sp-sm) var(--sp-lg);
     margin: 0 var(--sp-sm);
   }
-  
+
   .nav-section h3 {
     padding: 0 var(--sp-lg);
   }
-  
+
   .feed-item {
     padding: var(--sp-sm) var(--sp-lg);
     margin: 0 var(--sp-sm);
   }
+}
+
+/* Local-data tag: signals the sidepanel's local-only data path */
+.local-tag {
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  padding: 0 6px;
+  border-radius: var(--r-control);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: var(--accent-soft);
+  vertical-align: 2px;
+  margin-left: var(--sp-sm);
+  cursor: default;
+}
+
+/* Error State - webui ErrorState anatomy (states.tsx) */
+.error-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-md);
+  padding: var(--sp-xxl) var(--sp-xl);
+  text-align: center;
+  min-height: 240px;
+}
+
+.error-state-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  color: var(--error);
+}
+
+.error-state h3 {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.error-state p {
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  max-width: 280px;
+}
+
+.error-state .btn {
+  height: 30px;
+  padding: 0 var(--sp-md);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Buttons for error state / dialogs - popup .btn recipe */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-sm);
+  height: 38px;
+  padding: 0 var(--sp-lg);
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r-control);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-smooth);
+  text-decoration: none;
+}
+
+.btn:hover {
+  background: var(--glass-bg-light);
+  border-color: var(--primary);
+}
+
+.btn.btn-primary {
+  background: var(--gradient-primary);
+  border-color: var(--primary);
+  color: white;
+}
+
+/* Dialog - system recipe (radius 12, token fills), replaces the
+   JS-injected stylesheet values */
+.glass-dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--overlay);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.glass-dialog {
+  background: var(--panel-fill);
+  backdrop-filter: blur(30px) saturate(1.5);
+  -webkit-backdrop-filter: blur(30px) saturate(1.5);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-float);
+  padding: var(--sp-xl);
+  max-width: 500px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.glass-dialog h3 {
+  margin: 0 0 var(--sp-lg) 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.glass-dialog .glass-input {
+  width: 100%;
+  padding: var(--sp-sm) var(--sp-md);
+  background: var(--glass-bg-dark);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r-control);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 14px;
+  margin-bottom: var(--sp-lg);
+}
+
+.glass-dialog .glass-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.glass-dialog .glass-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+
+.dialog-actions {
+  display: flex;
+  gap: var(--sp-sm);
+  justify-content: flex-end;
+}
+
+.dialog-actions .glass-btn {
+  padding: var(--sp-sm) var(--sp-lg);
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+}
+
+.dialog-actions .glass-btn.primary {
+  background: var(--gradient-primary);
+  border: 1px solid var(--primary);
+  color: white;
+}
+
+.feed-list {
+  margin: var(--sp-lg) 0;
+}
+
+.feed-option {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-sm);
+  padding: var(--sp-sm) 0;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.feed-option input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary);
+}
+
+/* Toast - the one recipe shared by popup, sidepanel and webui
+   (web/src/styles/components.css .toast): top-center, panel fill,
+   blur(16px), radius 20, icon + 600 title, type-colored icon only */
+.notification {
+  position: fixed;
+  top: var(--sp-lg);
+  left: 50%;
+  transform: translateX(-50%) translateY(-8px);
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-sm);
+  padding: var(--sp-md) var(--sp-lg);
+  background: var(--panel-fill);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r-lg);
+  color: var(--text-primary);
+  z-index: 1200;
+  max-width: min(400px, calc(100vw - 32px));
+  box-shadow: var(--shadow-panel);
+  opacity: 0;
+  transition: transform 200ms ease-out, opacity 200ms ease-out;
+}
+
+.notification.show {
+  transform: translateX(-50%) translateY(0);
+  opacity: 1;
+}
+
+.notification-icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  margin-top: 2px;
+}
+
+.notification-content {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.notification-info .notification-icon {
+  color: var(--accent);
+}
+
+.notification-success .notification-icon {
+  color: var(--success);
+}
+
+.notification-warning .notification-icon {
+  color: var(--warning);
+}
+
+.notification-error .notification-icon {
+  color: var(--error);
 }

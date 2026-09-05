@@ -184,6 +184,21 @@
             <span>Add Feed</span>
           </button>
         </div>
+
+        <div class="error-state" id="feeds-error" style="display: none;">
+          <div class="error-state-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="12" y1="8" x2="12" y2="12"/>
+              <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+          </div>
+          <h3>Couldn't load feeds</h3>
+          <p>The server could not be reached. Check your connection and try again.</p>
+          <button class="btn btn-secondary btn-sm" data-retry="feeds">
+            <span>Try again</span>
+          </button>
+        </div>
       </div>
 
       <!-- Articles tab -->
@@ -214,6 +229,21 @@
           </div>
           <h3>No articles yet</h3>
           <p>Your articles will appear here once you add feeds</p>
+        </div>
+
+        <div class="error-state" id="articles-error" style="display: none;">
+          <div class="error-state-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="12" y1="8" x2="12" y2="12"/>
+              <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+          </div>
+          <h3>Couldn't load articles</h3>
+          <p>The server could not be reached. Check your connection and try again.</p>
+          <button class="btn btn-secondary btn-sm" data-retry="articles">
+            <span>Try again</span>
+          </button>
         </div>
         
         <div class="load-more-container">
@@ -246,6 +276,21 @@
           <h3>No saved items</h3>
           <p>Save articles and they'll appear here</p>
         </div>
+
+        <div class="error-state" id="saved-error" style="display: none;">
+          <div class="error-state-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="12" y1="8" x2="12" y2="12"/>
+              <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+          </div>
+          <h3>Couldn't load saved items</h3>
+          <p>The server could not be reached. Check your connection and try again.</p>
+          <button class="btn btn-secondary btn-sm" data-retry="saved">
+            <span>Try again</span>
+          </button>
+        </div>
       </div>
     </div>
 
@@ -272,7 +317,7 @@
         <div id="detail-body" class="detail-body"></div>
       </div>
       <div id="detail-footer" class="detail-footer" style="display: none;">
-        <a href="#" id="detail-open-link" target="_blank" rel="noopener noreferrer">Open original</a>
+        <a href="#" id="detail-open-link" class="footer-primary" target="_blank" rel="noopener noreferrer">Open original</a>
         <a href="#" id="detail-archive-org-link" target="_blank" rel="noopener noreferrer">archive.org</a>
         <a href="#" id="detail-archive-today-link" target="_blank" rel="noopener noreferrer">archive.today</a>
       </div>
