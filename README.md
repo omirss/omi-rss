@@ -29,6 +29,7 @@ omi-rss/
 ├── docs/             self-hosting guide, Webroll concept
 ├── docker-compose.yml        local/self-host stack (web, worker, postgres, redis)
 ├── docker-compose.prod.yml   production variant (secrets required, no defaults)
+├── compose.dev.yml            dev databases only (postgres on 5433, redis on 6380)
 └── PLAN.md           scope, phase history, current state
 ```
 
@@ -36,17 +37,23 @@ omi-rss/
 
 ### Web (UI + API + worker)
 
+Start the dev databases (PostgreSQL 16 on `localhost:5433`, Redis 7 on `localhost:6380`):
+
+```bash
+podman compose -f compose.dev.yml up -d     # or: docker compose -f compose.dev.yml up -d
+```
+
+Then:
+
 ```bash
 cd web
 pnpm install
-cp .env.example .env        # point DATABASE_URL/REDIS_URL at your containers
+cp .env.example .env        # defaults already point at compose.dev.yml (5433/6380)
 pnpm db:migrate             # apply schema
 pnpm dev                    # UI + API dev server
 pnpm worker                 # background worker (separate terminal)
 pnpm test                   # unit tests
 ```
-
-Needs PostgreSQL and Redis; the compose stack below provides both (`postgres` on host port 5433, `redis` on 6380 in the dev containers this repo was built against — adjust `.env` to match yours).
 
 Health check: `GET /health`, readiness: `GET /ready`.
 
@@ -83,11 +90,33 @@ JWT_SECRET=$(openssl rand -hex 32) POSTGRES_PASSWORD=$(openssl rand -hex 16) \
 
 The stack is four services: `web` (UI + API, port 8080 by default), `worker` (same image, background crons), `postgres:16`, `redis:7`. No nginx — the Neutron server serves statics itself; terminate TLS at your edge. Register the first user via `POST /api/auth/register`.
 
-For a localhost stack with dev-friendly defaults, use `docker-compose.yml` instead.
+For a localhost stack with dev-friendly defaults, use `docker-compose.yml` instead; for databases only (local development on `web/`), use `compose.dev.yml`.
 
 Extension: load unpacked, or build store-ready zips with `cd extension && ./build.sh`.
 
 See [docs/self-hosting.md](docs/self-hosting.md) for the full guide.
+
+## Environment variables
+
+The server and worker read these from the environment (`web/.env.example` carries the same set with defaults):
+
+| Variable | What it does |
+| --- | --- |
+| `DATABASE_URL` | PostgreSQL connection string (`postgres://user:pass@host:5432/db`) |
+| `REDIS_URL` | Redis connection string for queue/cache (`redis://host:6379`) |
+| `JWT_SECRET` | HMAC secret for auth tokens — required, no default in production |
+| `PORT` | HTTP port for the UI + API server (default `3000`) |
+| `JWT_EXPIRES_IN` | Access-token expiry, `jwt.sign` `expiresIn` format (default `7d`) |
+| `BCRYPT_ROUNDS` | bcrypt cost factor for password hashing (default `10`) |
+| `MAX_FILE_SIZE` | Max upload size in bytes — avatars, OPML import (default `5242880`, 5 MB) |
+| `UPLOAD_DIR` | Directory for avatars/uploads, served from `/uploads` (default `./uploads`) |
+| `ARTICLE_RETENTION_DAYS` | Days before the cleanup job deletes articles (default `90`) |
+| `FRONTEND_URL` | Public origin used in verification/reset email links |
+| `TRUSTED_PROXY` | Trust forwarding headers for rate limiting: `false` (direct), `true` (one proxy), or a CIDR list |
+| `ALLOW_PRIVATE_FEED_URLS` | Dev-only bypass of the SSRF guard for loopback/private feed URLs (default `false`) |
+| `NODE_ENV` | `development` or `production`; production enables strict auth/rate-limit behavior |
+
+Compose additionally supports `WEB_PORT` (host port for `web`, default `8080`), `POSTGRES_PASSWORD`, and `SMTP_*`/`RATE_LIMIT_*` (see [docs/self-hosting.md](docs/self-hosting.md)).
 
 ## Status
 

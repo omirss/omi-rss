@@ -66,10 +66,10 @@ app/
 
 ## Status
 
-Frozen at v0.2 (analyze clean, tests pass, web build verified against the
-v0.2 server); native/desktop builds untested for release. The shipped
-product is the Neutron web app (`../web/`), v0.3.0. See the repository
-PLAN.md for details.
+Frozen at v0.2 (`flutter analyze` on Flutter 3.47.2: 0 errors, ~31 warnings,
+~323 infos; tests pass, web build verified against the v0.2 server); native/
+desktop builds untested for release. The shipped product is the Neutron web
+app (`../web/`), v0.3.0. See the repository PLAN.md for details.
 
 ## License
 

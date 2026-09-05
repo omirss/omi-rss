@@ -1,0 +1,48 @@
+# omi-rss — dev databases only (postgres + redis, no app services).
+# For working on web/ locally: the published ports match web/.env.example
+# (postgres on host 5433, redis on 6380) and do not collide with the
+# full stack in docker-compose.yml, which publishes no database ports.
+#
+# Start:  podman compose -f compose.dev.yml up -d   (or docker compose ...)
+# Stop:   podman compose -f compose.dev.yml down
+
+name: omirss-dev
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: omirss_dev_postgres
+    environment:
+      POSTGRES_USER: omi_rss
+      POSTGRES_PASSWORD: omi_rss
+      POSTGRES_DB: omi_rss
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5433:5432"
+    volumes:
+      - omirss_dev_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U omi_rss -d omi_rss"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: omirss_dev_redis
+    command: redis-server --appendonly yes
+    ports:
+      - "6380:6379"
+    volumes:
+      - omirss_dev_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  omirss_dev_pgdata:
+  omirss_dev_redisdata:

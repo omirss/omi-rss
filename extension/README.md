@@ -49,6 +49,8 @@ gecko id `{41a6adaa-f9f6-429c-b579-48e0f0697dfe}` for signed releases.
 - `alarms` — background feed refresh scheduling
 - `notifications` — save/subscribe feedback
 - `sidePanel` (Chrome) — persistent reader panel
+- `tabs` (Firefox only) — query/message the active tab from the event-page
+  background (the Chrome build covers this via `activeTab`)
 - `downloads` — OPML and JSON backup export
 - Host permissions (`http://*/*`, `https://*/*`) — feed detection and parsing
   on arbitrary pages, and API calls to a user-configured server URL

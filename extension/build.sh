@@ -4,7 +4,9 @@
 
 echo "Building Omi RSS Extension..."
 
-# Create build directories
+# Start from a clean slate: stale files from earlier builds must not be
+# re-packaged (deleted sources would otherwise survive in the zips).
+rm -rf build
 mkdir -p build/chrome
 mkdir -p build/firefox
 

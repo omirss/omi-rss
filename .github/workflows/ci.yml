@@ -1,0 +1,38 @@
+name: CI
+
+"on":
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - run: pnpm test
+
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate compose files
+        run: |
+          docker compose -f docker-compose.yml config -q
+          JWT_SECRET=ci-jwt-secret POSTGRES_PASSWORD=ci-postgres-password \
+            docker compose -f docker-compose.prod.yml config -q
+          docker compose -f compose.dev.yml config -q

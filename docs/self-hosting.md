@@ -25,11 +25,31 @@ Provide the required secrets (no defaults in the prod file):
 - `JWT_SECRET` — long random string: `openssl rand -hex 32`
 - `POSTGRES_PASSWORD` — secure password: `openssl rand -hex 16`
 
-Optional environment (set on the `web` service): `SMTP_HOST`/`SMTP_PORT`/
-`SMTP_USER`/`SMTP_PASS`/`EMAIL_FROM` enable email verification and password
-reset; `UPLOAD_DIR` (default `./uploads`); `RATE_LIMIT_MAX_REQUESTS` /
-`RATE_LIMIT_WINDOW_MS` tune the API limits. `DATABASE_URL`, `REDIS_URL`, and
-`PORT` are wired by compose itself.
+### Environment variables
+
+The full set the server reads (matches `web/.env.example`, which carries the
+defaults); compose wires the connection strings itself:
+
+| Variable | What it does |
+| --- | --- |
+| `DATABASE_URL` | PostgreSQL connection string (`postgres://user:pass@host:5432/db`) |
+| `REDIS_URL` | Redis connection string for queue/cache (`redis://host:6379`) |
+| `JWT_SECRET` | HMAC secret for auth tokens — required, no default in production |
+| `PORT` | HTTP port for the UI + API server (default `3000`; compose maps host `8080` to it) |
+| `JWT_EXPIRES_IN` | Access-token expiry, `jwt.sign` `expiresIn` format (default `7d`) |
+| `BCRYPT_ROUNDS` | bcrypt cost factor for password hashing (default `10`) |
+| `MAX_FILE_SIZE` | Max upload size in bytes — avatars, OPML import (default `5242880`, 5 MB) |
+| `UPLOAD_DIR` | Directory for avatars/uploads, served from `/uploads` (default `./uploads`) |
+| `ARTICLE_RETENTION_DAYS` | Days before the cleanup job deletes articles (default `90`) |
+| `FRONTEND_URL` | Public origin used in verification/reset email links |
+| `TRUSTED_PROXY` | Trust forwarding headers for rate limiting: `false` (direct), `true` (one proxy), or a CIDR list |
+| `ALLOW_PRIVATE_FEED_URLS` | Dev-only bypass of the SSRF guard for loopback/private feed URLs (default `false`) |
+| `NODE_ENV` | `development` or `production`; production enables strict auth/rate-limit behavior |
+
+Also supported: `WEB_PORT` (host port for the `web` service, default `8080`)
+and, set on the `web` service, `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`/
+`EMAIL_FROM` to enable email verification and password reset, plus
+`RATE_LIMIT_MAX_REQUESTS` / `RATE_LIMIT_WINDOW_MS` to tune the API limits.
 
 ## Start
 
@@ -39,7 +59,10 @@ JWT_SECRET=$(openssl rand -hex 32) POSTGRES_PASSWORD=$(openssl rand -hex 16) \
 ```
 
 For a localhost stack with dev-friendly defaults (including a default
-`JWT_SECRET`), use `docker-compose.yml` instead — same four services.
+`JWT_SECRET`), use `docker-compose.yml` instead — same four services. For
+databases only while developing on `web/`, use `compose.dev.yml`
+(`podman compose -f compose.dev.yml up -d`): PostgreSQL 16 published on
+host `5433` and Redis 7 on `6380`, matching `web/.env.example`.
 
 Verify: `curl http://localhost:8080/health` returns 200. The API is served
 under `/api`; the web UI is at `/`.
