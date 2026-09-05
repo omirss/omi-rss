@@ -24,6 +24,10 @@ const views = {
 document.addEventListener('DOMContentLoaded', async () => {
   // Always initialize event listeners
   initializeEventListeners();
+
+  // Version string comes from the manifest at runtime
+  const versionEl = document.getElementById('app-version');
+  if (versionEl) versionEl.textContent = chrome.runtime.getManifest().version;
   
   // Check if running in offline mode
   const isOffline = await checkOfflineMode();
