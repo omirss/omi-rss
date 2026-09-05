@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef } from "preact/hooks";
-import type { ArticleListItem } from "../../lib/api-types.js";
-import { analyticsApi } from "../../lib/client.js";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
+import type { ArticleDetail, ArticleListItem } from "../../lib/api-types.js";
+import { analyticsApi, articlesApi } from "../../lib/client.js";
 import { useToast } from "../Toast.js";
 import { EmptyState } from "../states.js";
 import { ChevronLeftIcon, CloseIcon, RssIcon } from "../Icons.js";
@@ -58,6 +58,25 @@ export function ReaderView({
   const panelRef = useRef<HTMLDivElement | null>(null);
   const articleId = article?.id ?? null;
   const activeReadRef = useRef<ActiveRead | null>(null);
+  // contentExtracted lives in the detail payload, not the list — fetch it
+  // on open and fall back to the list item's fields until it arrives.
+  const [detail, setDetail] = useState<ArticleDetail | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setDetail(null);
+    if (articleId) {
+      articlesApi
+        .get(articleId)
+        .then((response) => {
+          if (!cancelled) setDetail(response.article);
+        })
+        .catch(() => undefined);
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [articleId]);
 
   // Reading-time tracking: start a clock per article, flush on navigate/close.
   useEffect(() => {
@@ -109,11 +128,11 @@ export function ReaderView({
   };
 
   const bodyHtml = useMemo(() => {
-    const raw = article?.contentExtracted || article?.content || article?.summary || "";
+    const raw = detail?.contentExtracted || article?.content || article?.summary || "";
     return sanitizeArticleHtml(raw);
-  }, [articleId]);
+  }, [articleId, detail]);
 
-  const minutes = estimateReadMinutes(article?.contentExtracted || article?.content || article?.summary);
+  const minutes = estimateReadMinutes(detail?.contentExtracted || article?.content || article?.summary);
 
   const hasPrev = index > 0;
   const hasNext = index < articles.length - 1;

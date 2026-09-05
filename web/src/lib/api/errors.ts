@@ -7,11 +7,15 @@ import { ZodError } from "zod";
 export class AppError extends Error {
   statusCode: number;
   isOperational: boolean;
+  // Optional machine-readable cause, e.g. "feed_url_transient" for DNS
+  // failures that a later retry may resolve. Undefined = no classification.
+  code?: string;
 
-  constructor(message: string, statusCode: number = 500, isOperational: boolean = true) {
+  constructor(message: string, statusCode: number = 500, isOperational: boolean = true, code?: string) {
     super(message);
     this.statusCode = statusCode;
     this.isOperational = isOperational;
+    this.code = code;
     Error.captureStackTrace(this, this.constructor);
   }
 }

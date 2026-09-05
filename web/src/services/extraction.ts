@@ -17,7 +17,7 @@ import { findExtractionRules } from "./extraction-rules.js";
 // Resilience patterns (retry codes, per-URL memoization, keep-last-good,
 // single-flight) adapted from RSSHub (MIT).
 
-const EXTRACT_USER_AGENT = "omi-rss/0.2 (+https://omirss.com)";
+const EXTRACT_USER_AGENT = "omi-rss/0.4.1 (+https://omirss.com)";
 const FETCH_TIMEOUT_MS = 10000;
 const MAX_REDIRECT_HOPS = 3;
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
@@ -83,19 +83,67 @@ function escapeText(value: string): string {
 
 // linkedom's document.baseURI is null, so Readability's relative-URI fixing
 // no-ops unless a <base href> exists in the parsed source (spike Q7).
+// The anchor requires <head> exactly or <head ...> (a bare prefix match
+// would also hit <header>), and matches inside HTML comments are skipped.
+const HEAD_OPEN_RE = /<head(\s[^>]*)?>/gi;
+
+function findHeadOpenIndex(html: string): number {
+  HEAD_OPEN_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = HEAD_OPEN_RE.exec(html)) !== null) {
+    const prefix = html.slice(0, match.index);
+    const commentOpen = prefix.lastIndexOf("<!--");
+    if (commentOpen === -1 || prefix.lastIndexOf("-->") > commentOpen) {
+      return match.index;
+    }
+  }
+  return -1;
+}
+
 export function injectBase(html: string, baseUrl: string): string {
   const tag = `<base href="${escapeAttr(baseUrl)}">`;
-  if (/<head[^>]*>/i.test(html)) {
-    return html.replace(/<head[^>]*>/i, (head) => head + tag);
+  const headIndex = findHeadOpenIndex(html);
+  if (headIndex !== -1) {
+    const match = /<head(\s[^>]*)?>/i.exec(html.slice(headIndex));
+    const insertAt = headIndex + (match ? match[0].length : 0);
+    return html.slice(0, insertAt) + tag + html.slice(insertAt);
   }
-  if (/<html[^>]*>/i.test(html)) {
-    return html.replace(/<html[^>]*>/i, (htmlTag) => htmlTag + `<head>${tag}</head>`);
+  if (/<html(\s[^>]*)?>/i.test(html)) {
+    return html.replace(/<html(\s[^>]*)?>/i, (htmlTag) => htmlTag + `<head>${tag}</head>`);
   }
   return `<head>${tag}</head>` + html;
 }
 
-const LAZY_PLACEHOLDER_SRC = /^data:image|1x1|pixel|transparent/i;
+// Placeholders: data-URI images (anchored to ^data:image) and well-known
+// placeholder names matched as whole path tokens (so "pixel" matches
+// "/1x1/pixel.gif" but not "/img/superpixel-collage.jpg").
+const LAZY_PLACEHOLDER_SRC = /^data:image|(?:^|\/)[^/]*\b(?:1x1|pixel|transparent)\b/i;
 const LAZY_SRC_ATTRIBUTES = ["data-src", "data-lazy-src", "data-original"];
+
+// Picks the srcset candidate with the largest declared width descriptor
+// (candidates without one count as 0), not simply the last listed.
+export function largestSrcsetCandidate(srcset: string): string | null {
+  let best: { url: string; width: number } | null = null;
+  for (const candidate of srcset.split(",")) {
+    const trimmed = candidate.trim();
+    if (!trimmed) continue;
+    const parts = trimmed.split(/\s+/);
+    const url = parts[0];
+    if (!url) continue;
+    let width = 0;
+    for (const descriptor of parts.slice(1)) {
+      const widthMatch = /^(\d+)w$/.exec(descriptor);
+      if (widthMatch) {
+        width = parseInt(widthMatch[1], 10);
+        break;
+      }
+    }
+    if (!best || width > best.width) {
+      best = { url, width };
+    }
+  }
+  return best?.url ?? null;
+}
 
 // Spike Q4a: promote lazy-load placeholders to real src before Readability.
 export function fixLazyImages(document: ExtractDocument): void {
@@ -110,13 +158,9 @@ export function fixLazyImages(document: ExtractDocument): void {
       }
     }
     if (!usable(src) && img.hasAttribute("srcset")) {
-      const candidates = (img.getAttribute("srcset") ?? "")
-        .split(",")
-        .map((candidate) => candidate.trim())
-        .filter(Boolean);
-      const last = candidates[candidates.length - 1]?.split(/\s+/)[0];
-      if (usable(last)) {
-        img.setAttribute("src", last);
+      const candidate = largestSrcsetCandidate(img.getAttribute("srcset") ?? "");
+      if (candidate !== null && usable(candidate)) {
+        img.setAttribute("src", candidate);
       }
     }
   }
@@ -296,18 +340,45 @@ function elementHeadingTitle(element: ExtractElement): string | null {
   return text ? text.slice(0, 200) : null;
 }
 
-// Page-feed item extraction: every selector match becomes an item; identity
-// is sha256(pageUrl + "|" + link-or-title) so DOM reshuffles never duplicate
-// or lose items (spike Q5).
-export function extractPageItems(html: string, pageUrl: string, selector: string): PageItem[] {
-  const document = parseDocument(html, pageUrl);
+// Item identity normalization: strips utm_*/fbclid query params and
+// trailing slashes so the same article URL yields the same guid regardless
+// of tracking parameters. Non-URL values (titles) only lose trailing
+// slashes. v0.4.1: the title is always part of the hash — two cards linking
+// the same URL with different titles are distinct items (one-time effect:
+// existing page feeds re-insert their items once).
+export function normalizeItemIdentity(value: string): string {
+  try {
+    const url = new URL(value);
+    if (url.protocol === "http:" || url.protocol === "https:") {
+      for (const key of [...url.searchParams.keys()]) {
+        if (key.startsWith("utm_") || key === "fbclid") {
+          url.searchParams.delete(key);
+        }
+      }
+      if (url.pathname !== "/") {
+        url.pathname = url.pathname.replace(/\/+$/, "");
+      }
+      return url.toString();
+    }
+  } catch {
+    // Not an absolute URL — plain string normalization.
+  }
+  return value.replace(/\/+$/, "");
+}
+
+function pageItemGuid(pageUrl: string, link: string | null, title: string): string {
+  const identity = normalizeItemIdentity(link ?? title);
+  return crypto.createHash("sha256").update(`${pageUrl}|${identity}|${title}`).digest("hex");
+}
+
+function collectPageItems(document: ExtractDocument, pageUrl: string, selector: string): PageItem[] {
   const items: PageItem[] = [];
   const seen = new Set<string>();
 
   for (const element of document.querySelectorAll(selector)) {
     const link = firstHttpLink(element, pageUrl);
     const title = elementHeadingTitle(element) ?? "Untitled";
-    const guid = crypto.createHash("sha256").update(`${pageUrl}|${link ?? title}`).digest("hex");
+    const guid = pageItemGuid(pageUrl, link, title);
     if (seen.has(guid)) continue;
     seen.add(guid);
     absolutizeUrls(element, pageUrl);
@@ -316,6 +387,25 @@ export function extractPageItems(html: string, pageUrl: string, selector: string
   }
 
   return items;
+}
+
+// Page-feed item extraction: every selector match becomes an item; identity
+// is sha256(pageUrl + "|" + normalize(link-or-title) + "|" + title) so DOM
+// reshuffles never duplicate or lose items (spike Q5; identity revised
+// v0.4.1).
+export function extractPageItems(html: string, pageUrl: string, selector: string): PageItem[] {
+  return collectPageItems(parseDocument(html, pageUrl), pageUrl, selector);
+}
+
+// Single-parse variant for page-feed creation: items and document title
+// from one linkedom pass (the creation path used to parse twice).
+export function extractPageData(
+  html: string,
+  pageUrl: string,
+  selector: string,
+): { items: PageItem[]; title: string | null } {
+  const document = parseDocument(html, pageUrl);
+  return { items: collectPageItems(document, pageUrl, selector), title: documentTitle(document) };
 }
 
 export function extractPageTitle(html: string): string | null {
@@ -361,74 +451,96 @@ export interface ConditionalGetHeaders {
 
 // Hardened document fetch for article extraction and page-feed polls:
 // assertSafeFeedUrl up front (article URLs are feed data = SSRF surface),
-// per-host semaphore, UA, 10s timeout, 2MB body cap, manual redirects with
-// every hop re-validated, retry 408/429/5xx ×2 with 1s backoff, and
-// conditional GET (If-None-Match/If-Modified-Since) for page-feeds.
+// per-host semaphore on EVERY request including each redirect hop (A→B
+// joins B's gate, not just A's), UA, 10s timeout, 2MB body cap, manual
+// redirects with every hop re-validated, retry 408/429/5xx ×2 with 1s
+// backoff, and conditional GET (If-None-Match/If-Modified-Since) for
+// page-feeds. Response bodies on non-read paths (redirects, non-OK
+// statuses, retry candidates) are cancelled so sockets release promptly.
 export async function fetchDocument(
   url: string,
   conditional?: ConditionalGetHeaders,
 ): Promise<FetchedDocument> {
   await assertSafeFeedUrl(url);
 
-  return withHostGate(url, async () => {
-    let lastError: unknown = new Error(`Failed to fetch document: ${url}`);
+  let lastError: unknown = new Error(`Failed to fetch document: ${url}`);
 
-    for (let attempt = 0; attempt <= RETRY_ATTEMPTS; attempt++) {
-      if (attempt > 0) {
-        await sleep(RETRY_DELAY_MS);
-      }
-      try {
-        const result = await fetchDocumentOnce(url, conditional);
-        if (RETRYABLE_STATUSES.has(result.status) && attempt < RETRY_ATTEMPTS) {
-          lastError = new Error(`HTTP ${result.status} fetching document: ${url}`);
-          continue;
-        }
-        return result;
-      } catch (error) {
-        if (error instanceof AppError) {
-          throw error;
-        }
-        lastError = error;
-      }
+  for (let attempt = 0; attempt <= RETRY_ATTEMPTS; attempt++) {
+    if (attempt > 0) {
+      await sleep(RETRY_DELAY_MS);
     }
-    throw lastError instanceof Error ? lastError : new Error(`Failed to fetch document: ${url}`);
-  });
+    try {
+      const result = await fetchDocumentWithRedirects(url, conditional);
+      if (RETRYABLE_STATUSES.has(result.status) && attempt < RETRY_ATTEMPTS) {
+        lastError = new Error(`HTTP ${result.status} fetching document: ${url}`);
+        continue;
+      }
+      return result;
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(`Failed to fetch document: ${url}`);
 }
 
-async function fetchDocumentOnce(url: string, conditional?: ConditionalGetHeaders): Promise<FetchedDocument> {
+async function discardBody(response: Response): Promise<void> {
+  try {
+    await response.body?.cancel();
+  } catch {
+    // Already consumed or locked — nothing left to release.
+  }
+}
+
+async function fetchWithTimeout(
+  url: string,
+  headers: Record<string, string>,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(url, { headers, redirect: "manual", signal: controller.signal });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(`Document fetch timed out after ${FETCH_TIMEOUT_MS}ms: ${url}`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchDocumentWithRedirects(url: string, conditional?: ConditionalGetHeaders): Promise<FetchedDocument> {
   let currentUrl = url;
 
   for (let hop = 0; hop <= MAX_REDIRECT_HOPS; hop++) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    const headers: Record<string, string> = {
+      "User-Agent": EXTRACT_USER_AGENT,
+      Accept: "text/html, application/xhtml+xml, */*",
+    };
+    if (conditional?.etag) headers["If-None-Match"] = conditional.etag;
+    if (conditional?.lastModified) headers["If-Modified-Since"] = conditional.lastModified;
 
-    try {
-      const headers: Record<string, string> = {
-        "User-Agent": EXTRACT_USER_AGENT,
-        Accept: "text/html, application/xhtml+xml, */*",
-      };
-      if (conditional?.etag) headers["If-None-Match"] = conditional.etag;
-      if (conditional?.lastModified) headers["If-Modified-Since"] = conditional.lastModified;
+    // Each hop re-enters the host gate for its DESTINATION host.
+    const response = await withHostGate(currentUrl, () => fetchWithTimeout(currentUrl, headers));
 
-      const response = await fetch(currentUrl, {
-        headers,
-        redirect: "manual",
-        signal: controller.signal,
-      });
-
-      if (response.status >= 300 && response.status < 400) {
-        const location = response.headers.get("location");
-        if (!location) {
-          return emptyResult(response.status, currentUrl);
-        }
-        if (hop === MAX_REDIRECT_HOPS) {
-          throw new AppError(`Blocked feed URL (exceeded ${MAX_REDIRECT_HOPS} redirect hops): ${url}`, 400);
-        }
-        currentUrl = await assertRedirectLocation(currentUrl, location);
-        continue;
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get("location");
+      await discardBody(response);
+      if (!location) {
+        return emptyResult(response.status, currentUrl);
       }
+      if (hop === MAX_REDIRECT_HOPS) {
+        throw new AppError(`Blocked feed URL (exceeded ${MAX_REDIRECT_HOPS} redirect hops): ${url}`, 400);
+      }
+      currentUrl = await assertRedirectLocation(currentUrl, location);
+      continue;
+    }
 
-      const body = response.ok || response.status === 304 ? await readCapped(response.body, MAX_BODY_BYTES) : null;
+    if (response.ok || response.status === 304) {
+      const body = await readCapped(response.body, MAX_BODY_BYTES);
       return {
         status: response.status,
         body,
@@ -437,14 +549,10 @@ async function fetchDocumentOnce(url: string, conditional?: ConditionalGetHeader
         lastModified: response.headers.get("last-modified"),
         finalUrl: currentUrl,
       };
-    } catch (error) {
-      if (error instanceof Error && error.name === "AbortError") {
-        throw new Error(`Document fetch timed out after ${FETCH_TIMEOUT_MS}ms: ${url}`);
-      }
-      throw error;
-    } finally {
-      clearTimeout(timeout);
     }
+
+    await discardBody(response);
+    return emptyResult(response.status, currentUrl);
   }
 
   throw new AppError(`Blocked feed URL (exceeded ${MAX_REDIRECT_HOPS} redirect hops): ${url}`, 400);

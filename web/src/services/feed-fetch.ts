@@ -11,13 +11,20 @@ import { ipVersion, isBlockedOutboundAddress, normalizeIp } from "../lib/api/ip.
 // private or link-local range (IPv4 and IPv6). Redirects are followed
 // manually and every hop is re-validated, so a public feed redirecting to
 // 127.0.0.1 or a metadata IP is refused. ALLOW_PRIVATE_FEED_URLS=true skips
-// all checks — dev convenience only.
+// all checks — dev convenience only. DNS resolution failures throw AppErrors
+// tagged TRANSIENT_FEED_URL_CODE (retryable); scheme and blocked-range
+// failures are untagged (terminal validation failures).
 
-const FEED_USER_AGENT = "omi-rss/0.2 (+https://omirss.com)";
+const FEED_USER_AGENT = "omi-rss/0.4.1 (+https://omirss.com)";
 const FEED_TIMEOUT_MS = 15000;
 const FEED_RETRY_DELAYS_MS = [1000, 3000];
 const FEED_RATE_LIMIT_RETRY_DELAY_MS = 10000;
 const FEED_MAX_REDIRECT_HOPS = 3;
+
+// Error classification: DNS resolution failures are transient (a later
+// retry may resolve them — callers leave retryable state in place);
+// scheme/blocked-range failures are terminal validation failures.
+export const TRANSIENT_FEED_URL_CODE = "feed_url_transient";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -25,8 +32,12 @@ function privateFeedUrlsAllowed(): boolean {
   return process.env.ALLOW_PRIVATE_FEED_URLS === "true";
 }
 
-function unsafeFeedUrl(url: string, reason: string): AppError {
-  return new AppError(`Blocked feed URL (${reason}): ${url}`, 400);
+export function isTransientFeedUrlError(error: unknown): boolean {
+  return error instanceof AppError && error.code === TRANSIENT_FEED_URL_CODE;
+}
+
+function unsafeFeedUrl(url: string, reason: string, code?: string): AppError {
+  return new AppError(`Blocked feed URL (${reason}): ${url}`, 400, true, code);
 }
 
 async function assertAddressAllowed(address: string, url: string): Promise<void> {
@@ -70,10 +81,10 @@ export async function assertSafeFeedUrl(url: string): Promise<void> {
   try {
     resolved = await lookup(hostname, { all: true });
   } catch {
-    throw unsafeFeedUrl(url, `DNS resolution failed for ${hostname}`);
+    throw unsafeFeedUrl(url, `DNS resolution failed for ${hostname}`, TRANSIENT_FEED_URL_CODE);
   }
   if (resolved.length === 0) {
-    throw unsafeFeedUrl(url, `DNS resolution returned no addresses for ${hostname}`);
+    throw unsafeFeedUrl(url, `DNS resolution returned no addresses for ${hostname}`, TRANSIENT_FEED_URL_CODE);
   }
   for (const entry of resolved) {
     await assertAddressAllowed(entry.address, url);

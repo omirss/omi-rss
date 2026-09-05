@@ -7,7 +7,7 @@ import { getDataRuntime, QUEUE_NAME, QUEUE_PREFIX } from "./data/runtime.js";
 import { getDb, type Database } from "./lib/api/db.js";
 import { validateAuthBootEnv } from "./lib/api/tokens.js";
 import { feeds, articles, userArticleStates, readingStats, notifications } from "./data/db/schema.js";
-import { assertSafeFeedUrl, fetchFeedXml } from "./services/feed-fetch.js";
+import { assertSafeFeedUrl, fetchFeedXml, isTransientFeedUrlError } from "./services/feed-fetch.js";
 import { withHostGate } from "./services/host-gate.js";
 import { decodeBody, extractArticle, fetchDocument } from "./services/extraction.js";
 import { runPageFeedUpdate, type PageFeedStore } from "./services/page-feed.js";
@@ -46,7 +46,7 @@ const EXTRACT_QUEUE_NAME = "omiweb-extract";
 const EXTRACT_QUEUE_CONCURRENCY = 2;
 const EXTRACT_RUN_MAX_ARTICLES = 20;
 const EXTRACT_RUN_BUDGET_MS = 10000;
-const EXTRACTION_MEMO_MAX = 256;
+const EXTRACTION_MEMO_MAX = 64;
 
 type FeedRow = typeof feeds.$inferSelect;
 
@@ -75,10 +75,12 @@ export type ArticleExtractionOutcome =
   | "already-extracted"
   | "skip-no-url"
   | "skip-unsafe-url"
+  | "defer-transient"
   | "fetch";
 
 // Decision step of the extract job, split out so the SSRF skip (article
-// URLs are feed data) is unit-testable without a database.
+// URLs are feed data) is unit-testable without a database. Transient DNS
+// failures defer ('' would be terminal; NULL lets a later run backfill).
 export async function articleExtractionOutcome(
   article: { url: string } | undefined,
   contentExtracted: string | null,
@@ -88,7 +90,10 @@ export async function articleExtractionOutcome(
   if (!article.url) return "skip-no-url";
   try {
     await assertSafeFeedUrl(article.url);
-  } catch {
+  } catch (error) {
+    if (isTransientFeedUrlError(error)) {
+      return "defer-transient";
+    }
     return "skip-unsafe-url";
   }
   return "fetch";
@@ -101,9 +106,16 @@ async function storeExtraction(db: Database, articleId: string, contentExtracted
     .where(and(eq(articles.id, articleId), isNull(articles.contentExtracted)));
 }
 
+// LRU memo: reads refresh recency; inserts evict the least-recently-used
+// entry at the 64-entry cap (Map preserves insertion order).
 function memoizeExtraction(url: string, contentHtml: string): void {
-  if (extractionMemo.size >= EXTRACTION_MEMO_MAX) {
-    extractionMemo.clear();
+  if (extractionMemo.has(url)) {
+    extractionMemo.delete(url);
+  } else if (extractionMemo.size >= EXTRACTION_MEMO_MAX) {
+    const oldest = extractionMemo.keys().next().value;
+    if (oldest !== undefined) {
+      extractionMemo.delete(oldest);
+    }
   }
   extractionMemo.set(url, contentHtml);
 }
@@ -139,7 +151,7 @@ async function enqueuePendingExtractions(db: Database, feed: FeedRow, runStarted
   return enqueued;
 }
 
-async function processExtractArticle(articleId: string): Promise<{ articleId: string; status: ArticleExtractionOutcome | string }> {
+export async function processExtractArticle(articleId: string): Promise<{ articleId: string; status: ArticleExtractionOutcome | string }> {
   const db = await getDb();
 
   const [article] = await db
@@ -156,6 +168,12 @@ async function processExtractArticle(articleId: string): Promise<{ articleId: st
   if (outcome === "missing" || outcome === "already-extracted") {
     return { articleId, status: outcome };
   }
+  if (outcome === "defer-transient") {
+    // DNS-transient: leave contentExtracted NULL so a later run's backfill
+    // retries it ('' would be terminal under fetch-once semantics).
+    console.warn(`Extraction deferred (transient DNS) for article ${articleId}: ${article!.url}`);
+    return { articleId, status: "deferred-transient" };
+  }
   if (outcome === "skip-no-url" || outcome === "skip-unsafe-url") {
     console.warn(`Extraction job skipping article ${articleId}: ${outcome}`);
     await storeExtraction(db, articleId, "");
@@ -166,6 +184,7 @@ async function processExtractArticle(articleId: string): Promise<{ articleId: st
 
   const memoized = extractionMemo.get(url);
   if (memoized !== undefined) {
+    memoizeExtraction(url, memoized);
     await storeExtraction(db, articleId, memoized);
     return { articleId, status: "memoized" };
   }
@@ -182,32 +201,35 @@ async function processExtractArticle(articleId: string): Promise<{ articleId: st
     await storeExtraction(db, articleId, extracted.contentHtml);
     return { articleId, status: `ok-${extracted.method}` };
   } catch (error) {
+    if (isTransientFeedUrlError(error)) {
+      console.warn(`Extraction deferred (transient DNS) for ${url}:`, error);
+      return { articleId, status: "deferred-transient" };
+    }
     console.warn(`Extraction failed (terminal, not re-fetched) for ${url}:`, error);
     await storeExtraction(db, articleId, "");
     return { articleId, status: "error" };
   }
 }
 
-function createPageFeedStore(db: Database): PageFeedStore {
+export function createPageFeedStore(db: Database): PageFeedStore {
   return {
     insertItems: async (feedId, items, pageUrl) => {
-      let inserted = 0;
-      for (const item of items) {
-        const rows = await db
-          .insert(articles)
-          .values({
+      if (items.length === 0) return 0;
+      const rows = await db
+        .insert(articles)
+        .values(
+          items.map((item) => ({
             feedId,
             guid: item.guid,
             url: item.link ?? pageUrl,
             title: item.title,
             contentExtracted: item.contentHtml,
             publishedAt: new Date(),
-          })
-          .onConflictDoNothing({ target: [articles.feedId, articles.guid] })
-          .returning({ id: articles.id });
-        inserted += rows.length;
-      }
-      return inserted;
+          })),
+        )
+        .onConflictDoNothing({ target: [articles.feedId, articles.guid] })
+        .returning({ id: articles.id });
+      return rows.length;
     },
     markSuccess: async (feedId, settingsPatch) => {
       await db
@@ -217,9 +239,7 @@ function createPageFeedStore(db: Database): PageFeedStore {
           lastFetchError: null,
           errorCount: 0,
           updatedAt: new Date(),
-          ...(Object.keys(settingsPatch).length > 0 && {
-            settings: sql`COALESCE(${feeds.settings}, '{}'::jsonb) || ${JSON.stringify(settingsPatch)}::jsonb`,
-          }),
+          settings: sql`COALESCE(${feeds.settings}, '{}'::jsonb) || ${JSON.stringify(settingsPatch)}::jsonb`,
         })
         .where(eq(feeds.id, feedId));
     },
@@ -231,6 +251,7 @@ function createPageFeedStore(db: Database): PageFeedStore {
           lastFetchError: message,
           errorCount: sql`${feeds.errorCount} + 1`,
           updatedAt: new Date(),
+          settings: sql`COALESCE(${feeds.settings}, '{}'::jsonb) || '{"pageStatus":"selector-miss"}'::jsonb`,
         })
         .where(eq(feeds.id, feedId));
     },
@@ -324,6 +345,18 @@ async function processUpdateAll(): Promise<void> {
   console.info(`Feed update completed: ${successful} successful, ${failed} failed`);
 }
 
+// Feed items may carry site-relative links; resolve them against the feed's
+// site URL (or feed URL) at insert so extraction's assertSafeFeedUrl never
+// terminal-skips them. Absolute links and unresolvable values pass through.
+export function resolveArticleUrl(link: string | undefined, base: string | null | undefined): string {
+  if (!link) return "";
+  try {
+    return new URL(link, base || undefined).href;
+  } catch {
+    return link;
+  }
+}
+
 async function processUpdateSingle(feedId: string): Promise<{ feedId: string; newArticles: number }> {
   try {
     const db = await getDb();
@@ -369,17 +402,15 @@ async function processUpdateSingle(feedId: string): Promise<{ feedId: string; ne
         item.link ||
         crypto.createHash("md5").update((item.title || "") + (item.pubDate || "")).digest("hex");
 
-      const [existingArticle] = await db
-        .select()
-        .from(articles)
-        .where(and(eq(articles.feedId, feedId), eq(articles.guid, guid)))
-        .limit(1);
-
-      if (!existingArticle) {
-        const articleData = {
+      // Conflict-tolerant insert: a duplicate guid appearing between the
+      // pre-check and the insert (concurrent update run) is skipped per
+      // item instead of killing the whole feed update.
+      const insertedArticles = await db
+        .insert(articles)
+        .values({
           feedId,
           guid,
-          url: item.link || "",
+          url: resolveArticleUrl(item.link, feed.siteUrl || feed.url),
           title: item.title || "Untitled",
           author: item.creator || (item as { author?: string }).author,
           content: (item as { "content:encoded"?: string })["content:encoded"] || item.content,
@@ -393,14 +424,12 @@ async function processUpdateSingle(feedId: string): Promise<{ feedId: string; ne
           metadata: {
             originalItem: item,
           },
-        };
+        })
+        .onConflictDoNothing({ target: [articles.feedId, articles.guid] })
+        .returning();
 
-        const [newArticle] = await db
-          .insert(articles)
-          .values(articleData)
-          .returning();
-
-        newArticles.push(newArticle);
+      if (insertedArticles.length > 0) {
+        newArticles.push(insertedArticles[0]);
       }
     }
 
@@ -420,12 +449,22 @@ async function processUpdateSingle(feedId: string): Promise<{ feedId: string; ne
     console.error(`Failed to update feed ${feedId}:`, error);
 
     const db = await getDb();
+    const [failedFeed] = await db
+      .select({ sourceType: feeds.sourceType })
+      .from(feeds)
+      .where(eq(feeds.id, feedId))
+      .limit(1);
     await db
       .update(feeds)
       .set({
         lastFetchError: error instanceof Error ? error.message : String(error),
         errorCount: sql`${feeds.errorCount} + 1`,
         lastFetchedAt: new Date(),
+        // Page feeds carry a structured status so the webui never
+        // string-matches lastFetchError.
+        ...(failedFeed?.sourceType === "page" && {
+          settings: sql`COALESCE(${feeds.settings}, '{}'::jsonb) || '{"pageStatus":"fetch-error"}'::jsonb`,
+        }),
       })
       .where(eq(feeds.id, feedId));
 

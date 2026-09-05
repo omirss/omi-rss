@@ -98,6 +98,12 @@ export async function action({ request, params, context }: { request: Request; p
 
     const data = updateFeedSchema.parse(await readJsonBody(request));
 
+    // Page feeds extract their content by construction — full-text is an
+    // RSS-feed-only toggle.
+    if (data.fullTextEnabled !== undefined && existingFeed.sourceType === "page") {
+      throw new AppError("fullTextEnabled cannot be set on page feeds", 400);
+    }
+
     const [updatedFeed] = await db
       .update(feeds)
       .set({

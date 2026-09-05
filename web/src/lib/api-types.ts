@@ -84,7 +84,6 @@ export interface ArticleListItem {
   url: string;
   summary: string | null;
   content: string | null;
-  contentExtracted: string | null;
   author: string | null;
   publishedAt: IsoDateString | null;
   imageUrl: string | null;
@@ -96,7 +95,11 @@ export interface ArticleListItem {
   feedFavicon: string | null;
 }
 
-export interface ArticleDetail extends ArticleListItem {}
+// Detail payload adds the (up to 256KB) extracted full text — list payloads
+// deliberately omit it; the reader fetches it on open.
+export interface ArticleDetail extends ArticleListItem {
+  contentExtracted: string | null;
+}
 
 export interface Pagination {
   page: number;

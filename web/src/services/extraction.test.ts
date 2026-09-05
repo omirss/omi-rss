@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { parseHTML } from "linkedom";
 import crypto from "node:crypto";
 import {
@@ -6,14 +6,23 @@ import {
   truncateHtml,
   injectBase,
   fixLazyImages,
+  largestSrcsetCandidate,
+  normalizeItemIdentity,
   absolutizeUrls,
   sanitizeContentHtml,
   extractArticle,
   extractPageItems,
   extractPageTitle,
+  fetchDocument,
   EXTRACTION_LIMITS,
   type ExtractDocument,
 } from "./extraction.js";
+
+vi.mock("./host-gate.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./host-gate.js")>();
+  const withHostGate = vi.fn((url: string, fn: () => Promise<unknown>) => fn());
+  return { ...actual, withHostGate };
+});
 
 // Pipeline-stage tests against inline HTML fixtures — no network. Order and
 // semantics follow the v0.4 spike (RESULTS.md pipeline is normative).
@@ -66,6 +75,25 @@ describe("base href injection", () => {
     expect(html).toMatch(/<head[^>]*><base href="https:\/\/example\.com\/post\/1">/);
   });
 
+  it("injects into <head> with attributes but never into <header>", () => {
+    const attributed = injectBase('<html><head lang="en"><title>t</title></head><body><header>h</header></body></html>', "https://example.com/");
+    expect(attributed).toContain('<head lang="en"><base href="https://example.com/">');
+    expect(attributed).not.toContain('<header><base');
+
+    const headerOnly = injectBase("<html><body><header>site header</header></body></html>", "https://example.com/");
+    expect(headerOnly).toContain('<head><base href="https://example.com/"></head>');
+    expect(headerOnly).not.toContain('<header><base');
+  });
+
+  it("skips <head> matches inside HTML comments", () => {
+    const html = injectBase(
+      '<html><body><!-- <head> old template --><main>x</main></body></html>',
+      "https://example.com/",
+    );
+    expect(html).toContain('<html><head><base href="https://example.com/"></head>');
+    expect(html).not.toContain("old template --><base");
+  });
+
   it("creates a head when the document has none", () => {
     const html = injectBase("<html><body><p>x</p></body></html>", "https://example.com/");
     expect(html).toContain('<base href="https://example.com/">');
@@ -98,16 +126,44 @@ describe("lazy-image fixup", () => {
     expect(imgs[1].getAttribute("src")).toBe("/orig.jpg");
   });
 
-  it("falls back to the last srcset candidate when src is a 1x1 pixel placeholder", () => {
+  it("falls back to the largest srcset width descriptor when src is a 1x1 pixel placeholder", () => {
     const doc = document('<html><body><img src="1x1.gif" srcset="/a.png 100w, /b.png 500w"></body></html>');
     fixLazyImages(doc);
     expect([...doc.querySelectorAll("img")][0].getAttribute("src")).toBe("/b.png");
+  });
+
+  it("picks the largest declared width, not the last listed candidate", () => {
+    const doc = document('<html><body><img src="pixel.gif" srcset="/small.png 100w, /big.png 900w, /mid.png 400w"></body></html>');
+    fixLazyImages(doc);
+    expect([...doc.querySelectorAll("img")][0].getAttribute("src")).toBe("/big.png");
+  });
+
+  it("does not treat placeholder-name substrings inside real filenames as placeholders", () => {
+    const doc = document('<html><body><img src="/img/superpixel-collage.jpg" data-src="/real.jpg"></body></html>');
+    fixLazyImages(doc);
+    expect([...doc.querySelectorAll("img")][0].getAttribute("src")).toBe("/img/superpixel-collage.jpg");
   });
 
   it("leaves usable src alone", () => {
     const doc = document('<html><body><img src="/fine.jpg" data-src="/other.jpg"></body></html>');
     fixLazyImages(doc);
     expect([...doc.querySelectorAll("img")][0].getAttribute("src")).toBe("/fine.jpg");
+  });
+});
+
+describe("largestSrcsetCandidate", () => {
+  it("picks the largest width descriptor", () => {
+    expect(largestSrcsetCandidate("/a.png 100w, /b.png 500w, /c.png 200w")).toBe("/b.png");
+  });
+
+  it("treats candidates without a width descriptor as zero-width", () => {
+    expect(largestSrcsetCandidate("/a.png, /b.png 400w")).toBe("/b.png");
+    expect(largestSrcsetCandidate("/a.png, /b.png")).toBe("/a.png");
+  });
+
+  it("returns null for empty input", () => {
+    expect(largestSrcsetCandidate("")).toBeNull();
+    expect(largestSrcsetCandidate(" , ")).toBeNull();
   });
 });
 
@@ -180,6 +236,13 @@ describe("page-feed item extraction", () => {
       <div class="ad">ignore</div>
     </main></body></html>`;
 
+  function guidFor(link: string, title: string): string {
+    return crypto
+      .createHash("sha256")
+      .update(`${pageUrl}|${normalizeItemIdentity(link)}|${title}`)
+      .digest("hex");
+  }
+
   it("extracts one item per selector match with absolute links and sanitized innerHTML", () => {
     const items = extractPageItems(page, pageUrl, "article.post");
     expect(items).toHaveLength(2);
@@ -193,14 +256,15 @@ describe("page-feed item extraction", () => {
     expect(items[1].link).toBe("https://other.example/two");
   });
 
-  it("derives stable guids from sha256(pageUrl + '|' + link-or-title)", () => {
+  it("derives stable guids from sha256(pageUrl + '|' + normalized identity + '|' + title)", () => {
     const items = extractPageItems(page, pageUrl, "article.post");
-    const expected0 = crypto.createHash("sha256").update(`${pageUrl}|https://example.com/posts/one`).digest("hex");
-    const expected1 = crypto.createHash("sha256").update(`${pageUrl}|https://other.example/two`).digest("hex");
-    expect(items[0].guid).toBe(expected0);
-    expect(items[1].guid).toBe(expected1);
+    expect(items[0].guid).toBe(guidFor("https://example.com/posts/one", "First post"));
+    expect(items[1].guid).toBe(guidFor("https://other.example/two", "Second post"));
 
-    expect(extractPageItems(page, pageUrl, "article.post").map((i) => i.guid)).toEqual([expected0, expected1]);
+    expect(extractPageItems(page, pageUrl, "article.post").map((i) => i.guid)).toEqual([
+      items[0].guid,
+      items[1].guid,
+    ]);
   });
 
   it("treats the matched element itself as the link when the selector matches anchors", () => {
@@ -209,8 +273,7 @@ describe("page-feed item extraction", () => {
     expect(items).toHaveLength(2);
     expect(items[0].link).toBe("https://example.com/one");
     expect(items[1].link).toBe("https://example.com/two");
-    const expected = crypto.createHash("sha256").update(`${pageUrl}|https://example.com/one`).digest("hex");
-    expect(items[0].guid).toBe(expected);
+    expect(items[0].guid).toBe(guidFor("https://example.com/one", "One"));
   });
 
   it("returns an empty list on a selector miss (never invents items)", () => {
@@ -225,5 +288,145 @@ describe("page-feed item extraction", () => {
 
   it("extracts the document title", () => {
     expect(extractPageTitle(page)).toBe("Blog");
+  });
+});
+
+describe("page-feed guid normalization (v0.4.1 identity)", () => {
+  const pageUrl = "https://example.com/blog";
+
+  function card(href: string, title: string): string {
+    return `<html><body><article class="post"><h2><a href="${href}">${title}</a></h2></article></body></html>`;
+  }
+
+  const guidOf = (html: string): string | undefined => extractPageItems(html, pageUrl, "article.post")[0]?.guid;
+
+  it("strips utm_* and fbclid params so tracked and clean URLs share identity", () => {
+    expect(guidOf(card("/a?utm_source=rss&utm_medium=feed", "T"))).toBe(guidOf(card("/a", "T")));
+    expect(guidOf(card("/a?fbclid=abc123", "T"))).toBe(guidOf(card("/a", "T")));
+    expect(guidOf(card("/a?utm_campaign=x&keep=1", "T"))).toBe(guidOf(card("/a?keep=1", "T")));
+  });
+
+  it("strips trailing slashes so /a and /a/ share identity", () => {
+    expect(guidOf(card("/a/", "T"))).toBe(guidOf(card("/a", "T")));
+    expect(guidOf(card("/a//", "T"))).toBe(guidOf(card("/a", "T")));
+  });
+
+  it("keeps the title in the hash: same link with different titles are distinct items", () => {
+    expect(guidOf(card("/a", "One title"))).not.toBe(guidOf(card("/a", "Another title")));
+  });
+
+  it("different links stay distinct even with identical titles", () => {
+    expect(guidOf(card("/a", "T"))).not.toBe(guidOf(card("/b", "T")));
+  });
+
+  it("collapses utm-vs-clean duplicates within one extraction", () => {
+    const both = `<html><body><main>
+      <article class="post"><h2><a href="/a?utm_source=x">T</a></h2></article>
+      <article class="post"><h2><a href="/a">T</a></h2></article>
+    </main></body></html>`;
+    expect(extractPageItems(both, pageUrl, "article.post")).toHaveLength(1);
+  });
+
+  it("normalizeItemIdentity handles URLs, plain strings and non-http schemes", () => {
+    expect(normalizeItemIdentity("https://x.example/a?utm_term=y&id=2")).toBe("https://x.example/a?id=2");
+    expect(normalizeItemIdentity("https://x.example")).toBe("https://x.example/");
+    expect(normalizeItemIdentity("https://x.example/")).toBe("https://x.example/");
+    expect(normalizeItemIdentity("Some title/")).toBe("Some title");
+    expect(normalizeItemIdentity("mailto:a@b.example")).toBe("mailto:a@b.example");
+  });
+});
+
+describe("fetchDocument resource handling", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  interface FakeResponseSpec {
+    status: number;
+    headers?: Record<string, string>;
+    body?: string;
+  }
+
+  function cancellableResponse(spec: FakeResponseSpec): { response: Response; cancelled: () => boolean } {
+    let cancelled = false;
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        if (spec.body !== undefined) {
+          controller.enqueue(new TextEncoder().encode(spec.body));
+        }
+        controller.close();
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    return {
+      response: new Response(stream, { status: spec.status, headers: spec.headers }),
+      cancelled: () => cancelled,
+    };
+  }
+
+  it("cancels the response body on redirect hops", async () => {
+    const redirect = cancellableResponse({
+      status: 302,
+      headers: { location: "https://93.184.215.35/b" },
+      body: "redirect junk",
+    });
+    const final = cancellableResponse({ status: 200, body: "<html>x</html>" });
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(redirect.response)
+      .mockResolvedValueOnce(final.response);
+    vi.stubGlobal("fetch", fetchImpl);
+
+    const doc = await fetchDocument("https://93.184.216.34/a");
+    expect(doc.status).toBe(200);
+    expect(doc.finalUrl).toBe("https://93.184.215.35/b");
+    expect(new TextDecoder().decode(doc.body!)).toBe("<html>x</html>");
+    expect(redirect.cancelled()).toBe(true);
+    expect(final.cancelled()).toBe(false);
+  });
+
+  it("cancels the response body on non-OK statuses", async () => {
+    const notFound = cancellableResponse({ status: 404, body: "not here" });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(notFound.response));
+
+    const doc = await fetchDocument("https://93.184.216.34/a");
+    expect(doc.status).toBe(404);
+    expect(doc.body).toBeNull();
+    expect(notFound.cancelled()).toBe(true);
+  });
+
+  it("cancels retryable-status bodies between retry attempts", async () => {
+    const retryable = cancellableResponse({ status: 503, body: "busy" });
+    const ok = cancellableResponse({ status: 200, body: "<html>ok</html>" });
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(retryable.response)
+      .mockResolvedValueOnce(ok.response);
+    vi.stubGlobal("fetch", fetchImpl);
+
+    const doc = await fetchDocument("https://93.184.216.34/a");
+    expect(doc.status).toBe(200);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(retryable.cancelled()).toBe(true);
+  });
+
+  it("re-enters the host gate for each redirect hop's destination host", async () => {
+    const { withHostGate } = await import("./host-gate.js");
+    vi.mocked(withHostGate).mockClear();
+
+    const redirect = cancellableResponse({
+      status: 301,
+      headers: { location: "https://93.184.215.35/b" },
+    });
+    const final = cancellableResponse({ status: 200, body: "<html>x</html>" });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(redirect.response).mockResolvedValueOnce(final.response));
+
+    await fetchDocument("https://93.184.216.34/a");
+
+    const gatedUrls = vi.mocked(withHostGate).mock.calls.map(([url]) => url as string);
+    expect(gatedUrls).toEqual(["https://93.184.216.34/a", "https://93.184.215.35/b"]);
   });
 });

@@ -625,7 +625,10 @@ export class FeedDiscoveryService {
 
       const feedsByFolder = new Map<string, typeof userFeeds>();
 
+      // Page feeds are excluded: they scrape a selector, not an RSS URL,
+      // and do not round-trip as xmlUrl outlines (v0.4.1 audit).
       for (const feed of userFeeds) {
+        if (feed.sourceType === "page") continue;
         const folder = (feed.folderId ? folderNamesById.get(feed.folderId) : undefined) || "Uncategorized";
         if (!feedsByFolder.has(folder)) {
           feedsByFolder.set(folder, []);

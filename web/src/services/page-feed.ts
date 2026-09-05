@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { AppError } from "../lib/api/errors.js";
 import { assertSafeFeedUrl } from "./feed-fetch.js";
-import { decodeBody, extractPageItems, extractPageTitle, fetchDocument, type PageItem } from "./extraction.js";
+import { decodeBody, extractPageData, extractPageItems, fetchDocument, type PageItem } from "./extraction.js";
 
 // Page-feed support: a feed whose "items" are scraped from an HTML page via
 // a CSS selector instead of parsed from RSS/Atom. Resilience semantics
@@ -32,7 +32,7 @@ export async function validatePageFeedInput(body: unknown): Promise<PageFeedInpu
 
 // Creation-time verification: fetch the page once through the hardened
 // core and prove the selector matches at least one element before the feed
-// row is stored.
+// row is stored. Items and document title come from a single parse.
 export async function verifyPageSelector(
   pageUrl: string,
   pageSelector: string,
@@ -42,11 +42,11 @@ export async function verifyPageSelector(
     throw new AppError(`Unable to fetch page (HTTP ${doc.status}): ${pageUrl}`, 400);
   }
   const html = decodeBody(doc.body, doc.contentType);
-  const items = extractPageItems(html, pageUrl, pageSelector);
+  const { items, title } = extractPageData(html, pageUrl, pageSelector);
   if (items.length === 0) {
     throw new AppError(`Selector matched 0 elements on ${pageUrl}`, 400);
   }
-  return { items, documentTitle: extractPageTitle(html) };
+  return { items, documentTitle: title };
 }
 
 export interface PageFeedRecord {
@@ -81,6 +81,13 @@ export interface PageFeedUpdateResult {
   newItems: number;
 }
 
+// Structured page-feed status persisted in feeds.settings JSONB so the
+// webui never string-matches lastFetchError: 'ok' after a good (or
+// unchanged) poll, 'selector-miss' when the selector stopped matching,
+// 'fetch-error' when the poll itself failed. lastFetchError stays the
+// human-readable message.
+export type PageStatusValue = "ok" | "selector-miss" | "fetch-error";
+
 // The resilient page-feed poll: conditional GET, hash identity upserts, and
 // keep-last-good on a selector/list miss (never zero the feed). Network and
 // storage are injected so the semantics stay unit-testable without either.
@@ -101,7 +108,7 @@ export async function runPageFeedUpdate(
   });
 
   if (doc.status === 304) {
-    await store.markSuccess(feedId, {});
+    await store.markSuccess(feedId, { pageStatus: "ok" });
     return { status: "not-modified", newItems: 0 };
   }
 
@@ -119,6 +126,7 @@ export async function runPageFeedUpdate(
 
   const inserted = await store.insertItems(feedId, items, pageUrl);
   await store.markSuccess(feedId, {
+    pageStatus: "ok",
     pageEtag: doc.etag ?? null,
     pageLastModified: doc.lastModified ?? null,
   });

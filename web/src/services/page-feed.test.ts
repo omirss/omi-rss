@@ -7,7 +7,7 @@ import {
   type PageFeedRecord,
   type PageFeedStore,
 } from "./page-feed.js";
-import { extractPageItems, type FetchedDocument } from "./extraction.js";
+import { extractPageItems, normalizeItemIdentity, type FetchedDocument } from "./extraction.js";
 import { AppError } from "../lib/api/errors.js";
 
 // Page-feed resilience tests with a fake fetcher and store — no network,
@@ -70,7 +70,7 @@ function feedRecord(settings: Record<string, unknown> = {}): PageFeedRecord {
 }
 
 describe("runPageFeedUpdate", () => {
-  it("first poll inserts 2 items and records the conditional-GET validators", async () => {
+  it("first poll inserts 2 items and records ok status + conditional-GET validators", async () => {
     const { store, calls } = fakeStore();
     const fetcher = vi.fn(async () => documentResponse(PAGE_HTML));
 
@@ -79,6 +79,7 @@ describe("runPageFeedUpdate", () => {
     expect(result).toEqual({ status: "ok", newItems: 2 });
     expect(calls.inserted).toHaveLength(1);
     expect(calls.successes[0].settingsPatch).toEqual({
+      pageStatus: "ok",
       pageEtag: '"v1"',
       pageLastModified: "Wed, 01 Jan 2026 00:00:00 GMT",
     });
@@ -113,7 +114,7 @@ describe("runPageFeedUpdate", () => {
     expect(calls.inserted).toHaveLength(2);
   });
 
-  it("a 304 short-circuits with no re-parse and no inserts", async () => {
+  it("a 304 short-circuits with no re-parse and no inserts, status ok", async () => {
     const { store, calls } = fakeStore();
     const fetcher = vi.fn(async () => ({ status: 304, body: null, contentType: null, etag: null, lastModified: null, finalUrl: PAGE_URL }) as FetchedDocument);
 
@@ -122,7 +123,7 @@ describe("runPageFeedUpdate", () => {
     expect(result).toEqual({ status: "not-modified", newItems: 0 });
     expect(calls.inserted).toHaveLength(0);
     expect(calls.successes).toHaveLength(1);
-    expect(calls.successes[0].settingsPatch).toEqual({});
+    expect(calls.successes[0].settingsPatch).toEqual({ pageStatus: "ok" });
     expect(calls.misses).toHaveLength(0);
   });
 
@@ -163,8 +164,11 @@ describe("runPageFeedUpdate", () => {
 });
 
 describe("page-feed guid identity", () => {
-  it("matches sha256(pageUrl + '|' + link) from the real extractor", () => {
-    const expected = crypto.createHash("sha256").update(`${PAGE_URL}|https://example.com/posts/one`).digest("hex");
+  it("matches sha256(pageUrl + '|' + normalized identity + '|' + title) from the real extractor", () => {
+    const expected = crypto
+      .createHash("sha256")
+      .update(`${PAGE_URL}|${normalizeItemIdentity("https://example.com/posts/one")}|First`)
+      .digest("hex");
     const guids = extractPageItems(PAGE_HTML, PAGE_URL, SELECTOR).map((i) => i.guid);
     expect(guids).toContain(expected);
   });

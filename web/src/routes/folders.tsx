@@ -81,8 +81,19 @@ function feedIsFailing(feed: FeedWithUnread): boolean {
   return feed.errorCount > 0 || Boolean(feed.lastFetchError);
 }
 
+function feedPageStatus(feed: FeedWithUnread): string | null {
+  const settings = feed.settings;
+  if (!settings || typeof settings !== "object") return null;
+  const status = (settings as Record<string, unknown>).pageStatus;
+  return typeof status === "string" ? status : null;
+}
+
+// Structured pageStatus (feeds.settings JSONB), not lastFetchError string
+// matching: both miss states keep the last good items.
 function feedKeptLastGood(feed: FeedWithUnread): boolean {
-  return feed.sourceType === "page" && Boolean(feed.lastFetchError?.startsWith("Selector matched 0"));
+  if (feed.sourceType !== "page") return false;
+  const status = feedPageStatus(feed);
+  return status === "selector-miss" || status === "fetch-error";
 }
 
 export default function FoldersPage() {
@@ -287,10 +298,10 @@ export default function FoldersPage() {
           <span
             class={`folder-feed-warning${keptLastGood ? " folder-feed-warning-kept" : ""}`}
             role="img"
-            aria-label={keptLastGood ? "Selector stopped matching; kept the last good items" : "Feed failed to update recently"}
+            aria-label={keptLastGood ? "Page feed not updating; kept the last good items" : "Feed failed to update recently"}
             title={
               keptLastGood
-                ? `Kept last good items — ${feed.lastFetchError || "selector matched 0 elements"}`
+                ? `Kept last good items — ${feed.lastFetchError || "page feed did not update"}`
                 : feed.lastFetchError || "This feed failed to update recently"
             }
           >
@@ -299,17 +310,19 @@ export default function FoldersPage() {
         ) : null}
         {unread > 0 ? <span class="chip chip-count">{unread}</span> : null}
         <span class="folder-feed-actions">
-          <button
-            type="button"
-            class={`btn btn-ghost btn-icon btn-sm folder-feed-action-toggle${feed.fullTextEnabled ? " is-on" : ""}`}
-            disabled={togglingFullTextId !== null}
-            aria-pressed={feed.fullTextEnabled}
-            aria-label={`Toggle full text for ${feedDisplayTitle(feed)}`}
-            title={feed.fullTextEnabled ? "Full text enabled. Click to disable." : "Full text disabled. Click to enable."}
-            onClick={() => void toggleFullText(feed)}
-          >
-            <FileTextIcon size={15} />
-          </button>
+          {feed.sourceType === "page" ? null : (
+            <button
+              type="button"
+              class={`btn btn-ghost btn-icon btn-sm folder-feed-action-toggle${feed.fullTextEnabled ? " is-on" : ""}`}
+              disabled={togglingFullTextId !== null}
+              aria-pressed={feed.fullTextEnabled}
+              aria-label={`Toggle full text for ${feedDisplayTitle(feed)}`}
+              title={feed.fullTextEnabled ? "Full text enabled. Click to disable." : "Full text disabled. Click to enable."}
+              onClick={() => void toggleFullText(feed)}
+            >
+              <FileTextIcon size={15} />
+            </button>
+          )}
           <label class="folder-feed-move-label">
             <span class="folder-feed-move-caption">Folder</span>
             <select
