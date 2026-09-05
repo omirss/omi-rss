@@ -114,6 +114,15 @@
           </svg>
           <span>Find Feeds</span>
         </button>
+        <button id="page-feed-btn" class="glass-card" title="Generate feed from this page">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <path d="M3 3h7v7H3z"/>
+            <path d="M14 3h7v7h-7z"/>
+            <path d="M14 14h7v7h-7z"/>
+            <path d="M3 14h7v7H3z"/>
+          </svg>
+          <span>Page Feed</span>
+        </button>
       </div>
 
       <!-- Content Navigation -->
@@ -237,6 +246,30 @@
           <h3>No saved items</h3>
           <p>Save articles and they'll appear here</p>
         </div>
+      </div>
+    </div>
+
+    <!-- Article detail view -->
+    <div id="article-detail" class="view" style="display: none;">
+      <div class="glass-header">
+        <button id="detail-back-btn" class="glass-btn icon-btn" title="Back">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <polyline points="15 18 9 12 15 6"/>
+          </svg>
+        </button>
+        <h1>Article</h1>
+        <button id="detail-open-btn" class="glass-btn icon-btn" title="Open original">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+            <polyline points="15 3 21 3 21 9"/>
+            <line x1="10" y1="14" x2="21" y2="3"/>
+          </svg>
+        </button>
+      </div>
+      <div class="detail-content">
+        <h2 id="detail-title"></h2>
+        <div id="detail-meta" class="detail-meta"></div>
+        <div id="detail-body" class="detail-body"></div>
       </div>
     </div>
 

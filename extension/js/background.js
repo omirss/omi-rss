@@ -45,6 +45,12 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     contexts: ['link']
   });
 
+  chrome.contextMenus.create({
+    id: 'generate-page-feed',
+    title: 'Generate feed from this page',
+    contexts: ['page']
+  });
+
   // Initialize storage
   const { settings } = await chrome.storage.local.get('settings');
   if (!settings) {
@@ -77,6 +83,9 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       break;
     case 'add-feed':
       await addFeedFromLink(info.linkUrl, tab);
+      break;
+    case 'generate-page-feed':
+      await startPagePicker(tab);
       break;
   }
 });
@@ -214,6 +223,26 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     case 'delete-feed':
       deleteFeed(request.feedId)
         .then(() => sendResponse({ success: true }))
+        .catch(err => sendResponse({ error: err.message }));
+      return true;
+
+    // Page-feed picker: on-demand injection of js/page-picker.js
+    case 'start-page-picker':
+      getTargetTab(sender.tab)
+        .then(tab => startPagePicker(tab))
+        .then(result => sendResponse(result))
+        .catch(err => sendResponse({ error: err.message }));
+      return true;
+
+    case 'page-picker-context':
+      refreshAuthState()
+        .then(authed => sendResponse({ serverAvailable: authed }))
+        .catch(() => sendResponse({ serverAvailable: false }));
+      return true;
+
+    case 'subscribe-page-feed':
+      subscribePageFeed(request.data)
+        .then(sendResponse)
         .catch(err => sendResponse({ error: err.message }));
       return true;
   }
@@ -443,6 +472,45 @@ async function checkForFeed(tab) {
   } catch (error) {
     console.error('Error checking for feeds:', error);
     return { hasFeeds: false, feeds: [], suggestions: [] };
+  }
+}
+
+// Inject the page-feed picker into a tab. The picker file self-activates on
+// load and guards against double-injection, so repeated calls just restart it.
+async function startPagePicker(tab) {
+  tab = await getTargetTab(tab);
+  if (!tab || !tab.id || !tab.url || !/^https?:\/\//.test(tab.url)) {
+    return { error: 'The picker only works on http(s) pages' };
+  }
+  await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    files: ['js/page-picker.js']
+  });
+  return { success: true, tabId: tab.id };
+}
+
+// Subscribe to a page feed through the server extraction engine
+// (POST /api/feeds/page). Page feeds cannot work without a server - the
+// local-only sidepanel cannot monitor pages - so an unauthenticated caller
+// gets an explicit 'noserver' result instead of a fake local feed.
+async function subscribePageFeed(data = {}) {
+  try {
+    const token = await getAccessToken();
+    if (!token) {
+      return { error: 'noserver' };
+    }
+
+    const feed = await apiService.createPageFeed({
+      pageUrl: data.pageUrl,
+      pageSelector: data.pageSelector,
+      title: data.title
+    });
+
+    console.log('Page feed created:', (feed && feed.feed && feed.feed.title) || data.pageUrl);
+    return { success: true, feed: (feed && feed.feed) || feed };
+  } catch (error) {
+    console.error('Page feed subscribe failed:', error);
+    return { error: error.message, status: error.status };
   }
 }
 

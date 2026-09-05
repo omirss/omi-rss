@@ -8,6 +8,7 @@ let articles = [];
 let savedItems = [];
 let isAuthenticated = false;
 let user = null;
+let currentArticle = null;
 
 // DOM elements
 const app = document.getElementById('app');
@@ -15,7 +16,8 @@ const views = {
   loading: document.getElementById('loading'),
   login: document.getElementById('login-view'),
   main: document.getElementById('main-view'),
-  settings: document.getElementById('settings-view')
+  settings: document.getElementById('settings-view'),
+  detail: document.getElementById('article-detail')
 };
 
 // Initialize popup
@@ -76,8 +78,20 @@ function initializeEventListeners() {
   // Header actions
   document.getElementById('save-page-btn').addEventListener('click', handleSavePage);
   document.getElementById('detect-feeds-btn').addEventListener('click', handleDetectFeeds);
+  document.getElementById('page-feed-btn').addEventListener('click', handlePageFeed);
   document.getElementById('refresh-btn').addEventListener('click', handleRefresh);
   document.getElementById('settings-btn').addEventListener('click', () => showView('settings'));
+
+  // Article detail
+  document.getElementById('detail-back-btn').addEventListener('click', () => {
+    showView('main');
+    renderArticles();
+  });
+  document.getElementById('detail-open-btn').addEventListener('click', () => {
+    if (currentArticle?.url) {
+      chrome.tabs.create({ url: currentArticle.url });
+    }
+  });
   
   // New action buttons
   document.getElementById('pop-out-btn').addEventListener('click', handlePopOut);
@@ -288,6 +302,21 @@ async function handleDetectFeeds() {
   }
 }
 
+// Handle page-feed picker: asks the background to inject the picker into
+// the active tab, then closes the popup so the page receives the clicks.
+async function handlePageFeed() {
+  try {
+    const response = await chrome.runtime.sendMessage({ action: 'start-page-picker' });
+    if (response?.error) {
+      showError(response.error);
+      return;
+    }
+    window.close();
+  } catch (error) {
+    showError('Failed to start picker: ' + error.message);
+  }
+}
+
 // Handle refresh
 async function handleRefresh() {
   const refreshBtn = document.getElementById('refresh-btn');
@@ -458,7 +487,7 @@ function renderFeeds() {
           </svg>`}
       </div>
       <div class="feed-info">
-        <div class="feed-title">${escapeHtml(feed.title)}</div>
+        <div class="feed-title">${escapeHtml(feed.title)}${feed.sourceType === 'page' ? '<span class="feed-type-badge">page</span>' : ''}</div>
         <div class="feed-meta">${feed.unreadCount || 0} unread • Updated ${formatTime(feed.lastUpdated)}</div>
       </div>
       ${feed.unreadCount > 0 ? `<div class="feed-count">${feed.unreadCount}</div>` : ''}
@@ -651,19 +680,45 @@ async function removeSavedArticle(articleId) {
 async function openArticle(article) {
   // Mark as read
   if (!article.isRead) {
+    article.isRead = true;
     await chrome.runtime.sendMessage({
       action: 'mark-read',
       articleId: article.id
     });
   }
-  
-  // Open in new tab
-  chrome.tabs.create({ url: article.url });
-  
-  // Close popup if preference is set
-  const { settings } = await chrome.storage.local.get('settings');
-  if (settings?.closeOnOpen) {
-    window.close();
+
+  renderArticleDetail(article);
+  showView('detail');
+}
+
+// Render the article detail view. Server articles may carry
+// contentExtracted (sanitized full-text HTML) - prefer it over the feed
+// summary when present.
+function renderArticleDetail(article) {
+  currentArticle = article;
+
+  document.getElementById('detail-title').textContent = article.title || 'Untitled';
+
+  const meta = document.getElementById('detail-meta');
+  const metaBits = [
+    article.feed?.title || 'Unknown source',
+    article.author,
+    formatTime(article.publishedAt)
+  ].filter(Boolean);
+  const fullText = !!article.contentExtracted;
+  meta.innerHTML = metaBits.map((bit) => `<span>${escapeHtml(bit)}</span>`).join('<span>•</span>')
+    + (fullText ? '<span class="full-text-badge">Full text</span>' : '');
+
+  const body = document.getElementById('detail-body');
+  if (article.contentExtracted) {
+    // Sanitized server-side (extraction pipeline runs sanitize-html).
+    body.innerHTML = article.contentExtracted;
+  } else {
+    const fallback = article.content || article.excerpt || 'No content available.';
+    body.textContent = '';
+    const paragraph = document.createElement('p');
+    paragraph.textContent = fallback;
+    body.appendChild(paragraph);
   }
 }
 

@@ -53,7 +53,20 @@ class ApiService {
     }
 
     if (!response.ok) {
-      throw new Error(`API error: ${response.status} ${response.statusText}`);
+      // Surface the server's error message (e.g. "Selector matched 0
+      // elements on ...") so callers can show something actionable.
+      let message = `API error: ${response.status} ${response.statusText}`;
+      try {
+        const body = await response.json();
+        if (body && typeof body.error === 'string' && body.error) {
+          message = body.error;
+        }
+      } catch (err) {
+        // Non-JSON error body - keep the generic message.
+      }
+      const error = new Error(message);
+      error.status = response.status;
+      throw error;
     }
 
     if (options.textResponse) {
@@ -143,6 +156,19 @@ class ApiService {
     return this.request('/feeds', {
       method: 'POST',
       body: folderId ? { url, folderId } : { url }
+    });
+  }
+
+  // Page feed: items are scraped from an HTML page via CSS selector
+  // (POST /api/feeds/page). Requires a server connection.
+  async createPageFeed({ pageUrl, pageSelector, title, folderId, updateInterval } = {}) {
+    const body = { pageUrl, pageSelector };
+    if (title) body.title = title;
+    if (folderId) body.folderId = folderId;
+    if (updateInterval) body.updateInterval = updateInterval;
+    return this.request('/feeds/page', {
+      method: 'POST',
+      body
     });
   }
 
