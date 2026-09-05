@@ -7,7 +7,7 @@ import { getDb } from "../../../lib/api/db.js";
 import { AppError, handle, jsonResponse } from "../../../lib/api/errors.js";
 import { readJsonBody } from "../../../lib/api/body.js";
 import { authRateLimitKey, consumeAuthRateLimit } from "../../../lib/api/rate-limit.js";
-import { sendEmail } from "../../../services/email.js";
+import { getDataRuntime } from "../../../data/runtime.js";
 import { signAccessToken, signRefreshToken } from "../../../lib/api/tokens.js";
 
 export const config = { mode: "app" };
@@ -58,8 +58,10 @@ export async function action({ request }: { request: Request }) {
         username: users.username,
       });
 
-    await sendEmail({
-      to: data.email,
+    const runtime = await getDataRuntime();
+    await runtime.queue.add("notification.send-email", {
+      userId: newUser.id,
+      email: data.email,
       subject: "Verify your Omi RSS account",
       template: "email-verification",
       data: {

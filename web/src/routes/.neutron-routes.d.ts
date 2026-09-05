@@ -4,6 +4,11 @@ declare module "@neutron-build/core" {
     paths:
     | "/"
     | `/api/${string}`
+    | "/api/analytics"
+    | "/api/analytics/article-read"
+    | "/api/analytics/export"
+    | "/api/analytics/feed-interaction"
+    | "/api/analytics/streaks"
     | "/api/articles"
     | `/api/articles/${string}`
     | `/api/articles/${string}/state`
@@ -16,6 +21,13 @@ declare module "@neutron-build/core" {
     | "/api/auth/register"
     | "/api/auth/reset-password"
     | `/api/auth/verify-email/${string}`
+    | "/api/discovery/categories"
+    | "/api/discovery/discover"
+    | "/api/discovery/export/opml"
+    | "/api/discovery/import/opml"
+    | `/api/discovery/related/${string}`
+    | "/api/discovery/search"
+    | "/api/discovery/validate"
     | "/api/feeds"
     | `/api/feeds/${string}`
     | `/api/feeds/${string}/mark-all-read`
@@ -24,12 +36,16 @@ declare module "@neutron-build/core" {
     | `/api/folders/${string}`
     | "/api/folders/reorder"
     | "/api/ping"
+    | "/api/stats/history"
+    | "/api/stats/overview"
+    | "/api/stats/reading-time"
     | "/api/users/me"
     | "/api/users/me/avatar"
     | "/api/users/me/password"
     | "/api/users/me/settings"
     | "/health"
     | "/ready"
+    | `/uploads/${string}`
   }
 }
 

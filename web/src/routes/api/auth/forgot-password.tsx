@@ -6,7 +6,7 @@ import { getDb } from "../../../lib/api/db.js";
 import { handle, jsonResponse } from "../../../lib/api/errors.js";
 import { readJsonBody } from "../../../lib/api/body.js";
 import { authRateLimitKey, consumeAuthRateLimit } from "../../../lib/api/rate-limit.js";
-import { sendEmail } from "../../../services/email.js";
+import { getDataRuntime } from "../../../data/runtime.js";
 
 export const config = { mode: "app" };
 
@@ -43,8 +43,10 @@ export async function action({ request }: { request: Request }) {
       })
       .where(eq(users.id, user.id));
 
-    await sendEmail({
-      to: user.email,
+    const runtime = await getDataRuntime();
+    await runtime.queue.add("notification.send-email", {
+      userId: user.id,
+      email: user.email,
       subject: "Reset your Omi RSS password",
       template: "password-reset",
       data: {
