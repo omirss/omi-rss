@@ -15,6 +15,7 @@ const articleColumns = {
   url: articles.url,
   summary: articles.summary,
   content: articles.content,
+  contentExtracted: articles.contentExtracted,
   author: articles.author,
   publishedAt: articles.publishedAt,
   imageUrl: articles.imageUrl,

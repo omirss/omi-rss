@@ -15,6 +15,7 @@ const updateFeedSchema = z.object({
   folderId: z.string().uuid().nullable().optional(),
   updateInterval: z.number().min(5).max(1440).optional(),
   isActive: z.boolean().optional(),
+  fullTextEnabled: z.boolean().optional(),
 });
 
 export async function loader({ params, context }: { params: Record<string, string>; context: Record<string, unknown> }) {

@@ -20,6 +20,7 @@ const createFeedSchema = z.object({
   folderId: z.string().uuid().optional(),
   customTitle: z.string().optional(),
   updateInterval: z.number().min(5).max(1440).optional(),
+  fullTextEnabled: z.boolean().optional(),
 });
 
 export async function loader({ context }: { context: Record<string, unknown> }) {
@@ -44,6 +45,10 @@ export async function loader({ context }: { context: Record<string, unknown> }) 
         errorCount: feeds.errorCount,
         isActive: feeds.isActive,
         settings: feeds.settings,
+        fullTextEnabled: feeds.fullTextEnabled,
+        sourceType: feeds.sourceType,
+        pageUrl: feeds.pageUrl,
+        pageSelector: feeds.pageSelector,
         createdAt: feeds.createdAt,
         updatedAt: feeds.updatedAt,
         unreadCount: sql<number>`
@@ -112,6 +117,7 @@ export async function action({ request, context }: { request: Request; context: 
         customTitle: data.customTitle,
         folderId: data.folderId,
         updateInterval: data.updateInterval || 30,
+        fullTextEnabled: data.fullTextEnabled ?? false,
         favicon: await extractFavicon(feedData.link),
       })
       .returning();

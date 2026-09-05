@@ -1,12 +1,16 @@
 import { Queue } from "bullmq";
 import crypto from "node:crypto";
 import Parser from "rss-parser";
-import { eq, and, sql, gte, inArray } from "drizzle-orm";
+import { eq, and, sql, gte, inArray, isNull, ne, desc } from "drizzle-orm";
+import { createBullMqQueueDriver, type BullMqQueueDriver } from "@neutron-build/data";
 import { getDataRuntime, QUEUE_NAME, QUEUE_PREFIX } from "./data/runtime.js";
-import { getDb } from "./lib/api/db.js";
+import { getDb, type Database } from "./lib/api/db.js";
 import { validateAuthBootEnv } from "./lib/api/tokens.js";
 import { feeds, articles, userArticleStates, readingStats, notifications } from "./data/db/schema.js";
-import { fetchFeedXml } from "./services/feed-fetch.js";
+import { assertSafeFeedUrl, fetchFeedXml } from "./services/feed-fetch.js";
+import { withHostGate } from "./services/host-gate.js";
+import { decodeBody, extractArticle, fetchDocument } from "./services/extraction.js";
+import { runPageFeedUpdate, type PageFeedStore } from "./services/page-feed.js";
 import { initializeEmailService, isEmailConfigured, sendEmail } from "./services/email.js";
 
 interface WorkerContext {
@@ -29,6 +33,231 @@ const CLEANUP_JOB = "cleanup.old-data";
 const ANALYTICS_JOB = "analytics.aggregate";
 const NOTIFICATION_SEND_EMAIL_JOB = "notification.send-email";
 const NOTIFICATION_MARK_READ_JOB = "notification.mark-read";
+const EXTRACT_ARTICLE_JOB = "extract.article";
+
+// v0.4.0 extraction engine: extraction jobs run on a dedicated queue
+// (concurrency 2) so an extraction backlog can never delay feed refreshes
+// (concurrency 4). Per-run budget: one update run enqueues at most 20
+// extraction jobs or spends at most 10s enqueuing; articles beyond the
+// budget keep contentExtracted NULL and are picked up by a later run's
+// backfill query. Article fetches happen once (at insert time) and are
+// never automatically re-fetched.
+const EXTRACT_QUEUE_NAME = "omiweb-extract";
+const EXTRACT_QUEUE_CONCURRENCY = 2;
+const EXTRACT_RUN_MAX_ARTICLES = 20;
+const EXTRACT_RUN_BUDGET_MS = 10000;
+const EXTRACTION_MEMO_MAX = 256;
+
+type FeedRow = typeof feeds.$inferSelect;
+
+let extractQueuePromise: Promise<BullMqQueueDriver> | null = null;
+const pageFeedInFlight = new Set<string>();
+const extractionMemo = new Map<string, string>();
+
+function getExtractQueue(): Promise<BullMqQueueDriver> {
+  if (!extractQueuePromise) {
+    extractQueuePromise = createBullMqQueueDriver({
+      url: process.env.REDIS_URL || "redis://localhost:6380",
+      queueName: EXTRACT_QUEUE_NAME,
+      prefix: QUEUE_PREFIX,
+      concurrency: EXTRACT_QUEUE_CONCURRENCY,
+    });
+  }
+  return extractQueuePromise;
+}
+
+export function extractionBudgetExceeded(runStartedAt: number, enqueued: number, now: number = Date.now()): boolean {
+  return enqueued >= EXTRACT_RUN_MAX_ARTICLES || now - runStartedAt >= EXTRACT_RUN_BUDGET_MS;
+}
+
+export type ArticleExtractionOutcome =
+  | "missing"
+  | "already-extracted"
+  | "skip-no-url"
+  | "skip-unsafe-url"
+  | "fetch";
+
+// Decision step of the extract job, split out so the SSRF skip (article
+// URLs are feed data) is unit-testable without a database.
+export async function articleExtractionOutcome(
+  article: { url: string } | undefined,
+  contentExtracted: string | null,
+): Promise<ArticleExtractionOutcome> {
+  if (!article) return "missing";
+  if (contentExtracted !== null) return "already-extracted";
+  if (!article.url) return "skip-no-url";
+  try {
+    await assertSafeFeedUrl(article.url);
+  } catch {
+    return "skip-unsafe-url";
+  }
+  return "fetch";
+}
+
+async function storeExtraction(db: Database, articleId: string, contentExtracted: string): Promise<void> {
+  await db
+    .update(articles)
+    .set({ contentExtracted, updatedAt: new Date() })
+    .where(and(eq(articles.id, articleId), isNull(articles.contentExtracted)));
+}
+
+function memoizeExtraction(url: string, contentHtml: string): void {
+  if (extractionMemo.size >= EXTRACTION_MEMO_MAX) {
+    extractionMemo.clear();
+  }
+  extractionMemo.set(url, contentHtml);
+}
+
+// Enqueues extraction jobs for the feed's pending articles (contentExtracted
+// NULL, non-empty URL): the run's new articles first (most recent
+// publishedAt), bounded by the per-run budget; the rest defer to later runs.
+async function enqueuePendingExtractions(db: Database, feed: FeedRow, runStartedAt: number): Promise<number> {
+  const candidates = await db
+    .select({ id: articles.id })
+    .from(articles)
+    .where(
+      and(
+        eq(articles.feedId, feed.id),
+        isNull(articles.contentExtracted),
+        ne(articles.url, ""),
+      ),
+    )
+    .orderBy(desc(articles.publishedAt))
+    .limit(EXTRACT_RUN_MAX_ARTICLES);
+
+  if (candidates.length === 0) return 0;
+
+  const queue = await getExtractQueue();
+  let enqueued = 0;
+  for (const candidate of candidates) {
+    if (extractionBudgetExceeded(runStartedAt, enqueued)) {
+      break;
+    }
+    await queue.add(EXTRACT_ARTICLE_JOB, { articleId: candidate.id });
+    enqueued++;
+  }
+  return enqueued;
+}
+
+async function processExtractArticle(articleId: string): Promise<{ articleId: string; status: ArticleExtractionOutcome | string }> {
+  const db = await getDb();
+
+  const [article] = await db
+    .select({ id: articles.id, url: articles.url, contentExtracted: articles.contentExtracted })
+    .from(articles)
+    .where(eq(articles.id, articleId))
+    .limit(1);
+
+  const outcome = await articleExtractionOutcome(
+    article ? { url: article.url } : undefined,
+    article?.contentExtracted ?? null,
+  );
+
+  if (outcome === "missing" || outcome === "already-extracted") {
+    return { articleId, status: outcome };
+  }
+  if (outcome === "skip-no-url" || outcome === "skip-unsafe-url") {
+    console.warn(`Extraction job skipping article ${articleId}: ${outcome}`);
+    await storeExtraction(db, articleId, "");
+    return { articleId, status: outcome };
+  }
+
+  const url = article!.url;
+
+  const memoized = extractionMemo.get(url);
+  if (memoized !== undefined) {
+    await storeExtraction(db, articleId, memoized);
+    return { articleId, status: "memoized" };
+  }
+
+  try {
+    const doc = await fetchDocument(url);
+    if (doc.status !== 200 || !doc.body) {
+      await storeExtraction(db, articleId, "");
+      return { articleId, status: `http-${doc.status}` };
+    }
+    const html = decodeBody(doc.body, doc.contentType);
+    const extracted = extractArticle(html, doc.finalUrl || url);
+    memoizeExtraction(url, extracted.contentHtml);
+    await storeExtraction(db, articleId, extracted.contentHtml);
+    return { articleId, status: `ok-${extracted.method}` };
+  } catch (error) {
+    console.warn(`Extraction failed (terminal, not re-fetched) for ${url}:`, error);
+    await storeExtraction(db, articleId, "");
+    return { articleId, status: "error" };
+  }
+}
+
+function createPageFeedStore(db: Database): PageFeedStore {
+  return {
+    insertItems: async (feedId, items, pageUrl) => {
+      let inserted = 0;
+      for (const item of items) {
+        const rows = await db
+          .insert(articles)
+          .values({
+            feedId,
+            guid: item.guid,
+            url: item.link ?? pageUrl,
+            title: item.title,
+            contentExtracted: item.contentHtml,
+            publishedAt: new Date(),
+          })
+          .onConflictDoNothing({ target: [articles.feedId, articles.guid] })
+          .returning({ id: articles.id });
+        inserted += rows.length;
+      }
+      return inserted;
+    },
+    markSuccess: async (feedId, settingsPatch) => {
+      await db
+        .update(feeds)
+        .set({
+          lastFetchedAt: new Date(),
+          lastFetchError: null,
+          errorCount: 0,
+          updatedAt: new Date(),
+          ...(Object.keys(settingsPatch).length > 0 && {
+            settings: sql`COALESCE(${feeds.settings}, '{}'::jsonb) || ${JSON.stringify(settingsPatch)}::jsonb`,
+          }),
+        })
+        .where(eq(feeds.id, feedId));
+    },
+    markSelectorMiss: async (feedId, message) => {
+      await db
+        .update(feeds)
+        .set({
+          lastFetchedAt: new Date(),
+          lastFetchError: message,
+          errorCount: sql`${feeds.errorCount} + 1`,
+          updatedAt: new Date(),
+        })
+        .where(eq(feeds.id, feedId));
+    },
+  };
+}
+
+// Page-feed update with a single-flight claim so overlapping polls of the
+// same feed never double-fetch. Fetch errors propagate to the shared
+// update-single catch (feed error flag); selector misses keep the last
+// good items instead of zeroing the feed.
+async function processPageFeedSingle(feed: FeedRow): Promise<{ feedId: string; newArticles: number }> {
+  if (pageFeedInFlight.has(feed.id)) {
+    console.info(`Page feed ${feed.id} update already in flight — skipping duplicate poll`);
+    return { feedId: feed.id, newArticles: 0 };
+  }
+  pageFeedInFlight.add(feed.id);
+  try {
+    const db = await getDb();
+    const result = await runPageFeedUpdate(feed, fetchDocument, createPageFeedStore(db));
+    if (result.newItems > 0) {
+      console.info(`Page feed ${feed.title} added ${result.newItems} items (${result.status})`);
+    }
+    return { feedId: feed.id, newArticles: result.newItems };
+  } finally {
+    pageFeedInFlight.delete(feed.id);
+  }
+}
 
 const FEED_UPDATE_CRON = "*/5 * * * *";
 const CLEANUP_CRON = "0 3 * * *";
@@ -109,9 +338,14 @@ async function processUpdateSingle(feedId: string): Promise<{ feedId: string; ne
       throw new Error(`Feed ${feedId} not found`);
     }
 
+    if (feed.sourceType === "page") {
+      return await processPageFeedSingle(feed);
+    }
+
     console.info(`Updating feed: ${feed.title} (${feed.url})`);
 
-    const feedXml = await fetchFeedXml(feed.url);
+    const runStartedAt = Date.now();
+    const feedXml = await withHostGate(feed.url, () => fetchFeedXml(feed.url));
     const feedData = await parser.parseString(feedXml);
 
     await db
@@ -172,6 +406,13 @@ async function processUpdateSingle(feedId: string): Promise<{ feedId: string; ne
 
     if (newArticles.length > 0) {
       console.info(`Added ${newArticles.length} new articles for feed ${feed.title}`);
+    }
+
+    if (feed.fullTextEnabled) {
+      const enqueued = await enqueuePendingExtractions(db, feed, runStartedAt);
+      if (enqueued > 0) {
+        console.info(`Enqueued ${enqueued} extraction jobs for feed ${feed.title}`);
+      }
     }
 
     return { feedId, newArticles: newArticles.length };
@@ -514,6 +755,13 @@ export async function run(context: WorkerContext): Promise<() => Promise<void>> 
     await processMarkRead(job.payload as { notificationId: string; userId: string });
   });
 
+  // Extraction jobs run on a dedicated lower-concurrency queue in this same
+  // worker process (see EXTRACT_QUEUE_NAME above).
+  const extractQueue = await getExtractQueue();
+  await extractQueue.process(EXTRACT_ARTICLE_JOB, async (job) => {
+    await processExtractArticle((job.payload as { articleId: string }).articleId);
+  });
+
   // neutron-data's QueueDriver has no repeatable-job API, so the cron
   // registration goes straight to BullMQ on the same prefixed queue. The
   // neutron-data worker above still consumes the jobs it produces.
@@ -534,6 +782,9 @@ export async function run(context: WorkerContext): Promise<() => Promise<void>> 
 
   return async () => {
     await scheduler.close();
+    if (extractQueuePromise) {
+      await (await extractQueuePromise).close();
+    }
     await runtime.close();
     context.log("shutdown complete");
   };

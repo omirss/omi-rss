@@ -22,6 +22,13 @@
       "when": 1788597380257,
       "tag": "0002_fixed_proemial_gods",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1788600463659,
+      "tag": "0003_light_molten_man",
+      "breakpoints": true
     }
   ]
 }

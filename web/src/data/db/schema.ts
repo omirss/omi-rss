@@ -78,6 +78,12 @@ export const feeds = pgTable("feeds", {
   errorCount: integer("error_count").default(0),
   isActive: boolean("is_active").default(true).notNull(),
   settings: jsonb("settings").default({}),
+  // v0.4.0 extraction engine: full-text extraction opt-in, page-feed
+  // source type, and the page URL + selector driving page-feed polls.
+  fullTextEnabled: boolean("full_text_enabled").default(false).notNull(),
+  sourceType: varchar("source_type", { length: 20 }).default("rss").notNull(),
+  pageUrl: text("page_url"),
+  pageSelector: text("page_selector"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => [
@@ -97,6 +103,10 @@ export const articles = pgTable("articles", {
   summary: text("summary"),
   imageUrl: text("image_url"),
   publishedAt: timestamp("published_at"),
+  // v0.4.0: sanitized full-text HTML from the extraction pipeline
+  // (Readability → site selector → meta excerpt). NULL = never attempted,
+  // '' = attempted with nothing to store (never auto re-fetched).
+  contentExtracted: text("content_extracted"),
   categories: jsonb("categories").default([]),
   enclosures: jsonb("enclosures").default([]),
   metadata: jsonb("metadata").default({}),
