@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:rss_glassmorphism_reader/config/app_info.dart';
 import 'package:rss_glassmorphism_reader/main.dart' as app;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -55,6 +56,8 @@ void main() {
       expect(find.text('Discover'), findsOneWidget);
       expect(find.text('Settings'), findsOneWidget);
       expect(find.text('Logout'), findsOneWidget);
+      expect(find.text('$appName $appVersion'), findsOneWidget,
+          reason: 'drawer footer must show the version line');
 
       await tester.tapAt(const Offset(20, 300));
       await tester.pump(const Duration(milliseconds: 500));

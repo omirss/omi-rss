@@ -840,11 +840,9 @@ class _HomePageState extends ConsumerState<HomePage> {
     final authState = ref.read(authProvider);
     final user = authState.user;
 
-    // Read from drift stream caches (warmed by the home shell build)
-    final totalUnread = ref.read(unreadCountProvider).valueOrNull ?? 0;
+    // Folder rows come from the drift cache warmed by the home shell build;
+    // unread badges watch their providers live via badgeWidget consumers.
     final folders = ref.read(foldersProvider).valueOrNull ?? const <Folder>[];
-    final folderUnread =
-        ref.read(folderUnreadCountsProvider).valueOrNull ?? const <String, int>{};
 
     showGlassDrawer(
       context: context,
@@ -874,7 +872,7 @@ class _HomePageState extends ConsumerState<HomePage> {
               id: 'all-feeds',
               title: 'All Feeds',
               icon: Icons.inbox,
-              badge: totalUnread > 0 ? '$totalUnread' : null,
+              badgeWidget: const _DrawerTotalUnreadBadge(),
               selected: ref.read(selectedFeedProvider) == null &&
                   !ref.read(showStarredProvider),
               onTap: () {
@@ -889,9 +887,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                 id: 'folder-${folder.id}',
                 title: folder.name,
                 icon: Icons.folder,
-                badge: (folderUnread[folder.id] ?? 0) > 0
-                    ? '${folderUnread[folder.id]}'
-                    : null,
+                badgeWidget: _DrawerFolderUnreadBadge(folderId: folder.id),
                 onTap: () {
                   _clearSearch();
                   ref.read(selectedFeedProvider.notifier).state = null;
@@ -973,108 +969,120 @@ class _HomePageState extends ConsumerState<HomePage> {
           },
         ),
       ],
-      footer: Container(
-        padding: const EdgeInsets.all(GlassSpacing.lg),
-        decoration: BoxDecoration(
-          border: Border(
-            top: BorderSide(
-              color: GlassTheme.colorsOf(context).divider,
-              width: 1,
+      footer: Builder(
+        builder: (footerContext) {
+          final footerTokens = GlassTheme.colorsOf(footerContext);
+          return Container(
+            padding: const EdgeInsets.all(GlassSpacing.lg),
+            decoration: BoxDecoration(
+              border: Border(
+                top: BorderSide(
+                  color: footerTokens.divider,
+                  width: 1,
+                ),
+              ),
             ),
-          ),
-        ),
-        child: Column(
-          children: [
-            _buildDrawerFooterTile(
-              context,
-              icon: Icons.download,
-              label: 'Import OPML',
-              onTap: () {
-                Navigator.of(context).pop();
-                _importOPML(context);
-              },
-            ),
-            _buildDrawerFooterTile(
-              context,
-              icon: Icons.upload,
-              label: 'Export OPML',
-              onTap: () {
-                Navigator.of(context).pop();
-                _exportOPML(context);
-              },
-            ),
-            _buildDrawerFooterTile(
-              context,
-              icon: Icons.bar_chart,
-              label: 'Statistics',
-              onTap: () {
-                Navigator.of(context).pop();
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const GlassThemeShell(
-                      child: StatisticsScreen(),
-                    ),
+            child: Column(
+              children: [
+                _buildDrawerFooterTile(
+                  footerContext,
+                  icon: Icons.download,
+                  label: 'Import OPML',
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    _importOPML(context);
+                  },
+                ),
+                _buildDrawerFooterTile(
+                  footerContext,
+                  icon: Icons.upload,
+                  label: 'Export OPML',
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    _exportOPML(context);
+                  },
+                ),
+                _buildDrawerFooterTile(
+                  footerContext,
+                  icon: Icons.bar_chart,
+                  label: 'Statistics',
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const GlassThemeShell(
+                          child: StatisticsScreen(),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                _buildDrawerFooterTile(
+                  footerContext,
+                  icon: Icons.table_chart,
+                  label: 'Feed Statistics',
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const GlassThemeShell(
+                          child: FeedStatisticsScreen(),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                _buildDrawerFooterTile(
+                  footerContext,
+                  icon: Icons.settings,
+                  label: 'Settings',
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const GlassThemeShell(
+                          child: SettingsScreen(),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                _buildDrawerFooterTile(
+                  footerContext,
+                  icon: Icons.logout,
+                  label: 'Logout',
+                  onTap: () async {
+                    Navigator.of(context).pop();
+                    final confirm = await showGlassConfirmDialog(
+                      context: context,
+                      title: 'Logout',
+                      message: 'Are you sure you want to logout?',
+                      confirmText: 'Logout',
+                      destructive: true,
+                    );
+                    if (confirm == true) {
+                      await ref.read(authProvider.notifier).logout();
+                      await ref.read(localModeProvider.notifier).disable();
+                      if (context.mounted) {
+                        context.showWarningSnackBar('Logged out successfully');
+                      }
+                    }
+                  },
+                ),
+                const SizedBox(height: GlassSpacing.sm),
+                Text(
+                  '$appName $appVersion',
+                  style: GlassTypeScale.caption.copyWith(
+                    color: footerTokens.textLow,
                   ),
-                );
-              },
+                ),
+              ],
             ),
-            _buildDrawerFooterTile(
-              context,
-              icon: Icons.table_chart,
-              label: 'Feed Statistics',
-              onTap: () {
-                Navigator.of(context).pop();
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const GlassThemeShell(
-                      child: FeedStatisticsScreen(),
-                    ),
-                  ),
-                );
-              },
-            ),
-            _buildDrawerFooterTile(
-              context,
-              icon: Icons.settings,
-              label: 'Settings',
-              onTap: () {
-                Navigator.of(context).pop();
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const GlassThemeShell(
-                      child: SettingsScreen(),
-                    ),
-                  ),
-                );
-              },
-            ),
-            _buildDrawerFooterTile(
-              context,
-              icon: Icons.logout,
-              label: 'Logout',
-              onTap: () async {
-                Navigator.of(context).pop();
-                final confirm = await showGlassConfirmDialog(
-                  context: context,
-                  title: 'Logout',
-                  message: 'Are you sure you want to logout?',
-                  confirmText: 'Logout',
-                  destructive: true,
-                );
-                if (confirm == true) {
-                  await ref.read(authProvider.notifier).logout();
-                  await ref.read(localModeProvider.notifier).disable();
-                  if (context.mounted) {
-                    context.showWarningSnackBar('Logged out successfully');
-                  }
-                }
-              },
-            ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
@@ -1387,5 +1395,33 @@ class _HomePageState extends ConsumerState<HomePage> {
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+}
+
+/// Live total-unread badge for the drawer's All Feeds row.
+class _DrawerTotalUnreadBadge extends ConsumerWidget {
+  const _DrawerTotalUnreadBadge();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final count = ref.watch(unreadCountProvider).valueOrNull ?? 0;
+    if (count <= 0) return const SizedBox.shrink();
+    return GlassDrawerBadge(count: count.toString());
+  }
+}
+
+/// Live per-folder unread badge for the drawer's folder rows.
+class _DrawerFolderUnreadBadge extends ConsumerWidget {
+  final String folderId;
+
+  const _DrawerFolderUnreadBadge({required this.folderId});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final counts =
+        ref.watch(folderUnreadCountsProvider).valueOrNull ?? const <String, int>{};
+    final count = counts[folderId] ?? 0;
+    if (count <= 0) return const SizedBox.shrink();
+    return GlassDrawerBadge(count: count.toString());
   }
 }

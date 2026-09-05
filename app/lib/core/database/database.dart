@@ -1,4 +1,5 @@
 import 'package:drift/drift.dart';
+import 'package:meta/meta.dart';
 import 'tables/feeds_table.dart';
 import 'tables/articles_table.dart';
 import 'tables/settings_table.dart';
@@ -37,7 +38,11 @@ part 'database.g.dart';
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(openAppConnection());
-  
+
+  /// Database with an injectable executor for tests.
+  @visibleForTesting
+  AppDatabase.testing(QueryExecutor executor) : super(executor);
+
   @override
   int get schemaVersion => 4;
   

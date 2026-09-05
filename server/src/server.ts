@@ -134,7 +134,7 @@ class Server {
         timestamp: new Date().toISOString(),
         uptime: process.uptime(),
         environment: process.env.NODE_ENV,
-        version: process.env.npm_package_version || '0.2.0'
+        version: process.env.npm_package_version || '0.2.1'
       });
     });
 

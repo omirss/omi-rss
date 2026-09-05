@@ -308,6 +308,7 @@ class _GlassDrawerState extends State<GlassDrawer>
                       ),
                     ),
                   ),
+                  if (item.badgeWidget != null) item.badgeWidget!,
                   if (item.badge != null)
                     Container(
                       padding: const EdgeInsets.symmetric(
@@ -380,6 +381,11 @@ class GlassDrawerItem {
   final bool closeOnTap;
   final String? badge;
   final Color? badgeColor;
+
+  /// Live badge content. When set it replaces the static [badge] chip, so
+  /// callers can watch a provider and keep the count current while the
+  /// drawer is open.
+  final Widget? badgeWidget;
   final List<GlassDrawerItem>? children;
 
   const GlassDrawerItem({
@@ -391,8 +397,38 @@ class GlassDrawerItem {
     this.closeOnTap = true,
     this.badge,
     this.badgeColor,
+    this.badgeWidget,
     this.children,
   });
+}
+
+/// Unread-count chip shown at the end of drawer item rows.
+class GlassDrawerBadge extends StatelessWidget {
+  final String count;
+
+  const GlassDrawerBadge({super.key, required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = GlassTheme.colorsOf(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: GlassSpacing.sm,
+        vertical: 2,
+      ),
+      decoration: BoxDecoration(
+        color: tokens.accentSoft,
+        borderRadius: BorderRadius.circular(GlassRadii.md),
+      ),
+      child: Text(
+        count,
+        style: GlassTypeScale.caption.copyWith(
+          color: tokens.accent,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
 }
 
 /// Glass drawer header with user profile
@@ -512,6 +548,12 @@ void showGlassDrawer({
   List<Color>? gradientColors,
   GlassThemeData? theme,
 }) {
+  // The dialog route pushed by showGeneralDialog is not below the calling
+  // page's GlassThemeShell, so theme lookups from inside the route would
+  // fall back to the default dark palette. Capture the caller's theme and
+  // re-provide it inside the route so the panel, items, header and footer
+  // all render with the active preset and brightness mode.
+  final inheritedTheme = GlassTheme.maybeOf(context);
   showGeneralDialog(
     context: context,
     barrierDismissible: true,
@@ -519,7 +561,7 @@ void showGlassDrawer({
     barrierColor: Colors.transparent,
     transitionDuration: const Duration(milliseconds: 350),
     pageBuilder: (context, animation, secondaryAnimation) {
-      return GlassDrawer(
+      final drawer = GlassDrawer(
         header: header,
         items: items,
         footer: footer,
@@ -528,6 +570,11 @@ void showGlassDrawer({
         gradientColors: gradientColors,
         onClose: () => Navigator.of(context).pop(),
         theme: theme,
+      );
+      if (inheritedTheme == null) return drawer;
+      return GlassTheme(
+        data: inheritedTheme,
+        child: drawer,
       );
     },
   );

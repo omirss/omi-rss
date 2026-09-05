@@ -317,20 +317,17 @@ class ArticleDao extends DatabaseAccessor<AppDatabase> with _$ArticleDaoMixin {
 
   /// Watch the total unread article count
   Stream<int> watchUnreadCount() {
-    final query = selectOnly(articlesTable)
-      ..addColumns([articlesTable.id.count()])
-      ..where(articlesTable.isRead.equals(false));
-
-    return query
-        .map((row) => row.read(articlesTable.id.count())!)
-        .watchSingle();
+    return _orderedArticles(where: (a) => a.isRead.equals(false))
+        .watch()
+        .map((rows) => rows.length);
   }
 
   /// Watch unread counts per folder id
   Stream<Map<String, int>> watchFolderUnreadCounts() {
     return customSelect(
       'SELECT ff.folder_id AS folder_id, COUNT(*) AS unread '
-      'FROM articles a JOIN folder_feeds ff ON ff.feed_id = a.id '
+      'FROM articles_table a JOIN folder_feeds_table ff '
+      'ON ff.feed_id = a.feed_id '
       'WHERE a.is_read = 0 GROUP BY ff.folder_id',
       readsFrom: {articlesTable, attachedDatabase.folderFeedsTable},
     )

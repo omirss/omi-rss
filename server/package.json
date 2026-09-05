@@ -1,6 +1,6 @@
 {
   "name": "omi-rss-server",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Server backend for Omi RSS Reader",
   "main": "dist/server.js",
   "scripts": {
