@@ -1,5 +1,12 @@
 # Omi RSS App
 
+> **Frozen — future mobile client.** As of v0.3.0 the Flutter client is not
+> part of the shipped product: the Neutron web app (`../web/`) replaced both
+> the Express server and the Flutter web UI. This code is kept intact as the
+> starting point for a future iOS/Android client against the same API; it is
+> not under active development. The notes below describe it as it shipped in
+> v0.2.
+
 The Omi RSS reader client — a Flutter app (project `rss_glassmorphism_reader`)
 for desktop, web, and mobile.
 
@@ -38,7 +45,7 @@ feeds are fetched and stored locally either way.
 ```bash
 flutter test                    # widget tests
 flutter analyze
-flutter build web --release     # web build (used by ../build-web.sh)
+flutter build web --release     # web build (served by the frozen v0.2 stack; not part of v0.3)
 flutter build macos --release   # or windows / linux
 ```
 
@@ -59,8 +66,9 @@ app/
 
 ## Status
 
-v0.2.0 alpha — reader core works on web (analyze clean, tests pass, build
-verified); native/desktop builds untested for release. See the repository
+Frozen at v0.2 (analyze clean, tests pass, web build verified against the
+v0.2 server); native/desktop builds untested for release. The shipped
+product is the Neutron web app (`../web/`), v0.3.0. See the repository
 PLAN.md for details.
 
 ## License

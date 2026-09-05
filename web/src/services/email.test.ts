@@ -6,7 +6,7 @@ import {
   sendEmail,
 } from "./email.js";
 
-// Ported from server/tests/unit/services/email.service.test.ts — the skip
+// Ported from Express tests/unit/services/email.service.test.ts — the skip
 // paths that keep SMTP-less instances booting and registering.
 
 vi.mock("nodemailer", () => ({

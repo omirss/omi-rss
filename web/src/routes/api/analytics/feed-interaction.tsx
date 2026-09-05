@@ -13,7 +13,7 @@ const trackFeedInteractionSchema = z.object({
   action: z.enum(["subscribe", "unsubscribe", "mute", "favorite"]),
 });
 
-// Ported from server/src/routes/analytics.ts POST /feed-interaction.
+// Ported from Express routes/analytics.ts POST /feed-interaction.
 export async function action({ request, context }: { request: Request; context: Record<string, unknown> }) {
   return handle(async () => {
     const auth = context.user as { id: string };

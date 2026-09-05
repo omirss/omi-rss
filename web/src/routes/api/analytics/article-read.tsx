@@ -15,7 +15,7 @@ const trackArticleReadSchema = z.object({
   completed: z.boolean(),
 });
 
-// Ported from server/src/routes/analytics.ts POST /article-read.
+// Ported from Express routes/analytics.ts POST /article-read.
 export async function action({ request, context }: { request: Request; context: Record<string, unknown> }) {
   return handle(async () => {
     const auth = context.user as { id: string };

@@ -6,7 +6,7 @@ export const config = { mode: "app" };
 
 export const middleware = requireAuth;
 
-// Ported from server/src/routes/analytics.ts GET /streaks.
+// Ported from Express routes/analytics.ts GET /streaks.
 export async function loader({ context }: { context: Record<string, unknown> }) {
   return handleLoader(async () => {
     const auth = context.user as { id: string };

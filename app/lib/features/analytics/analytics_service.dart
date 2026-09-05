@@ -96,7 +96,7 @@ class AnalyticsService {
 }
 
 // Models matching the server response from
-// server/src/services/analytics/index.ts getUserAnalytics().
+// Express services/analytics/index.ts getUserAnalytics().
 class UserAnalytics {
   final String timeframe;
   final ReadingAnalytics? reading;

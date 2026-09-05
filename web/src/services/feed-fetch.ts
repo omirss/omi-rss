@@ -1,4 +1,4 @@
-// Ported verbatim from server/src/services/feedFetch.ts (v0.2.1):
+// Ported verbatim from Express services/feedFetch.ts (v0.2.1):
 // same User-Agent, timeouts, retry delays and backoff semantics.
 
 const FEED_USER_AGENT = "omi-rss/0.2 (+https://omirss.com)";

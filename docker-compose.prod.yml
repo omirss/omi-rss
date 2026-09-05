@@ -1,0 +1,93 @@
+# omi-rss — production stack. Extends docker-compose.yml; requires a real
+# JWT_SECRET and POSTGRES_PASSWORD (env file or exported vars — no defaults).
+#
+#   JWT_SECRET=$(openssl rand -hex 32) POSTGRES_PASSWORD=$(openssl rand -hex 16) \
+#     podman-compose -f docker-compose.prod.yml up -d
+#
+# TLS: intentionally not terminated here. Put the edge (Caddy, Traefik, an LB,
+# or a host reverse proxy) in front of the published web port and proxy to it.
+# The webui, API, and uploads all come from the same origin, so no extra
+# routing is needed.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: omirss_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: omi_rss
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: omi_rss
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U omi_rss -d omi_rss"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: omirss_redis
+    restart: always
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    image: omi-rss-web:latest
+    container_name: omirss_web
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgres://omi_rss:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/omi_rss
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
+    ports:
+      - "${WEB_PORT:-8080}:3000"
+    volumes:
+      - web_uploads:/app/uploads
+    command: >
+      sh -c "node_modules/.bin/drizzle-kit migrate --config drizzle.config.mjs &&
+             node dist/server.mjs"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  worker:
+    image: omi-rss-web:latest
+    container_name: omirss_worker
+    restart: always
+    depends_on:
+      redis:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://omi_rss:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/omi_rss
+      REDIS_URL: redis://redis:6379
+    command: ["node", "node_modules/@neutron-build/cli/dist/index.js", "worker", "--mode", "production"]
+
+volumes:
+  postgres_data:
+  redis_data:
+  web_uploads:

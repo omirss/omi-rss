@@ -1,4 +1,4 @@
-// Ported from server/src/services/analytics/index.ts (v0.2.1) — the honest
+// Ported from Express services/analytics/index.ts (v0.2.1) — the honest
 // version: every metric is derived from real user_article_states /
 // reading_stats rows; nothing is fabricated. Redis usage maps onto the
 // runtime cache client (feed-interaction counters are flattened keys on the

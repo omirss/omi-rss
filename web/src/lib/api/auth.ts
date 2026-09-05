@@ -5,7 +5,7 @@ import { users } from "../../data/db/schema.js";
 import { getDb } from "./db.js";
 import { AppError } from "./errors.js";
 
-// Ported from server/src/middleware/authentication.ts (v0.2.1) as a Neutron
+// Ported from Express middleware/authentication.ts (v0.2.1) as a Neutron
 // route middleware. Same 401 bodies (no timestamp — these bypassed the
 // Express errorHandler), same user shape on context.
 

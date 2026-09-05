@@ -8,7 +8,7 @@ export const config = { mode: "app" };
 
 export const middleware = requireAuth;
 
-// Ported from server/src/routes/stats.routes.ts GET /overview.
+// Ported from Express routes/stats.routes.ts GET /overview.
 export async function loader({ context }: { context: Record<string, unknown> }) {
   return handleLoader(async () => {
     const auth = context.user as { id: string };

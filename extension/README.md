@@ -69,6 +69,7 @@ gecko id `{41a6adaa-f9f6-429c-b579-48e0f0697dfe}` for signed releases.
 
 ## Status
 
-v0.2.0 alpha. Server pairing works and is verified end to end: login,
-subscribe from a real page, mark-read sync, OPML round-trip, JSON backup,
-offline fallback. See the repository PLAN.md for phase history.
+v0.3.0 alpha. Server pairing works and is verified end to end against the
+Neutron web app: login, subscribe from a real page, mark-read sync, OPML
+round-trip, JSON backup, offline fallback. See the repository PLAN.md for
+phase history.

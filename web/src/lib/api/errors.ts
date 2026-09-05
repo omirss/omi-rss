@@ -1,6 +1,6 @@
 import { ZodError } from "zod";
 
-// Ported from server/src/middleware/errorHandler.ts (v0.2.1). /api routes use
+// Ported from Express middleware/errorHandler.ts (v0.2.1). /api routes use
 // the Express error JSON shape, not RFC 7807 — the Stage-A curl contract and
 // byte-parity with the Express server depend on it.
 

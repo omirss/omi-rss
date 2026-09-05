@@ -6,7 +6,7 @@ import {
   verifyRefreshToken,
 } from "./tokens.js";
 
-// Ported from server/tests/unit/services/auth.service.test.ts — same claims,
+// Ported from Express tests/unit/services/auth.service.test.ts — same claims,
 // secrets and expiry contracts, exercised against the real jwt library.
 
 beforeAll(() => {

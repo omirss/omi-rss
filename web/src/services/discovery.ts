@@ -1,4 +1,4 @@
-// Ported from server/src/services/discovery/index.ts (v0.2.1). Curated-only,
+// Ported from Express services/discovery/index.ts (v0.2.1). Curated-only,
 // honest: search/discover return curated feeds (optionally enriched with
 // live feed metadata), never fabricated results. Redis usage maps onto the
 // runtime cache client.

@@ -14,7 +14,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
-// Ported verbatim from server/src/database/schema.ts (v0.2.1).
+// Ported verbatim from Express database/schema.ts (v0.2.1).
 // Same table names, columns, indexes — the existing omirss-pg database must
 // work with zero schema drift. Index callbacks use the array form required
 // by drizzle-orm 0.4x; names are unchanged.

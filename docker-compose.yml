@@ -1,0 +1,95 @@
+# omi-rss — local/self-host stack (web + worker + postgres + redis)
+# No nginx: the Neutron server serves the webui and static assets itself.
+# For public exposure, terminate TLS at your edge (see docs/self-hosting.md)
+# and proxy to the published web port (default http://localhost:8080).
+#
+# Start:  podman-compose up -d   (or docker compose up -d)
+# Stop:   podman-compose down
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: omirss_postgres
+    environment:
+      POSTGRES_USER: omi_rss
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-omi_rss}
+      POSTGRES_DB: omi_rss
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U omi_rss -d omi_rss"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: omirss_redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    image: omi-rss-web:latest
+    container_name: omirss_web
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgres://omi_rss:${POSTGRES_PASSWORD:-omi_rss}@postgres:5432/omi_rss
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      # UPLOAD_DIR: /app/uploads   (default)
+      # SMTP_HOST/SMTP_PORT/...: set to enable email delivery
+    ports:
+      - "${WEB_PORT:-8080}:3000"
+    volumes:
+      - web_uploads:/app/uploads
+    # Apply pending drizzle migrations, then serve (idempotent).
+    command: >
+      sh -c "node_modules/.bin/drizzle-kit migrate --config drizzle.config.mjs &&
+             node dist/server.mjs"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+  worker:
+    image: omi-rss-web:latest
+    container_name: omirss_worker
+    depends_on:
+      redis:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://omi_rss:${POSTGRES_PASSWORD:-omi_rss}@postgres:5432/omi_rss
+      REDIS_URL: redis://redis:6379
+    # Same image, different entry: the feed/notifications/analytics/cleanup
+    # crons live in the worker process (neutron.config.ts worker.entry).
+    command: ["node", "node_modules/@neutron-build/cli/dist/index.js", "worker", "--mode", "production"]
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  web_uploads:

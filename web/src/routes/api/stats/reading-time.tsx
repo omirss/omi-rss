@@ -15,7 +15,7 @@ const readingTimeSchema = z.object({
   timeSpent: z.number().min(0).max(3600),
 });
 
-// Ported from server/src/routes/stats.routes.ts GET /reading-time.
+// Ported from Express routes/stats.routes.ts GET /reading-time.
 export async function loader({ context }: { context: Record<string, unknown> }) {
   return handleLoader(async () => {
     const auth = context.user as { id: string };
@@ -80,7 +80,7 @@ export async function loader({ context }: { context: Record<string, unknown> }) 
   });
 }
 
-// Ported from server/src/routes/stats.routes.ts POST /reading-time.
+// Ported from Express routes/stats.routes.ts POST /reading-time.
 export async function action({ request, context }: { request: Request; context: Record<string, unknown> }) {
   return handle(async () => {
     const auth = context.user as { id: string };

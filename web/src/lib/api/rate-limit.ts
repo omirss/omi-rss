@@ -3,7 +3,7 @@ import Redis from "ioredis";
 import { RateLimiterRedis, RateLimiterRes } from "rate-limiter-flexible";
 import { AppError } from "./errors.js";
 
-// Ported from server/src/middleware/rateLimiter.ts (v0.2.1): same points,
+// Ported from Express middleware/rateLimiter.ts (v0.2.1): same points,
 // windows and block durations. Key prefixes get an omiweb_ prefix so the
 // Neutron app enforces its own budget on the shared dev Redis instead of
 // burning the Express server's limiter state (and vice versa) while both

@@ -228,6 +228,11 @@
 }
 
 .topbar {
+  /* Above content stacking contexts (backdrop-filter on glass cards):
+     keeps the theme popover, which z-index alone cannot escape the topbar's
+     own glass-card stacking context, reachable over article rows. */
+  position: relative;
+  z-index: 200;
   display: flex;
   align-items: center;
   gap: var(--sp-md);

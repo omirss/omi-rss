@@ -1,4 +1,4 @@
-// Ported from server/src/services/email.service.ts (v0.2.1): same init/skip
+// Ported from Express services/email.service.ts (v0.2.1): same init/skip
 // semantics, same template rendering (handlebars over src/templates/*.hbs),
 // never throws.
 

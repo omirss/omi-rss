@@ -15,7 +15,7 @@ const dateRangeSchema = z.object({
   period: z.enum(["day", "week", "month", "year"]).default("month"),
 });
 
-// Ported from server/src/routes/stats.routes.ts GET /history.
+// Ported from Express routes/stats.routes.ts GET /history.
 export async function loader({ request, context }: { request: Request; context: Record<string, unknown> }) {
   return handleLoader(async () => {
     const auth = context.user as { id: string };

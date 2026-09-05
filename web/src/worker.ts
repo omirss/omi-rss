@@ -15,7 +15,7 @@ interface WorkerContext {
   log: (message: string) => void;
 }
 
-// Ported from server/src/workers (v0.2.1). Express ran four Bull queues
+// Ported from Express workers (v0.2.1). Express ran four Bull queues
 // (feed-updates, notifications, analytics, cleanup); the Neutron runtime has
 // a single prefixed queue, so the workers live here as job names on it.
 // Repeatable (cron) registration needs raw BullMQ — neutron-data's
@@ -226,7 +226,7 @@ async function processCleanup(): Promise<{ expired: number; inactive: number }> 
   return { expired: expired.length, inactive: inactiveDeleted };
 }
 
-// Ported verbatim from server/src/workers/analytics.worker.ts — the
+// Ported verbatim from Express workers/analytics.worker.ts — the
 // MERGE-not-clobber version. Incremental writers (analytics service, stats
 // routes) only ever add to these counters, so reconcile with GREATEST
 // instead of overwriting the accumulated values; hourlyDistribution merges
@@ -345,7 +345,7 @@ async function processAnalyticsAggregate(): Promise<{ users: number }> {
   return { users: upserted };
 }
 
-// Ported from server/src/workers/notification.worker.ts — the honest
+// Ported from Express workers/notification.worker.ts — the honest
 // version: every send is recorded as sent/failed/skipped from the actual
 // delivery result, never fabricated.
 interface SendEmailJobData {

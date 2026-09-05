@@ -1,6 +1,6 @@
 import jwt from "jsonwebtoken";
 
-// Ported from server/src/services/auth.service.ts (v0.2.1): same claims,
+// Ported from Express services/auth.service.ts (v0.2.1): same claims,
 // secrets and expiry windows so tokens interop with the Express server.
 
 export interface RefreshTokenPayload {

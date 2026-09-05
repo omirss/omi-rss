@@ -11,7 +11,7 @@ const getUserAnalyticsSchema = z.object({
   timeframe: z.enum(["day", "week", "month", "year", "all"]).default("month"),
 });
 
-// Ported from server/src/routes/analytics.ts GET /. Returns the real payload
+// Ported from Express routes/analytics.ts GET /. Returns the real payload
 // shape {reading, preferences, patterns, engagement, insights} derived from
 // actual reading data — no fabricated metrics.
 export async function loader({ request, context }: { request: Request; context: Record<string, unknown> }) {
