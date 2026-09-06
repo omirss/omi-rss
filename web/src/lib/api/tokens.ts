@@ -79,6 +79,57 @@ export function tokenVersionMatches(claim: unknown, current: unknown): boolean {
   return normalizeTokenVersion(claim) === normalizeTokenVersion(current);
 }
 
+// v0.6.0 greader API (Google Reader compatible) tokens. They carry a `type`
+// claim, mirroring the refresh-token convention: verifyAccessTokenClaims
+// rejects any token with a `type` claim, so greader tokens cannot be replayed
+// against the web API, and verifyGreaderToken rejects typeless web access
+// tokens, so those cannot be replayed against the greader API.
+//
+// Auth token: long-lived (7d), the ClientLogin `Auth=` value.
+// Post token ("T"): 30 minutes, matches the Google Reader contract.
+
+export const GREADER_AUTH_TOKEN_EXPIRES_IN = "7d";
+export const GREADER_POST_TOKEN_EXPIRES_IN = "30m";
+
+export type GreaderTokenType = "greader-auth" | "greader-post";
+
+export function signGreaderAuthToken(
+  userId: string,
+  email: string,
+  username: string,
+  role: string,
+  tokenVersion: number = 0
+): string {
+  return jwt.sign(
+    { userId, email, username, role, tokenVersion, type: "greader-auth" },
+    process.env.JWT_SECRET!,
+    { expiresIn: GREADER_AUTH_TOKEN_EXPIRES_IN as jwt.SignOptions["expiresIn"] }
+  );
+}
+
+export function signGreaderPostToken(userId: string, tokenVersion: number = 0): string {
+  return jwt.sign({ userId, tokenVersion, type: "greader-post" }, process.env.JWT_SECRET!, {
+    expiresIn: GREADER_POST_TOKEN_EXPIRES_IN as jwt.SignOptions["expiresIn"],
+  });
+}
+
+export interface GreaderTokenPayload {
+  userId: string;
+  tokenVersion: number;
+}
+
+export function verifyGreaderToken(token: string, expectedType: GreaderTokenType): GreaderTokenPayload | null {
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as jwt.JwtPayload;
+    if (decoded.type !== expectedType || typeof decoded.userId !== "string" || decoded.userId.length === 0) {
+      return null;
+    }
+    return { userId: decoded.userId, tokenVersion: normalizeTokenVersion(decoded.tokenVersion) };
+  } catch {
+    return null;
+  }
+}
+
 export function verifyRefreshToken(token: string): RefreshTokenPayload | null {
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET!) as jwt.JwtPayload;

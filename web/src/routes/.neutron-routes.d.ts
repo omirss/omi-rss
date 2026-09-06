@@ -37,6 +37,7 @@ declare module "@neutron-build/core" {
     | "/api/folders"
     | `/api/folders/${string}`
     | "/api/folders/reorder"
+    | `/api/greader/${string}`
     | "/api/ping"
     | "/api/stats/history"
     | "/api/stats/overview"
