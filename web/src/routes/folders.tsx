@@ -21,19 +21,20 @@ export const config = { mode: "app" };
 interface FlatFolder {
   folder: FolderNode;
   depth: number;
+  parentId: string | null;
   siblingIndex: number;
   siblingCount: number;
 }
 
 function flattenFolders(folders: FolderNode[]): FlatFolder[] {
   const rows: FlatFolder[] = [];
-  const walk = (nodes: FolderNode[], currentDepth: number) => {
+  const walk = (nodes: FolderNode[], currentDepth: number, parentId: string | null) => {
     nodes.forEach((node, index) => {
-      rows.push({ folder: node, depth: currentDepth, siblingIndex: index, siblingCount: nodes.length });
-      walk(node.children, currentDepth + 1);
+      rows.push({ folder: node, depth: currentDepth, parentId, siblingIndex: index, siblingCount: nodes.length });
+      walk(node.children, currentDepth + 1, node.id);
     });
   };
-  walk(folders, 0);
+  walk(folders, 0, null);
   return rows;
 }
 
@@ -71,6 +72,25 @@ function moveWithinLevel(folders: FolderNode[], folderId: string, direction: -1 
   return folders.map((folder) => ({
     ...folder,
     children: moveWithinLevel(folder.children, folderId, direction),
+  }));
+}
+
+// Drag-and-drop reordering: moves dragId to targetId's slot. Both must live
+// in the same sibling level (same parent) — cross-level moves stay on the
+// folder select. Returns the input unchanged for an invalid or no-op drop.
+function moveFolderTo(folders: FolderNode[], dragId: string, targetId: string): FolderNode[] {
+  const dragIndex = folders.findIndex((folder) => folder.id === dragId);
+  const targetIndex = folders.findIndex((folder) => folder.id === targetId);
+  if (dragIndex >= 0 || targetIndex >= 0) {
+    if (dragIndex < 0 || targetIndex < 0 || dragIndex === targetIndex) return folders;
+    const next = [...folders];
+    const [moved] = next.splice(dragIndex, 1);
+    next.splice(targetIndex, 0, moved);
+    return next;
+  }
+  return folders.map((folder) => ({
+    ...folder,
+    children: moveFolderTo(folder.children, dragId, targetId),
   }));
 }
 
@@ -241,6 +261,7 @@ export default function FoldersPage() {
   }, [load]);
 
   const rows = useMemo(() => flattenFolders(folders), [folders]);
+  const rowsById = useMemo(() => new Map(rows.map((row) => [row.folder.id, row])), [rows]);
   const feedGroups = useMemo(() => {
     const grouped = new Map<string, FeedWithUnread[]>();
     const unfiled: FeedWithUnread[] = [];
@@ -260,6 +281,36 @@ export default function FoldersPage() {
   const reorder = async (folderId: string, direction: -1 | 1) => {
     const next = moveWithinLevel(folders, folderId, direction);
     if (next === folders) return;
+    setFolders(next);
+    try {
+      await foldersApi.reorder(collectIds(next));
+    } catch (error) {
+      showToast({
+        title: "Reorder failed",
+        message: error instanceof ApiError ? error.message : "Please try again",
+        kind: "error",
+      });
+      void load();
+    }
+  };
+
+  // HTML5 drag-and-drop alongside the up/down buttons (keyboard fallback).
+  // Same-level drops only — see moveFolderTo.
+  const [dragFolderId, setDragFolderId] = useState<string | null>(null);
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+
+  const canDropOn = (targetId: string): boolean => {
+    if (dragFolderId === null || dragFolderId === targetId) return false;
+    return rowsById.get(dragFolderId)?.parentId === rowsById.get(targetId)?.parentId;
+  };
+
+  const onFolderDrop = async (targetId: string) => {
+    const sourceId = dragFolderId;
+    setDragFolderId(null);
+    setDropTargetId(null);
+    if (!sourceId || !canDropOn(targetId)) return;
+    const next = moveFolderTo(folders, sourceId, targetId);
+    if (collectIds(next).join("\n") === collectIds(folders).join("\n")) return;
     setFolders(next);
     try {
       await foldersApi.reorder(collectIds(next));
@@ -526,8 +577,31 @@ export default function FoldersPage() {
               return (
                 <div key={folder.id}>
                   <div
-                    class="folder-row"
+                    class={`folder-row${dragFolderId === folder.id ? " folder-row-dragging" : ""}${dropTargetId === folder.id ? " folder-row-drop-target" : ""}`}
                     style={depth > 0 ? `padding-left: calc(var(--sp-lg) + ${depth * 24}px);` : undefined}
+                    title="Drag to reorder within this level"
+                    draggable={true}
+                    onDragStart={(event: JSX.TargetedDragEvent<HTMLDivElement>) => {
+                      setDragFolderId(folder.id);
+                      if (!event.dataTransfer) return;
+                      event.dataTransfer.effectAllowed = "move";
+                      event.dataTransfer.setData("text/plain", folder.id);
+                    }}
+                    onDragOver={(event: JSX.TargetedDragEvent<HTMLDivElement>) => {
+                      if (!canDropOn(folder.id) || !event.dataTransfer) return;
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = "move";
+                      setDropTargetId(folder.id);
+                    }}
+                    onDragLeave={() => setDropTargetId((current) => (current === folder.id ? null : current))}
+                    onDrop={(event: JSX.TargetedDragEvent<HTMLDivElement>) => {
+                      event.preventDefault();
+                      void onFolderDrop(folder.id);
+                    }}
+                    onDragEnd={() => {
+                      setDragFolderId(null);
+                      setDropTargetId(null);
+                    }}
                   >
                     <span class="folder-color-dot" style={folder.color ? `background: ${folder.color};` : undefined} />
                     <FolderIcon size={17} />
