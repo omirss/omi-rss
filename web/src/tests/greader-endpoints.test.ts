@@ -295,6 +295,31 @@ describe("stream/items/ids", () => {
     expect(response.status).toBe(400);
   });
 
+  it("accepts any user-id segment on state streams and tags (SPEC 3.2)", async () => {
+    const rows = [
+      { hex16: "fb115bd6d34a8e9f", id: "r1", rankUsec: "1750000000123456", feedUrl: "https://example.com/a.xml" },
+    ];
+    const numeric = makeDb([rows]);
+    vi.mocked(getDb).mockResolvedValue(numeric.db as never);
+    const numericResponse = await thrownResponse(
+      loader(
+        get(
+          "reader/api/0/stream/items/ids?s=user/12345/state/com.google/reading-list&xt=user/999/state/com.google/read"
+        ) as never
+      ) as never
+    );
+    expect(numericResponse.status).toBe(200);
+
+    const canonical = makeDb([rows]);
+    vi.mocked(getDb).mockResolvedValue(canonical.db as never);
+    const canonicalResponse = await thrownResponse(
+      loader(
+        get("reader/api/0/stream/items/ids?s=user/-/state/com.google/reading-list&xt=user/-/state/com.google/read") as never
+      ) as never
+    );
+    expect(await numericResponse.json()).toEqual(await canonicalResponse.json());
+  });
+
   it("400s on garbage and out-of-range ot/nt instead of 500ing", async () => {
     const { db } = makeDb([[]]);
     vi.mocked(getDb).mockResolvedValue(db as never);
@@ -448,6 +473,18 @@ describe("stream/contents", () => {
     expect(body.id).toBe("user/-/label/Tech");
   });
 
+  it("canonicalizes a numeric user-id state stream to the user/- form", async () => {
+    const { db } = makeDb([[ITEM_ROW]]);
+    vi.mocked(getDb).mockResolvedValue(db as never);
+    const response = await thrownResponse(
+      loader(get("reader/api/0/stream/contents?s=user/12345/state/com.google/reading-list&output=json") as never)
+    );
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as Record<string, unknown>;
+    expect(body.id).toBe("user/-/state/com.google/reading-list");
+    expect((body.items as unknown[]).length).toBe(1);
+  });
+
   it("decodes a percent-encoded splat (dev runtime hands it encoded)", async () => {
     const { db } = makeDb([
       [{ id: "feed-uuid-1", url: "https://example.com/a.xml" }],
@@ -599,6 +636,18 @@ describe("mark-all-as-read", () => {
     expect(inserts).toHaveLength(1);
   });
 
+  it("marks a numeric user-id state stream identically (SPEC 3.2)", async () => {
+    const { db, inserts } = makeDb([[]]);
+    vi.mocked(getDb).mockResolvedValue(db as never);
+    const response = await action(
+      post(
+        "reader/api/0/mark-all-as-read",
+        `T=${encodeURIComponent(validT())}&s=user/12345/state/com.google/reading-list`
+      ) as never
+    );
+    expect(await response.text()).toBe("OK");
+    expect(inserts).toHaveLength(1);
+  });
 });
 
 describe("subscription/quickadd", () => {

@@ -9,6 +9,7 @@ import {
   feedStreamId,
   labelStreamId,
   stateStreamId,
+  parseStreamId,
 } from "./streams.js";
 import type { ContinuationPayload } from "./cursor.js";
 import { encodeContinuation } from "./cursor.js";
@@ -66,21 +67,26 @@ export type ResolvedStream =
 
 // null = malformed grammar (400); "unknown" = valid grammar but no such
 // feed/label for this user (callers serve an empty page, like FreshRSS).
+// State/label ids go through parseStreamId so ANY user-id segment is
+// accepted (SPEC 3.2: user/-/... and user/12345/... are the same stream —
+// NetNewsWire sends the numeric form).
 export async function resolveStream(
   db: Database,
   userId: string,
   stream: string
 ): Promise<ResolvedStream | "unknown" | null> {
-  if (stream === stateStreamId(STATE_READING_LIST)) return { kind: "all" };
-  if (stream === stateStreamId(STATE_READ)) return { kind: "read" };
-  if (stream === stateStreamId(STATE_STARRED)) return { kind: "starred" };
+  const parsed = parseStreamId(stream);
+  if (parsed?.kind === "state") {
+    if (parsed.state === STATE_READING_LIST) return { kind: "all" };
+    if (parsed.state === STATE_READ) return { kind: "read" };
+    return { kind: "starred" };
+  }
 
-  const label = stream.match(/^user\/[^/]+\/label\/(.+)$/);
-  if (label) {
+  if (parsed?.kind === "label") {
     const [folder] = await db
       .select({ id: folders.id, name: folders.name })
       .from(folders)
-      .where(and(eq(folders.userId, userId), eq(folders.name, label[1])))
+      .where(and(eq(folders.userId, userId), eq(folders.name, parsed.name)))
       .limit(1);
     return folder ? { kind: "folder", folderId: folder.id, name: folder.name } : "unknown";
   }
@@ -139,14 +145,17 @@ export async function resolveStreamTag(
   userId: string,
   tag: string
 ): Promise<StreamTagFilter | "unknown" | null> {
-  if (tag === stateStreamId(STATE_READ)) return { type: "read" };
-  if (tag === stateStreamId(STATE_STARRED)) return { type: "starred" };
-  const label = tag.match(/^user\/[^/]+\/label\/(.+)$/);
-  if (label) {
+  const parsed = parseStreamId(tag);
+  if (parsed?.kind === "state") {
+    if (parsed.state === STATE_READ) return { type: "read" };
+    if (parsed.state === STATE_STARRED) return { type: "starred" };
+    return null;
+  }
+  if (parsed?.kind === "label") {
     const [folder] = await db
       .select({ id: folders.id })
       .from(folders)
-      .where(and(eq(folders.userId, userId), eq(folders.name, label[1])))
+      .where(and(eq(folders.userId, userId), eq(folders.name, parsed.name)))
       .limit(1);
     return folder ? { type: "folder", folderId: folder.id } : "unknown";
   }
