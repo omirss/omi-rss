@@ -39,13 +39,38 @@ discovery provider drops in later without touching the reader core.
 **Nothing in Webroll adds requirements to omi-rss v0.2.** It is referenced
 here so its existence is deliberate, not forgotten.
 
-## Current state (v0.5.0)
+## Current state (v0.6.0)
 
-Shipped and deployed: reader core, full-stack Neutron app (web/),
-full-text extraction, page feeds, bring-your-own-subscription headers,
-archive fallback, one visual identity across webui/popup/sidepanel,
-deployed to infra-home via teploy. Remaining: store submissions, Docker
-registry publish (owner decisions); greader API evaluation stays v1.x.
+Shipped and deployed: reader core, full-stack Neutron app, full-text
+extraction, page feeds, BYO subscriptions, archive fallback, one visual
+identity, greader-compatible API, PWA manifest, registration gate,
+privacy hardening (local favicons, no extension proxies), dependency
+advisories cleared, deployed to infra-home via teploy. Remaining: store
+submissions (owner-manual), marketing site refresh, polish backlog.
+
+## v0.6.0 — greader API, PWA, public hardening (2026-09-06)
+
+- greader-compatible API at /api/greader (ClientLogin, token, user-info,
+  subscription list/quickadd/edit, tag/list, unread-count, stream
+  items/contents, edit-tag, mark-all-read, rename/disable-tag);
+  implementation in lib/greader/* behind a thin route shell whose
+  router.server.ts import is stripped from client chunks (the route-module
+  version broke the client build — module-graph retention pulled
+  @neutron-build/data into the browser bundle)
+- PWA: manifest + icons + apple-touch; no service worker (online-first)
+- ALLOW_REGISTRATION gate with first-user bootstrap; /register redirects
+  to /login?tab=register; register tab hidden when closed
+- Favicons derived from feed origins (server + extension) — Google favicon
+  service removed everywhere
+- Extension: third-party CORS proxy fallback deleted, favicon attribute
+  escaping, reader-mode overlay rendered through OmiSanitize
+- Release audit (fresh-eyes): SSRF guard now evaluates IPv4 embedded in
+  IPv6 (::ffff:/96, ::/96, 64:ff9b::/96); extreme ot/nt/ts numerics 400
+  instead of 500; state stream ids accept any user-id segment (SPEC 3.2)
+- Dependencies: 30 audit findings (2 critical, 15 high) cleared to zero —
+  handlebars 4.7.9, sharp 0.35.4, nodemailer 10, bullmq 5.81.4, tar
+  override; vitest timeout 20s kills load flakes; CI now runs pnpm build
+- Docs: self-hosting clone path fixed (repo root, not app/)
 
 ## v0.5.0 — Extraction UX, BYO subscriptions, parity (2026-09-05)
 

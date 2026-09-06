@@ -5,7 +5,7 @@ A cross-platform RSS reader — a web app, a browser extension, and a frozen Flu
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Neutron](https://img.shields.io/badge/web-Neutron-8b5cf6)
 ![Node](https://img.shields.io/badge/backend-Node.js-339933)
-![Status](https://img.shields.io/badge/status-v0.5.0%20alpha-orange)
+![Status](https://img.shields.io/badge/status-v0.6.0-blue)
 
 **Website:** <https://omirss.com>
 
@@ -121,7 +121,7 @@ Compose additionally supports `WEB_PORT` (host port for `web`, default `8080`), 
 
 ## Status
 
-v0.5.0 — reader core, full-stack Neutron app, full-text extraction, page feeds, bring-your-own-subscription headers, archive fallback, one visual identity across webui/popup/sidepanel. Landed: `web/` replaces the Express server and the Flutter web UI; the extension contract is preserved and re-verified end to end; the Flutter app is frozen as the future mobile client. See [PLAN.md](PLAN.md) for phase history and what is deliberately out of scope. The marketing site is live at <https://omirss.com> (its source lives in a separate private repository).
+v0.6.0 — greader-compatible API (mobile via NetNewsWire, FeedMe, FocusReader), PWA install, registration gate with first-user bootstrap, privacy hardening (no Google favicon service, extension CORS proxies removed, reader overlay sanitized), SSRF guard covers IPv4-mapped IPv6, all production dependency advisories cleared, CI builds the client bundle. See [PLAN.md](PLAN.md) for phase history. The marketing site is live at <https://omirss.com> (its source lives in a separate private repository).
 
 ## License
 
