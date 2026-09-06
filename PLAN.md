@@ -13,8 +13,9 @@ A cross-platform RSS reader built as three pieces that work together:
   JWT auth.
 - **`extension/`** — browser extension (Chrome/Edge/Brave + Firefox): save
   articles, detect and subscribe to feeds, read in popup or side panel.
-- **`app/`** — frozen: the v0.2 Flutter client, kept as the starting point
-  for a future iOS/Android client against the same API.
+- **`app/`** — frozen: the v0.2 Flutter client, kept as reference only
+  (mobile = webui PWA + greader clients; decided 2026-09-05, see the
+  greader decision below).
 
 Self-hosted software, not SaaS. Users run their own instance and own their
 data. The server is multi-user capable, so a hosted offering is possible

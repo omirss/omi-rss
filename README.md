@@ -1,6 +1,6 @@
 # Omi RSS
 
-A cross-platform RSS reader — a web app, a browser extension, and a frozen future mobile client, around a self-hostable backend.
+A cross-platform RSS reader — a web app, a browser extension, and a frozen Flutter reference client, around a self-hostable backend.
 
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Neutron](https://img.shields.io/badge/web-Neutron-8b5cf6)
@@ -15,7 +15,7 @@ Omi RSS is an RSS reader built as three pieces that work together:
 
 - **`web/`** — the product: a [Neutron](https://github.com/neutron-build/neutron) app (TypeScript + Preact) that serves the web UI, the JSON API, and (as a second process) the background worker — feed refresh crons, full-text extraction, page-feed monitoring, notifications, analytics, cleanup — from one codebase on Node.js, PostgreSQL, and Redis.
 - **`extension/`** — a browser extension (Chrome/Edge/Brave + Firefox) to save articles, detect and subscribe to feeds, generate a durable feed from any page (region picker), and read in a popup or side panel. Works standalone or paired with a server.
-- **`app/`** — **frozen**: the Flutter client (iOS/Android/desktop) from v0.2, kept as the starting point for a future mobile client. Not part of the shipped product; the web UI replaced the Flutter web build.
+- **`app/`** — **frozen**: the Flutter client (iOS/Android/desktop) from v0.2, kept as reference only. Not part of the shipped product; mobile is the web UI plus greader-compatible third-party clients (see [PLAN.md](PLAN.md)).
 
 Self-hosted software, not SaaS. Run your own instance and own your data.
 
@@ -25,7 +25,7 @@ Self-hosted software, not SaaS. Run your own instance and own your data.
 omi-rss/
 ├── web/              Neutron app: webui + API + worker (the shipped product)
 ├── extension/        browser extension
-├── app/              frozen Flutter client (future mobile)
+├── app/              frozen Flutter client (reference)
 ├── docs/             self-hosting guide, Webroll concept
 ├── docker-compose.yml        local/self-host stack (web, worker, postgres, redis)
 ├── docker-compose.prod.yml   production variant (secrets required, no defaults)
@@ -76,7 +76,7 @@ flutter run
 flutter test
 ```
 
-See `app/README.md` — the Flutter client is frozen, not dead.
+See `app/README.md` — the Flutter client is frozen as reference only.
 
 ## Self-hosting
 
