@@ -61,6 +61,9 @@ services:
       # false closes registration once the first user exists — recommended
       # for production after you register your own account
       ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-true}
+      # Origin for verification/reset email links (set when SMTP is enabled;
+      # the worker env below carries the SMTP_* vars)
+      FRONTEND_URL: ${FRONTEND_URL:-}
     ports:
       - "${WEB_PORT:-8080}:3000"
     volumes:
@@ -88,6 +91,13 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgres://omi_rss:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/omi_rss
       REDIS_URL: redis://redis:6379
+      # Email delivery (optional): the worker is the process that sends.
+      # Empty SMTP_HOST keeps email disabled.
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
     command: ["node", "node_modules/@neutron-build/cli/dist/index.js", "worker", "--mode", "production"]
 
 volumes:

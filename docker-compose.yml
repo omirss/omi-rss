@@ -58,7 +58,9 @@ services:
       # for public instances after you register your own account)
       ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-true}
       # UPLOAD_DIR: /app/uploads   (default)
-      # SMTP_HOST/SMTP_PORT/...: set to enable email delivery
+      # FRONTEND_URL: origin for verification/reset email links (set when
+      # SMTP is enabled; the worker env below carries the SMTP_* vars)
+      FRONTEND_URL: ${FRONTEND_URL:-}
     ports:
       - "${WEB_PORT:-8080}:3000"
     volumes:
@@ -87,6 +89,13 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgres://omi_rss:${POSTGRES_PASSWORD:-omi_rss}@postgres:5432/omi_rss
       REDIS_URL: redis://redis:6379
+      # Email delivery (optional): the worker is the process that sends.
+      # Empty SMTP_HOST keeps email disabled.
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
     # Same image, different entry: the feed/notifications/analytics/cleanup
     # crons live in the worker process (neutron.config.ts worker.entry).
     command: ["node", "node_modules/@neutron-build/cli/dist/index.js", "worker", "--mode", "production"]
