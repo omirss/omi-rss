@@ -323,6 +323,8 @@ fivefilters' approach as untracked local references):
    bought nothing, the runtime swap bought TS-everywhere.
 5. Reader core first, network layer (Webroll) never blocks the reader —
    discovery module is the only seam.
+6. Dedicated reader route: DECIDED NO — modal + PWA covers reading; adding
+   a route would duplicate state for no user gain (2026-09-06).
 
 ## Non-goals (v0.2)
 
