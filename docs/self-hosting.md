@@ -43,14 +43,17 @@ defaults); compose wires the connection strings itself:
 | `UPLOAD_DIR` | Directory for avatars/uploads, served from `/uploads` (default `./uploads`) |
 | `ARTICLE_RETENTION_DAYS` | Days before the cleanup job deletes articles (default `90`) |
 | `FRONTEND_URL` | Public origin used in verification/reset email links |
+| `SMTP_HOST` | SMTP relay for verification/reset email — unset disables all email features harmlessly (see below) |
+| `SMTP_PORT` | SMTP port (default `587`; `465` switches to implicit TLS) |
+| `SMTP_USER` / `SMTP_PASS` | SMTP relay credentials (optional) |
+| `EMAIL_FROM` | From header on outgoing mail (default `Omi RSS <noreply@omirss.com>`) |
 | `TRUSTED_PROXY` | Trust forwarding headers for rate limiting: `false` (direct), `true` (one proxy), or a CIDR list |
 | `ALLOW_PRIVATE_FEED_URLS` | Dev-only bypass of the SSRF guard for loopback/private feed URLs (default `false`) |
 | `NODE_ENV` | `development` or `production`; production enables strict auth/rate-limit behavior |
 
-Also supported: `WEB_PORT` (host port for the `web` service, default `8080`)
-and, set on the `web` service, `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`/
-`EMAIL_FROM` to enable email verification and password reset, plus
-`RATE_LIMIT_MAX_REQUESTS` / `RATE_LIMIT_WINDOW_MS` to tune the API limits.
+Also supported: `WEB_PORT` (host port for the `web` service, default
+`8080`) and `RATE_LIMIT_MAX_REQUESTS` / `RATE_LIMIT_WINDOW_MS` to tune
+the API limits.
 
 ## Start
 
@@ -107,6 +110,40 @@ Then point your clients at the server:
 - **Extension** — open the popup, go to settings, set the server URL, log in.
 - **Web UI** — you are already on it: `http://localhost:8080/`.
 - **Mobile clients (greader)** — see below.
+
+## Email (optional)
+
+Email is fully optional. Without `SMTP_HOST` the stack boots, registers
+and logs in as usual — email is simply never sent (verification and
+reset jobs are recorded as `skipped` notifications). To enable delivery,
+set the `SMTP_*`/`EMAIL_FROM` variables from the table above on the
+**worker** service (the process that sends) and `FRONTEND_URL` on `web`
+(the process that builds the links). Both compose files pass them
+through from your shell:
+
+```bash
+SMTP_HOST=mail.example.com SMTP_PORT=587 SMTP_USER=me SMTP_PASS=secret \
+FRONTEND_URL=https://reader.example.com \
+  docker compose -f docker-compose.prod.yml up -d
+```
+
+Notes:
+
+- A dead or misconfigured relay never takes the stack down — the worker
+  logs the failure and email jobs degrade to `skipped`.
+- `forgot-password` always answers identically whether or not the
+  address matches an account (no account enumeration).
+- Accounts registered without an email cannot use password self-reset;
+  add one later over the API — `PATCH /api/users/me` with
+  `{"email": "..."}` — which re-sends a verification link.
+
+Local testing without a real relay — mailpit catches everything and
+shows it at http://localhost:8025:
+
+```bash
+docker run -d -p 1025:1025 -p 8025:8025 axllent/mailpit
+# then SMTP_HOST=localhost SMTP_PORT=1025
+```
 
 ## Mobile clients (greader)
 

@@ -113,11 +113,15 @@ The server and worker read these from the environment (`web/.env.example` carrie
 | `UPLOAD_DIR` | Directory for avatars/uploads, served from `/uploads` (default `./uploads`) |
 | `ARTICLE_RETENTION_DAYS` | Days before the cleanup job deletes articles (default `90`) |
 | `FRONTEND_URL` | Public origin used in verification/reset email links |
+| `SMTP_HOST` | SMTP relay for verification/reset email — unset disables all email features harmlessly ([details](docs/self-hosting.md#email-optional)) |
+| `SMTP_PORT` | SMTP port (default `587`; `465` switches to implicit TLS) |
+| `SMTP_USER` / `SMTP_PASS` | SMTP relay credentials (optional) |
+| `EMAIL_FROM` | From header on outgoing mail (default `Omi RSS <noreply@omirss.com>`) |
 | `TRUSTED_PROXY` | Trust forwarding headers for rate limiting: `false` (direct), `true` (one proxy), or a CIDR list |
 | `ALLOW_PRIVATE_FEED_URLS` | Dev-only bypass of the SSRF guard for loopback/private feed URLs (default `false`) |
 | `NODE_ENV` | `development` or `production`; production enables strict auth/rate-limit behavior |
 
-Compose additionally supports `WEB_PORT` (host port for `web`, default `8080`), `POSTGRES_PASSWORD`, and `SMTP_*`/`RATE_LIMIT_*` (see [docs/self-hosting.md](docs/self-hosting.md)).
+Compose additionally supports `WEB_PORT` (host port for `web`, default `8080`), `POSTGRES_PASSWORD`, and `RATE_LIMIT_*` (see [docs/self-hosting.md](docs/self-hosting.md)).
 
 ## Status
 
