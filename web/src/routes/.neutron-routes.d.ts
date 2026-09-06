@@ -51,6 +51,7 @@ declare module "@neutron-build/core" {
     | "/health"
     | "/login"
     | "/ready"
+    | "/register"
     | "/reset-password"
     | "/saved"
     | "/search"
