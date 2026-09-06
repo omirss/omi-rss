@@ -294,6 +294,12 @@ async function handleUnreadCount(context: Record<string, unknown>): Promise<Resp
 // Item streams
 // ---------------------------------------------------------------------------
 
+// Postgres bigint bounds for the SQL timestamp comparisons: ot/nt are
+// seconds scaled by 1e6 into usec, ts is usec (after nsec truncation), so
+// both must stay within int8 before reaching ::bigint.
+const MAX_INT64 = 9223372036854775807n;
+const MAX_STREAM_SECONDS = MAX_INT64 / 1000000n;
+
 function parseCount(raw: string | null): number {
   const value = parseInt(raw ?? "", 10);
   if (!Number.isFinite(value)) {
@@ -302,12 +308,19 @@ function parseCount(raw: string | null): number {
   return Math.min(Math.max(value, 1), 1000);
 }
 
+// ot/nt: strict integer strings only. Absent stays null; present-but-empty,
+// signed, fractional or exponent notation, and values whose usec bound
+// would overflow int8 are 400s (terse greader error style) — they used to
+// surface as 500s from invalid ::bigint input.
 function parseSeconds(raw: string | null): number | null {
-  if (raw === null || raw === "") {
+  if (raw === null) {
     return null;
   }
+  if (!/^\d+$/.test(raw) || BigInt(raw) > MAX_STREAM_SECONDS) {
+    throw new AppError("Invalid time bound", 400);
+  }
   const value = Number(raw);
-  return Number.isFinite(value) && value > 0 ? value : null;
+  return value > 0 ? value : null;
 }
 
 function parseContinuation(raw: string | null): ContinuationPayload | null {
@@ -558,13 +571,19 @@ async function handleEditTag(request: Request, context: Record<string, unknown>)
 }
 
 // ts is MICROseconds (mark only items older, inclusive). Values longer than
-// 17 digits are treated as nanoseconds and truncated to usec (SPEC OQ2).
+// 17 digits are treated as nanoseconds and truncated to usec (SPEC OQ2 —
+// real nsec timestamps are ~1.8e18, far below int8 max). Present-but-empty,
+// non-digit input, and raw values beyond int8 are 400s — they used to
+// surface as 500s from Postgres.
 function parseTsUsec(raw: string | null): string | null {
-  if (raw === null || raw === "") {
+  if (raw === null) {
     return null;
   }
   if (!/^\d+$/.test(raw)) {
     throw new AppError("Invalid ts", 400);
+  }
+  if (BigInt(raw) > MAX_INT64) {
+    throw new AppError("ts out of range", 400);
   }
   return raw.length > 17 ? raw.slice(0, raw.length - 3) : raw;
 }

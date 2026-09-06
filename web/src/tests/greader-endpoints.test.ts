@@ -294,6 +294,44 @@ describe("stream/items/ids", () => {
     );
     expect(response.status).toBe(400);
   });
+
+  it("400s on garbage and out-of-range ot/nt instead of 500ing", async () => {
+    const { db } = makeDb([[]]);
+    vi.mocked(getDb).mockResolvedValue(db as never);
+    for (const param of [
+      "ot=1e30",
+      "ot=1.5",
+      "ot=",
+      "ot=-",
+      "ot=9223372036854775808",
+      "ot=1000000000000000000000000000000",
+      "nt=1e30",
+      "nt=1.5",
+      "nt=",
+      "nt=-",
+      "nt=9223372036854775808",
+    ]) {
+      const response = await thrownResponse(
+        loader(get(`reader/api/0/stream/items/ids?s=user/-/state/com.google/reading-list&${param}`) as never) as never
+      );
+      expect(response.status).toBe(400);
+    }
+  });
+
+  it("accepts ot/nt at the seconds boundary that keeps the usec bound within int8", async () => {
+    const { db } = makeDb([[]]);
+    vi.mocked(getDb).mockResolvedValue(db as never);
+    const response = await thrownResponse(
+      loader(
+        get(
+          "reader/api/0/stream/items/ids?s=user/-/state/com.google/reading-list&ot=9223372036854&nt=9223372036854"
+        ) as never
+      ) as never
+    );
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { itemRefs: unknown[] };
+    expect(body.itemRefs).toEqual([]);
+  });
 });
 
 describe("stream/items/contents", () => {
@@ -404,7 +442,7 @@ describe("stream/contents", () => {
     ]);
     vi.mocked(getDb).mockResolvedValue(db as never);
     const response = await thrownResponse(
-      loader(get("reader/api/0/stream/contents/user/-/label/Tech?output=json") as never) as never
+      loader(get("reader/api/0/stream/contents/user/-/label/Tech?output=json") as never)
     );
     const body = (await response.json()) as Record<string, unknown>;
     expect(body.id).toBe("user/-/label/Tech");
@@ -533,6 +571,34 @@ describe("mark-all-as-read", () => {
     const badT = await action(post("reader/api/0/mark-all-as-read", "T=zzz&s=user/-/state/com.google/reading-list") as never);
     expect(badT.status).toBe(401);
   });
+
+  it("400s on out-of-int8 ts instead of 500ing", async () => {
+    const { db } = makeDb([[]]);
+    vi.mocked(getDb).mockResolvedValue(db as never);
+    for (const ts of ["9223372036854775808", "1e30", "1.5", "", "-", "-5", "999999999999999999999999"]) {
+      const response = await action(
+        post(
+          "reader/api/0/mark-all-as-read",
+          `T=${encodeURIComponent(validT())}&s=user/-/state/com.google/reading-list&ts=${ts}`
+        ) as never
+      );
+      expect(response.status).toBe(400);
+    }
+  });
+
+  it("accepts ts at int8 max", async () => {
+    const { db, inserts } = makeDb([[]]);
+    vi.mocked(getDb).mockResolvedValue(db as never);
+    const response = await action(
+      post(
+        "reader/api/0/mark-all-as-read",
+        `T=${encodeURIComponent(validT())}&s=user/-/state/com.google/reading-list&ts=9223372036854775807`
+      ) as never
+    );
+    expect(await response.text()).toBe("OK");
+    expect(inserts).toHaveLength(1);
+  });
+
 });
 
 describe("subscription/quickadd", () => {
