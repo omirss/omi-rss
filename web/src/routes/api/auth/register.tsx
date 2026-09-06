@@ -6,22 +6,17 @@ import { users } from "../../../data/db/schema.js";
 import { getDb } from "../../../lib/api/db.js";
 import { AppError, handle, jsonResponse } from "../../../lib/api/errors.js";
 import { readJsonBody } from "../../../lib/api/body.js";
+import { optionalEmail } from "../../../lib/api/email-field.js";
 import {
   authRateLimitKey,
   consumeAnonAuthRateLimit,
   consumeAuthRateLimit,
 } from "../../../lib/api/rate-limit.js";
 import { getDataRuntime } from "../../../data/runtime.js";
+import { frontendUrl } from "../../../lib/api/frontend-url.js";
 import { signAccessToken, signRefreshToken } from "../../../lib/api/tokens.js";
 
 export const config = { mode: "app" };
-
-// Email is optional (username+password sign-up). Empty string and null are
-// tolerated as absent so client forms can send the field unconditionally.
-const optionalEmail = z
-  .union([z.string().email(), z.literal(""), z.null()])
-  .optional()
-  .transform((value) => (value ? value : undefined));
 
 const registerSchema = z.object({
   email: optionalEmail,
@@ -101,7 +96,7 @@ export async function action({ request }: { request: Request }) {
         template: "email-verification",
         data: {
           username: data.username,
-          verificationUrl: `${process.env.FRONTEND_URL}/verify-email?token=${emailVerificationToken}`,
+          verificationUrl: frontendUrl(`/verify-email?token=${emailVerificationToken}`),
         },
       });
     }

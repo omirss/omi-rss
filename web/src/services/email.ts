@@ -48,6 +48,11 @@ export async function initializeEmailService(): Promise<void> {
     });
 
     await transporter.verify();
+    if (!process.env.FRONTEND_URL) {
+      console.warn(
+        `FRONTEND_URL not set; email links will use the http://localhost:${process.env.PORT || "3000"} fallback`
+      );
+    }
     console.info("Email service initialized successfully");
   } catch (error) {
     transporter = undefined;

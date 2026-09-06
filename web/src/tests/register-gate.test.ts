@@ -168,6 +168,32 @@ describe("optional email on POST /api/auth/register", () => {
     );
   });
 
+  it("builds the verification link from the frontendUrl fallback, not raw FRONTEND_URL", async () => {
+    const queueAdd = vi.fn();
+    vi.mocked(getDataRuntime).mockImplementation(async () => ({ queue: { add: queueAdd } } as never));
+    const { db } = fakeDb([[]]);
+    vi.mocked(getDb).mockResolvedValue(db as never);
+    const previousFrontendUrl = process.env.FRONTEND_URL;
+    const previousPort = process.env.PORT;
+    delete process.env.FRONTEND_URL;
+    process.env.PORT = "3910";
+
+    try {
+      const response = await action({ request: registerRequest() });
+
+      expect(response.status).toBe(201);
+      const payload = queueAdd.mock.calls[0][1] as { data: { verificationUrl: string } };
+      expect(payload.data.verificationUrl).toMatch(
+        /^http:\/\/localhost:3910\/verify-email\?token=[0-9a-f]{64}$/
+      );
+    } finally {
+      if (previousFrontendUrl === undefined) delete process.env.FRONTEND_URL;
+      else process.env.FRONTEND_URL = previousFrontendUrl;
+      if (previousPort === undefined) delete process.env.PORT;
+      else process.env.PORT = previousPort;
+    }
+  });
+
   it("conflicts with 409 on a duplicate username", async () => {
     // Gate unset: only the conflict select runs.
     const { db, inserts } = fakeDb([[{ id: "u-existing", username: "new-user" }]]);

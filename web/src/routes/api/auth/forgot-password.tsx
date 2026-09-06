@@ -11,6 +11,7 @@ import {
   consumeAuthRateLimit,
 } from "../../../lib/api/rate-limit.js";
 import { getDataRuntime } from "../../../data/runtime.js";
+import { frontendUrl } from "../../../lib/api/frontend-url.js";
 
 export const config = { mode: "app" };
 
@@ -60,7 +61,7 @@ export async function action({ request }: { request: Request }) {
       template: "password-reset",
       data: {
         username: user.username,
-        resetUrl: `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}`,
+        resetUrl: frontendUrl(`/reset-password?token=${resetToken}`),
       },
     });
 
