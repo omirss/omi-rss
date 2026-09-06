@@ -20,8 +20,8 @@ import {
 //     and refresh tokens are rejected here, and greader tokens are rejected
 //     by requireAuth),
 //   - re-checks tokenVersion (logout/password change revokes greader tokens),
-//   - consumes the 600/15min greader bucket instead of the 100/15min web
-//     bucket — sync clients burst far past 100 requests during initial sync.
+//   - consumes the 600/15min greader bucket instead of the 300/15min web
+//     bucket — sync clients burst far past the web budget during initial sync.
 //
 // ClientLogin and CORS preflight skip auth here.
 

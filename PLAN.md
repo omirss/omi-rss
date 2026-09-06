@@ -283,7 +283,7 @@ scoped:
     401 `Error=BadAuthentication` on bad credentials, 400 when
     Email/Passwd missing. Reads+writes run under a greader-specific
     600/15min per-user redis bucket (`omiweb_greader_limit`) instead of the
-    web 100/15min budget (sync bursts would 429).
+    web 300/15min budget (sync bursts would 429).
   - `rename-tag` maps onto folder rename; `disable-tag` detaches feeds to
     root then deletes the folder (Google semantics override the house
     "cannot delete non-empty folder" rule — noted there as the greader

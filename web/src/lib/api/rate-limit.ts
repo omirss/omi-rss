@@ -88,12 +88,15 @@ function getAnonFallbackLimiter(): RateLimiterRedis {
 
 // Per-user bucket consumed by requireAuth after token verification — the
 // per-client granularity replacement for direct exposure (no proxy).
+// 300/15min (v0.6.0 R7): heavy reading sessions were exhausting the old
+// 100 budget; greader sync has its own 600 bucket, so this one mainly
+// guards UI+API abuse and 300 is still honest protection.
 function getUserLimiter(): RateLimiterRedis {
   if (!userLimiter) {
     userLimiter = new RateLimiterRedis({
       storeClient: getLimiterRedisClient(),
       keyPrefix: "omiweb_user_limit",
-      points: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || "100"),
+      points: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || "300"),
       duration: parseInt(process.env.RATE_LIMIT_WINDOW_MS || "900000") / 1000,
       blockDuration: 900,
     });
