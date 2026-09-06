@@ -17,7 +17,7 @@ Omi RSS is an RSS reader built as three pieces that work together:
 - **`extension/`** — a browser extension (Chrome/Edge/Brave + Firefox) to save articles, detect and subscribe to feeds, generate a durable feed from any page (region picker), and read in a popup or side panel. Works standalone or paired with a server.
 - **`app/`** — **frozen**: the Flutter client (iOS/Android/desktop) from v0.2, kept as reference only. Not part of the shipped product; mobile is the web UI plus greader-compatible third-party clients (see [PLAN.md](PLAN.md)).
 
-Self-hosted software, not SaaS. Run your own instance and own your data.
+Self-hosted software, not SaaS. Run your own instance and own your data. The server also exposes a greader-compatible API (`/api/greader`) so mobile clients like NetNewsWire, FeedMe, and FocusReader can sync against it — see [docs/self-hosting.md](docs/self-hosting.md).
 
 ## Repository layout
 

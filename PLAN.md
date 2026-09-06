@@ -213,7 +213,8 @@ scoped:
   consumed, not replaced (any RSSHub URL works as a feed source); rebuilding
   its thousands of community routes means inheriting the maintenance
   treadmill without the community.
-- **greader-compatible API — NOW THE MOBILE STRATEGY (decided 2026-09-05).**
+- **greader-compatible API — NOW THE MOBILE STRATEGY (decided 2026-09-05;
+  IMPLEMENTED 2026-09-05).**
   The protocol FreshRSS exposes; the de-facto standard third-party readers
   speak. Implementing it unlocks completely free, maintained mobile
   clients (NetNewsWire on iOS; FeedMe/FocusReader on Android) with zero
@@ -222,6 +223,58 @@ scoped:
   AGPL — spec reference only, never code; the protocol is documented
   publicly. Pair with a PWA manifest so the webui installs on phones
   without any client.
+
+  Implementation (v0.6.0): `web/src/routes/api/greader/[...path].tsx`
+  (one catch-all router) + `web/src/lib/greader/*` (auth wrapper, id codec,
+  stream-id grammar, signed keyset continuations, queries), greader-scoped
+  JWTs in `web/src/lib/api/tokens.ts` (7d `greader-auth`, 30min
+  `greader-post`; `type` claims keep greader and web tokens mutually
+  unusable). Endpoints served: `accounts/ClientLogin`, `reader/api/0/`
+  `token`, `user-info`, `subscription/list|quickadd|edit`, `tag/list`,
+  `unread-count`, `stream/items/ids|contents`, `stream/contents[/<stream>]`
+  (query, path and bare forms), `edit-tag`, `mark-all-as-read`,
+  `rename-tag`, `disable-tag`. Everything in the SPEC's not-needed table
+  404s. Docs: `docs/self-hosting.md` (client setup).
+
+  Key mapping decisions and deviations from the research SPEC:
+
+  - Item ids derive from the first 64 bits of the article UUID (hex chars
+    0-15, dashes dropped); BigInt conversions, negative decimals accepted.
+    Items-by-id lookups compare that prefix in SQL — a per-user scoped
+    seq scan, acceptable at self-hosted scale with 90-day retention (no
+    functional index; revisit only if contents lookups show up in profiles).
+  - Ranking, ot/nt bounds, mark-all `ts`, `timestampUsec`/`crawlTimeMsec`
+    and continuations all key on the item ARRIVAL time
+    (`articles.created_at`, µs-exact): self-consistent, backdated pubDates
+    cannot hide items (BazQux read of the ot semantics). `published` still
+    reports the article's pubDate (fallback: arrival).
+  - Feed stream ids are `feed/<exact feeds.url>` everywhere (byte-identical
+    joins for NetNewsWire); inputs accept `feed/<url>`, `feed/<uuid>` and
+    bare URLs; path-form ids arrive with one scheme slash collapsed (the
+    router drops empty path segments) and are repaired on resolve.
+  - T (post) token verified when present and non-empty; absent/empty
+    tolerated (FeedMe). Invalid → 401 + `X-Reader-Google-Bad-Token: true`.
+  - ClientLogin shares the fail-closed 5/15min auth limiter with web login;
+    401 `Error=BadAuthentication` on bad credentials, 400 when
+    Email/Passwd missing. Reads+writes run under a greader-specific
+    600/15min per-user redis bucket (`omiweb_greader_limit`) instead of the
+    web 100/15min budget (sync bursts would 429).
+  - `rename-tag` maps onto folder rename; `disable-tag` detaches feeds to
+    root then deletes the folder (Google semantics override the house
+    "cannot delete non-empty folder" rule — noted there as the greader
+    path). Item labels in `edit-tag` (a=/r=user/-/label/...) are accepted
+    no-ops: omi-rss has no per-item label table.
+  - unread-count includes zero-count feeds and folders, constant `max:
+    1000`, 16-digit usec strings. Unknown-but-well-formed feeds/labels in
+    stream queries return empty pages (not 400); unknown xt/it label
+    filters are ignored (FreshRSS behavior).
+  - Errors are short text/plain bodies with real status codes (FreshRSS
+    style) rather than the JSON `{error,timestamp}` envelope — greader
+    clients key off statuses, and NNW treats any 4xx on ClientLogin as a
+    credentials failure. CORS served on everything; OPTIONS 204.
+  - `stream/items/contents` verifies no T (it is a read; NetNewsWire sends
+    a stale one). Continuations: base64url JSON {order, rankUsec, uuid} +
+    HMAC-SHA256 (JWT_SECRET), emitted only when an n+1th row exists.
 
 **License rules for the eval sprint** (clone FreshRSS, RSSHub, and study
 fivefilters' approach as untracked local references):

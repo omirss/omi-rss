@@ -99,6 +99,30 @@ Then point your clients at the server:
 
 - **Extension** — open the popup, go to settings, set the server URL, log in.
 - **Web UI** — you are already on it: `http://localhost:8080/`.
+- **Mobile clients (greader)** — see below.
+
+## Mobile clients (greader)
+
+The server speaks the Google Reader ("greader") API, so maintained
+third-party mobile clients sync against it with zero first-party apps.
+Point any of these at `http://your-server/api/greader` with your username
+and password:
+
+- **NetNewsWire** (iOS/macOS) — add an account of type *FreshRSS* and enter
+  the API base URL above.
+- **FeedMe** (Android) — add an account of type *FreshRSS* (or *Inoreader*)
+  and use the same base URL.
+- **FocusReader** (Android) — add a *FreshRSS* account the same way.
+
+Notes:
+
+- Credentials go over the wire once (ClientLogin); subsequent requests use a
+  long-lived token. Serve over HTTPS (terminate TLS at your edge as above)
+  before using this on an untrusted network.
+- Logging out of the web UI (or changing your password) revokes greader
+  tokens too; clients re-authenticate automatically with stored credentials.
+- Sync traffic is rate-limited per user (600 requests / 15 minutes) — far
+  above what an initial full sync of a personal instance needs.
 
 ## TLS
 
