@@ -1,6 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import type { JSX } from "preact";
-import { route, useLoaderData, useNavigate, useSearchParams } from "@neutron-build/core/client";
+import { route, useNavigate } from "@neutron-build/core/client";
 import { count } from "drizzle-orm";
 import { users } from "../data/db/schema.js";
 import { getDb } from "../lib/api/db.js";
@@ -12,22 +12,29 @@ export const config = { mode: "app" };
 
 type AuthTab = "login" | "register";
 
+export interface LoginLoaderData {
+  registrationOpen: boolean;
+  initialTab: AuthTab;
+}
+
 // Mirrors the register API gate: closed only when ALLOW_REGISTRATION=false
-// AND at least one user exists (empty instances stay bootstrap-able).
-export async function loader() {
+// AND at least one user exists (empty instances stay bootstrap-able). The
+// initial tab comes from ?tab=register (the /register redirect target) so
+// SSR and hydration agree; the register tab is only honored while open.
+export async function loader({ request }: { request: Request }): Promise<LoginLoaderData> {
   const db = await getDb();
   const [{ value: userCount }] = await db.select({ value: count() }).from(users);
   const open = process.env.ALLOW_REGISTRATION !== "false" || userCount === 0;
-  return { registrationOpen: open };
+  const wantsRegister = new URL(request.url).searchParams.get("tab") === "register";
+  return { registrationOpen: open, initialTab: open && wantsRegister ? "register" : "login" };
 }
 
-export default function LoginPage() {
-  const { registrationOpen } = useLoaderData<{ registrationOpen: boolean }>();
+export default function LoginPage({ data }: { data?: LoginLoaderData }) {
+  const registrationOpen = data?.registrationOpen ?? true;
   const { status, login, register } = useSession();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
   const [tab, setTab] = useState<AuthTab>(() =>
-    registrationOpen && searchParams.get("tab") === "register" ? "register" : "login",
+    registrationOpen && data?.initialTab === "register" ? "register" : "login",
   );
   const [emailOrUsername, setEmailOrUsername] = useState("");
   const [email, setEmail] = useState("");
