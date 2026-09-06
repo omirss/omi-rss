@@ -92,12 +92,24 @@ async function greaderHandle(fn: () => Promise<Response>): Promise<Response> {
   }
 }
 
+// The dev runtime hands the splat percent-encoded; the production runtime
+// hands it decoded (the router decodes the whole pathname, collapsing one
+// slash of "://"). Decoding here is a no-op in production and repairs dev;
+// feed-id resolution additionally repairs the collapsed-slash form.
+function decodeSplat(raw: string): string {
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
 async function dispatch(
   request: Request,
   params: Record<string, string>,
   context: Record<string, unknown>
 ): Promise<Response> {
-  const path = (params.path ?? "").replace(/^\/+/, "");
+  const path = decodeSplat((params.path ?? "").replace(/^\/+/, ""));
 
   if (path === "accounts/ClientLogin") {
     return handleClientLogin(request);

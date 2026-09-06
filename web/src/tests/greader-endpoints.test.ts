@@ -409,6 +409,25 @@ describe("stream/contents", () => {
     const body = (await response.json()) as Record<string, unknown>;
     expect(body.id).toBe("user/-/label/Tech");
   });
+
+  it("decodes a percent-encoded splat (dev runtime hands it encoded)", async () => {
+    const { db } = makeDb([
+      [{ id: "feed-uuid-1", url: "https://example.com/a.xml" }],
+      [ITEM_ROW],
+    ]);
+    vi.mocked(getDb).mockResolvedValue(db as never);
+    const response = await thrownResponse(
+      loader({
+        request: new Request("http://localhost/api/greader/reader/api/0/stream/contents/feed%2Fhttps%3A%2F%2Fexample.com%2Fa.xml?output=json"),
+        params: { path: "reader/api/0/stream/contents/feed%2Fhttps%3A%2F%2Fexample.com%2Fa.xml" },
+        context,
+      }) as never
+    );
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as Record<string, unknown>;
+    expect(body.id).toBe("feed/https://example.com/a.xml");
+    expect((body.items as unknown[]).length).toBe(1);
+  });
 });
 
 describe("edit-tag", () => {
