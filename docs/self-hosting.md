@@ -35,6 +35,7 @@ defaults); compose wires the connection strings itself:
 | `DATABASE_URL` | PostgreSQL connection string (`postgres://user:pass@host:5432/db`) |
 | `REDIS_URL` | Redis connection string for queue/cache (`redis://host:6379`) |
 | `JWT_SECRET` | HMAC secret for auth tokens — required, no default in production |
+| `ALLOW_REGISTRATION` | `false` blocks new sign-ups once at least one user exists; an empty instance always allows the first registration. Recommended `false` in production after the owner registers (default open) |
 | `PORT` | HTTP port for the UI + API server (default `3000`; compose maps host `8080` to it) |
 | `JWT_EXPIRES_IN` | Access-token expiry, `jwt.sign` `expiresIn` format (default `7d`) |
 | `BCRYPT_ROUNDS` | bcrypt cost factor for password hashing (default `10`) |
@@ -87,7 +88,13 @@ cross-site redirects and cross-site article links.
 
 ## First user
 
-Registration is open by default. Create your account:
+Registration is open by default. Set `ALLOW_REGISTRATION=false` to close
+it — sign-ups are then rejected with 403 **only once at least one user
+exists**, so a fresh instance can always register its first (bootstrap)
+user. The recommended production flow: bring the stack up with
+registration open (or closed — bootstrap still works), register your
+account, then set `ALLOW_REGISTRATION=false` on the `web` service and
+restart. Create the account:
 
 ```bash
 curl -X POST http://localhost:8080/api/auth/register \

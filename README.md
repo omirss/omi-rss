@@ -105,6 +105,7 @@ The server and worker read these from the environment (`web/.env.example` carrie
 | `DATABASE_URL` | PostgreSQL connection string (`postgres://user:pass@host:5432/db`) |
 | `REDIS_URL` | Redis connection string for queue/cache (`redis://host:6379`) |
 | `JWT_SECRET` | HMAC secret for auth tokens — required, no default in production |
+| `ALLOW_REGISTRATION` | `false` blocks new sign-ups once at least one user exists; an empty instance always allows the first registration. Recommended `false` in production after the owner registers (default open) |
 | `PORT` | HTTP port for the UI + API server (default `3000`) |
 | `JWT_EXPIRES_IN` | Access-token expiry, `jwt.sign` `expiresIn` format (default `7d`) |
 | `BCRYPT_ROUNDS` | bcrypt cost factor for password hashing (default `10`) |

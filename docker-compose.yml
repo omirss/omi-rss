@@ -54,6 +54,9 @@ services:
       DATABASE_URL: postgres://omi_rss:${POSTGRES_PASSWORD:-omi_rss}@postgres:5432/omi_rss
       REDIS_URL: redis://redis:6379
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      # false closes registration once the first user exists (recommended
+      # for public instances after you register your own account)
+      ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-true}
       # UPLOAD_DIR: /app/uploads   (default)
       # SMTP_HOST/SMTP_PORT/...: set to enable email delivery
     ports:

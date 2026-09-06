@@ -58,6 +58,9 @@ services:
       DATABASE_URL: postgres://omi_rss:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/omi_rss
       REDIS_URL: redis://redis:6379
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
+      # false closes registration once the first user exists — recommended
+      # for production after you register your own account
+      ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-true}
     ports:
       - "${WEB_PORT:-8080}:3000"
     volumes:

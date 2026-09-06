@@ -1,7 +1,7 @@
 import { z } from "zod";
 import bcrypt from "bcrypt";
 import crypto from "node:crypto";
-import { eq, or } from "drizzle-orm";
+import { count, eq, or } from "drizzle-orm";
 import { users } from "../../../data/db/schema.js";
 import { getDb } from "../../../lib/api/db.js";
 import { AppError, handle, jsonResponse } from "../../../lib/api/errors.js";
@@ -36,6 +36,15 @@ export async function action({ request }: { request: Request }) {
     }
 
     const db = await getDb();
+
+    // ALLOW_REGISTRATION=false closes sign-ups, but an empty instance always
+    // allows the first user (bootstrap) so a fresh deploy is never locked out.
+    if (process.env.ALLOW_REGISTRATION === "false") {
+      const [{ value: userCount }] = await db.select({ value: count() }).from(users);
+      if (userCount > 0) {
+        throw new AppError("Registration is closed", 403);
+      }
+    }
 
     const [existingUser] = await db
       .select()

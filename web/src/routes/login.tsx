@@ -1,6 +1,9 @@
 import { useEffect, useState } from "preact/hooks";
 import type { JSX } from "preact";
-import { route, useNavigate } from "@neutron-build/core/client";
+import { route, useLoaderData, useNavigate, useSearchParams } from "@neutron-build/core/client";
+import { count } from "drizzle-orm";
+import { users } from "../data/db/schema.js";
+import { getDb } from "../lib/api/db.js";
 import { useSession } from "../lib/auth.js";
 import { ApiError } from "../lib/client.js";
 import { AlertIcon, EyeIcon, EyeOffIcon } from "../components/Icons.js";
@@ -9,10 +12,23 @@ export const config = { mode: "app" };
 
 type AuthTab = "login" | "register";
 
+// Mirrors the register API gate: closed only when ALLOW_REGISTRATION=false
+// AND at least one user exists (empty instances stay bootstrap-able).
+export async function loader() {
+  const db = await getDb();
+  const [{ value: userCount }] = await db.select({ value: count() }).from(users);
+  const open = process.env.ALLOW_REGISTRATION !== "false" || userCount === 0;
+  return { registrationOpen: open };
+}
+
 export default function LoginPage() {
+  const { registrationOpen } = useLoaderData<{ registrationOpen: boolean }>();
   const { status, login, register } = useSession();
   const navigate = useNavigate();
-  const [tab, setTab] = useState<AuthTab>("login");
+  const [searchParams] = useSearchParams();
+  const [tab, setTab] = useState<AuthTab>(() =>
+    registrationOpen && searchParams.get("tab") === "register" ? "register" : "login",
+  );
   const [emailOrUsername, setEmailOrUsername] = useState("");
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
@@ -85,28 +101,30 @@ export default function LoginPage() {
           </p>
         </div>
 
-        <div class="segmented" style="align-self: center;">
-          <button
-            type="button"
-            class={`segmented-item${tab === "login" ? " segmented-item-active" : ""}`}
-            onClick={() => {
-              setTab("login");
-              setError(null);
-            }}
-          >
-            Sign in
-          </button>
-          <button
-            type="button"
-            class={`segmented-item${tab === "register" ? " segmented-item-active" : ""}`}
-            onClick={() => {
-              setTab("register");
-              setError(null);
-            }}
-          >
-            Create account
-          </button>
-        </div>
+        {registrationOpen ? (
+          <div class="segmented" style="align-self: center;">
+            <button
+              type="button"
+              class={`segmented-item${tab === "login" ? " segmented-item-active" : ""}`}
+              onClick={() => {
+                setTab("login");
+                setError(null);
+              }}
+            >
+              Sign in
+            </button>
+            <button
+              type="button"
+              class={`segmented-item${tab === "register" ? " segmented-item-active" : ""}`}
+              onClick={() => {
+                setTab("register");
+                setError(null);
+              }}
+            >
+              Create account
+            </button>
+          </div>
+        ) : null}
 
         <form class="auth-form" onSubmit={onSubmit}>
           <div class="auth-form-fields">
@@ -207,19 +225,21 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <div class="auth-footer">
-          {tab === "login" ? "New to Omi RSS? " : "Already have an account? "}
-          <button
-            type="button"
-            class="auth-switch"
-            onClick={() => {
-              setTab(tab === "login" ? "register" : "login");
-              setError(null);
-            }}
-          >
-            {tab === "login" ? "Create an account" : "Sign in"}
-          </button>
-        </div>
+        {registrationOpen ? (
+          <div class="auth-footer">
+            {tab === "login" ? "New to Omi RSS? " : "Already have an account? "}
+            <button
+              type="button"
+              class="auth-switch"
+              onClick={() => {
+                setTab(tab === "login" ? "register" : "login");
+                setError(null);
+              }}
+            >
+              {tab === "login" ? "Create an account" : "Sign in"}
+            </button>
+          </div>
+        ) : null}
       </div>
     </div>
   );
