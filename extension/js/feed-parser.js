@@ -1,15 +1,5 @@
 // Local RSS/Atom/JSON Feed Parser for Browser Extension
 class FeedParser {
-  constructor() {
-    // CORS proxy options (fallback when direct fetch fails)
-    this.corsProxies = [
-      'https://cors-anywhere.herokuapp.com/',
-      'https://api.allorigins.win/raw?url=',
-      'https://cors-proxy.htmldriven.com/?url='
-    ];
-    this.currentProxyIndex = 0;
-  }
-
   // Main parse method - auto-detects feed type
   async parseFeed(url, options = {}) {
     try {
@@ -50,72 +40,31 @@ class FeedParser {
     }
   }
 
-  // Fetch feed with CORS handling
+  // Fetch feed content. Extension contexts with host_permissions fetch
+  // cross-origin without CORS; failures propagate to parseFeed's catch.
   async fetchFeed(url, options = {}) {
-    const { useCorsProxy = true, timeout = 30000 } = options;
-    
+    const { timeout = 30000 } = options;
+
     // Create abort controller for timeout
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
-    
+
     try {
-      // First try direct fetch
       const response = await fetch(url, {
         signal: controller.signal,
         headers: {
           'Accept': 'application/rss+xml, application/atom+xml, application/json, text/xml, */*'
         }
       });
-      
-      clearTimeout(timeoutId);
-      
+
       if (response.ok) {
         return response;
       }
-      
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    } catch (error) {
-      clearTimeout(timeoutId);
-      
-      // If CORS error and proxy enabled, try with proxy
-      if (useCorsProxy && (error.name === 'TypeError' || error.message.includes('CORS'))) {
-        return this.fetchWithProxy(url, options);
-      }
-      
-      throw error;
-    }
-  }
 
-  // Fetch using CORS proxy
-  async fetchWithProxy(url, options = {}) {
-    const { timeout = 30000 } = options;
-    
-    for (let i = 0; i < this.corsProxies.length; i++) {
-      const proxyUrl = this.corsProxies[this.currentProxyIndex] + encodeURIComponent(url);
-      this.currentProxyIndex = (this.currentProxyIndex + 1) % this.corsProxies.length;
-      
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), timeout);
-        
-        const response = await fetch(proxyUrl, {
-          signal: controller.signal,
-          headers: {
-            'Accept': 'application/rss+xml, application/atom+xml, application/json, text/xml, */*'
-          }
-        });
-        
-        clearTimeout(timeoutId);
-        
-        if (response.ok) {
-          return response;
-        }
-      } catch (error) {
-        console.warn(`Proxy ${i + 1} failed:`, error.message);
-      }
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    } finally {
+      clearTimeout(timeoutId);
     }
-    
-    throw new Error('All CORS proxies failed. Please check the feed URL or try again later.');
   }
 
   // Parse XML feeds (RSS/Atom)
@@ -602,8 +551,8 @@ class FeedParser {
         }
       }
       
-      // Use Google's favicon service as fallback
-      return `https://www.google.com/s2/favicons?domain=${url.hostname}&sz=32`;
+      // HEAD can fail (e.g. 405) while GET works; fall back to the origin
+      return `${url.origin}/favicon.ico`;
     } catch (error) {
       return null;
     }
