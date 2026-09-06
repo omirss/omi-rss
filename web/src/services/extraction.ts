@@ -18,7 +18,7 @@ import { findExtractionRules } from "./extraction-rules.js";
 // Resilience patterns (retry codes, per-URL memoization, keep-last-good,
 // single-flight) adapted from RSSHub (MIT).
 
-const EXTRACT_USER_AGENT = "omi-rss/0.4.1 (+https://omirss.com)";
+const EXTRACT_USER_AGENT = "omi-rss/0.6.0 (+https://omirss.com)";
 const FETCH_TIMEOUT_MS = 10000;
 const MAX_REDIRECT_HOPS = 3;
 const MAX_BODY_BYTES = 2 * 1024 * 1024;

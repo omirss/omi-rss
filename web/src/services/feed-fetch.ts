@@ -16,7 +16,7 @@ import { sameSiteHost } from "./site-host.js";
 // tagged TRANSIENT_FEED_URL_CODE (retryable); scheme and blocked-range
 // failures are untagged (terminal validation failures).
 
-const FEED_USER_AGENT = "omi-rss/0.4.1 (+https://omirss.com)";
+const FEED_USER_AGENT = "omi-rss/0.6.0 (+https://omirss.com)";
 const FEED_TIMEOUT_MS = 15000;
 const FEED_RETRY_DELAYS_MS = [1000, 3000];
 const FEED_RATE_LIMIT_RETRY_DELAY_MS = 10000;

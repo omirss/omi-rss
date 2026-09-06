@@ -7,12 +7,30 @@
 // headers (frame-options, referrer-policy, CSP) into streamFile() so static
 // responses match the middleware's set. Keep the CSP in sync with
 // src/lib/api/security-headers.ts (which pins the theme-boot script hash).
+// It also adds the .webmanifest -> text/manifest+json mapping the adapter's
+// built-in MIME table lacks.
 
 import { readFileSync, writeFileSync } from "node:fs";
 
 const FILE = new URL("../dist/server.mjs", import.meta.url);
 
 const source = readFileSync(FILE, "utf-8");
+
+let patched = source;
+
+// manifest.webmanifest must serve as a manifest type, not the
+// application/octet-stream fallback (installability depends on it).
+const MIME_ANCHOR = `const MIME_TYPES = {`;
+const MIME_INJECT = `const MIME_TYPES = {
+  ".webmanifest": "text/manifest+json",`;
+
+if (!source.includes(".webmanifest")) {
+  if (!source.includes(MIME_ANCHOR)) {
+    console.error("patch-docker-server: MIME_TYPES anchor not found — adapter template changed?");
+    process.exit(1);
+  }
+  patched = patched.replace(MIME_ANCHOR, MIME_INJECT);
+}
 
 const ANCHOR = `  res.setHeader("X-Content-Type-Options", "nosniff");`;
 
@@ -31,15 +49,18 @@ const INJECT = `  res.setHeader("X-Content-Type-Options", "nosniff");
     ].join("; ")
   );`;
 
-if (!source.includes(ANCHOR)) {
-  console.error("patch-docker-server: anchor line not found — adapter template changed?");
-  process.exit(1);
+if (!source.includes("X-Frame-Options")) {
+  if (!source.includes(ANCHOR)) {
+    console.error("patch-docker-server: anchor line not found — adapter template changed?");
+    process.exit(1);
+  }
+  patched = patched.replace(ANCHOR, INJECT);
 }
 
-if (source.includes("X-Frame-Options")) {
+if (patched === source) {
   console.log("patch-docker-server: already patched");
   process.exit(0);
 }
 
-writeFileSync(FILE, source.replace(ANCHOR, INJECT), "utf-8");
-console.log("patch-docker-server: security headers injected into static file path");
+writeFileSync(FILE, patched, "utf-8");
+console.log("patch-docker-server: security headers and webmanifest mime injected into static file path");
