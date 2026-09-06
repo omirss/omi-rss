@@ -18,7 +18,7 @@ Databases: from the repo root, `podman compose -f compose.dev.yml up -d`
 (or the `docker compose` equivalent) starts PostgreSQL 16 on `localhost:5433`
 and Redis 7 on `localhost:6380` — exactly what `.env.example` defaults to.
 
-The worker registers the crons (feed refresh every 5 min, analytics hourly, cleanup nightly) and consumes the same queue the API enqueues into.
+The worker registers the crons (feed refresh every 5 min, full-text extraction on a dedicated queue, page-feed monitoring with conditional GET, analytics hourly, cleanup nightly) and consumes the same queues the API enqueues into. Per-feed HTTP headers (bring-your-own-subscription cookies) ride along on feed, extraction, and page fetches — same-origin only.
 
 ## Production
 
