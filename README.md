@@ -5,7 +5,7 @@ A cross-platform RSS reader — a web app, a browser extension, and a frozen Flu
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Neutron](https://img.shields.io/badge/web-Neutron-8b5cf6)
 ![Node](https://img.shields.io/badge/backend-Node.js-339933)
-![Status](https://img.shields.io/badge/status-v0.6.0-blue)
+![Status](https://img.shields.io/badge/status-v0.6.1-blue)
 
 **Website:** <https://omirss.com>
 
@@ -125,7 +125,7 @@ Compose additionally supports `WEB_PORT` (host port for `web`, default `8080`), 
 
 ## Status
 
-v0.6.0 — greader-compatible API (mobile via NetNewsWire, FeedMe, FocusReader), PWA install, registration gate with first-user bootstrap, privacy hardening (no Google favicon service, extension CORS proxies removed, reader overlay sanitized), SSRF guard covers IPv4-mapped IPv6, all production dependency advisories cleared, CI builds the client bundle. See [PLAN.md](PLAN.md) for phase history. The marketing site is live at <https://omirss.com> (its source lives in a separate private repository).
+v0.6.1 — everything in v0.6.0 plus: instant discover catalog, optional email at signup (username+password works), verified-optional SMTP email flows, folder drag-and-drop, higher per-user rate budget. See [PLAN.md](PLAN.md) for phase history. The marketing site is live at <https://omirss.com> (its source lives in a separate private repository).
 
 ## License
 

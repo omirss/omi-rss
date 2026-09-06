@@ -39,14 +39,31 @@ discovery provider drops in later without touching the reader core.
 **Nothing in Webroll adds requirements to omi-rss v0.2.** It is referenced
 here so its existence is deliberate, not forgotten.
 
-## Current state (v0.6.0)
+## Current state (v0.6.1)
 
 Shipped and deployed: reader core, full-stack Neutron app, full-text
 extraction, page feeds, BYO subscriptions, archive fallback, one visual
-identity, greader-compatible API, PWA manifest, registration gate,
-privacy hardening (local favicons, no extension proxies), dependency
-advisories cleared, deployed to infra-home via teploy. Remaining: store
-submissions (owner-manual), marketing site refresh, polish backlog.
+identity, greader-compatible API, PWA manifest, registration gate with
+optional email (username+password signup), privacy hardening, dependency
+advisories cleared, verified-optional SMTP email flows, instant discover
+catalog. Remaining: store submissions (owner-manual), GHCR image
+(auto-publishes per tag).
+
+## v0.6.1 — R7 polish + verified email flows (2026-09-06)
+
+- Discover catalog serves instantly (0.06s cold, was ~40s): curated data
+  first, background enrichment via worker warm + 6h cron
+- Email optional at registration (username+password signup); PATCH
+  /api/users/me accepts email so no-email accounts can enable self-reset;
+  anti-enumeration verified for the no-email reset path
+- SMTP verified end to end against a local mailpit (verify-email,
+  forgot/reset, degraded-when-unconfigured); compose now passes SMTP_* to
+  the worker (was silently never delivered); FRONTEND_URL fallback fixes
+  undefined links
+- Per-user web rate budget 300/15min; folder drag-and-drop reorder;
+  toCount string-coercion leftover removed; dedicated reader route
+  decided NO (modal + PWA covers)
+- GHCR publish workflow on version tags (ghcr.io/omirss/omi-rss)
 
 ## v0.6.0 — greader API, PWA, public hardening (2026-09-06)
 
