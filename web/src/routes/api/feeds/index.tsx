@@ -8,6 +8,7 @@ import { readJsonBody } from "../../../lib/api/body.js";
 import { requireAuth } from "../../../lib/api/auth.js";
 import { getDataRuntime } from "../../../data/runtime.js";
 import { fetchFeedXml } from "../../../services/feed-fetch.js";
+import { faviconUrlFor } from "../../../lib/favicon.js";
 
 export const config = { mode: "app" };
 
@@ -118,7 +119,7 @@ export async function action({ request, context }: { request: Request; context: 
         folderId: data.folderId,
         updateInterval: data.updateInterval || 30,
         fullTextEnabled: data.fullTextEnabled ?? false,
-        favicon: await extractFavicon(feedData.link),
+        favicon: faviconUrlFor(feedData.link),
       })
       .returning();
 
@@ -131,15 +132,4 @@ export async function action({ request, context }: { request: Request; context: 
 
     return jsonResponse({ feed: newFeed }, 201);
   });
-}
-
-async function extractFavicon(siteUrl?: string): Promise<string | null> {
-  if (!siteUrl) return null;
-
-  try {
-    const url = new URL(siteUrl);
-    return `https://www.google.com/s2/favicons?domain=${url.hostname}&sz=64`;
-  } catch {
-    return null;
-  }
 }

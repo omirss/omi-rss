@@ -6,6 +6,7 @@ import { readJsonBody } from "../../../lib/api/body.js";
 import { requireAuth } from "../../../lib/api/auth.js";
 import { getDataRuntime } from "../../../data/runtime.js";
 import { validatePageFeedInput, verifyPageSelector } from "../../../services/page-feed.js";
+import { faviconUrlFor } from "../../../lib/favicon.js";
 
 export const config = { mode: "app" };
 
@@ -59,7 +60,7 @@ export async function action({ request, context }: { request: Request; context: 
         sourceType: "page",
         pageUrl: input.pageUrl,
         pageSelector: input.pageSelector,
-        favicon: `https://www.google.com/s2/favicons?domain=${hostname}&sz=64`,
+        favicon: faviconUrlFor(input.pageUrl),
       })
       .returning();
 

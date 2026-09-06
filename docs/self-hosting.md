@@ -162,3 +162,14 @@ docker compose -f docker-compose.prod.yml up -d
 
 Schema migrations apply automatically when the `web` service boots. Data
 volumes persist across rebuilds.
+
+v0.6.0 note: favicons are now derived from each feed's own origin
+(`<origin>/favicon.ico`) instead of Google's favicon service. Existing
+feeds keep their stored Google URLs until refreshed; to drop them
+immediately, run this one-off SQL and let the UI fall back to origin
+favicons:
+
+```bash
+docker exec omirss_postgres psql -U omi_rss omi_rss \
+  -c "UPDATE feeds SET favicon = NULL WHERE favicon LIKE 'https://www.google.com/s2/favicons%'"
+```

@@ -12,6 +12,7 @@ import {
 import { signGreaderAuthToken, signGreaderPostToken } from "../api/tokens.js";
 import { getDataRuntime } from "../../data/runtime.js";
 import { fetchFeedXml } from "../../services/feed-fetch.js";
+import { faviconUrlFor } from "../favicon.js";
 import { verifyGreaderPostToken, type GreaderUser } from "./auth.js";
 import {
   greaderJsonResponse,
@@ -645,16 +646,6 @@ async function handleMarkAllRead(request: Request, context: Record<string, unkno
 // Subscription mutations
 // ---------------------------------------------------------------------------
 
-async function extractFavicon(siteUrl?: string): Promise<string | null> {
-  if (!siteUrl) return null;
-  try {
-    const url = new URL(siteUrl);
-    return `https://www.google.com/s2/favicons?domain=${url.hostname}&sz=64`;
-  } catch {
-    return null;
-  }
-}
-
 // The POST /api/feeds subscribe path: SSRF-guarded fetch (assertSafeFeedUrl
 // runs inside fetchFeedXml), rss-parser, per-user dup check, insert, enqueue
 // the worker backfill. quickadd carries no BYO headers, so there is nothing
@@ -694,7 +685,7 @@ async function subscribeFeed(
       imageUrl: typeof feedImage === "string" ? feedImage : feedImage?.url,
       customTitle: customTitle || undefined,
       folderId: folderId ?? undefined,
-      favicon: await extractFavicon(feedData.link),
+      favicon: faviconUrlFor(feedData.link),
     })
     .returning();
 
