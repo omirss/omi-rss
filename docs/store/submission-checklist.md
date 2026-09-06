@@ -35,8 +35,7 @@ neutral background; no content was stretched.
    cws-listing.md; answer the data-usage declarations exactly as listed
    (no sale, no ads, no analytics; auth info + website content only, local /
    user's own server).
-5. If asked for a privacy policy URL: publish the privacy section on the
-   project site first, then link it (currently a gap — see below).
+5. Privacy policy URL: https://omirss.com/privacy (live — paste in both dashboards).
 6. Distribution: Public. Regions: all.
 7. Submit for review. Broad host permissions (<all_urls>) mean a human review;
    expect several days and a possible request for a demo video or
@@ -63,9 +62,7 @@ neutral background; no content was stretched.
 
 ## Known gaps (decide before submitting)
 
-- Privacy policy URL: neither store has a hosted policy page yet. Publish the
-  privacy section of cws-listing.md on the project site (or a static page) and
-  paste the URL in both dashboards.
+- Privacy policy URL: resolved — https://omirss.com/privacy is live.
 - Promo tile 440x280 (CWS, optional).
 - No demo video prepared; only needed if a reviewer requests one.
 
