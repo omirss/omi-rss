@@ -602,7 +602,13 @@ body {
   bottom: 0;
   background: var(--gradient-glow);
   opacity: 0;
+  pointer-events: none;
   transition: opacity var(--transition-smooth);
+}
+
+.article-actions {
+  position: relative;
+  z-index: 1;
 }
 
 .article-item:hover {

@@ -1,6 +1,7 @@
 import { lookup } from "node:dns/promises";
 import { AppError } from "../lib/api/errors.js";
 import { ipVersion, isBlockedOutboundAddress, normalizeIp } from "../lib/api/ip.js";
+import { sameSiteHost } from "./site-host.js";
 
 // Ported from Express services/feedFetch.ts (v0.2.1): same User-Agent,
 // timeouts, retry delays and backoff semantics.
@@ -97,16 +98,11 @@ interface FeedHttpResponse {
 }
 
 // Custom headers (bring-your-own-subscription) survive a redirect hop only
-// while the destination stays on the ORIGINAL request's host: cookies and
-// authorization are origin-scoped, so a cross-origin hop drops them instead
-// of leaking the owner's credentials to whoever the feed redirects to.
-function sameHostRedirect(fromUrl: string, toUrl: string): boolean {
-  try {
-    return new URL(fromUrl).hostname.toLowerCase() === new URL(toUrl).hostname.toLowerCase();
-  } catch {
-    return false;
-  }
-}
+// while the destination stays on the original request's site
+// (sameSiteHost: naive registrable-domain match, exact for IP literals):
+// cookies and authorization are site-scoped, so a cross-site hop drops
+// them instead of leaking the owner's credentials to whoever the feed
+// redirects to.
 
 // Resolves a redirect hop to an absolute URL and re-validates it through the
 // same assert — exported for unit tests.
@@ -149,7 +145,7 @@ async function fetchFeedOnce(url: string, customHeaders?: Record<string, string>
           throw unsafeFeedUrl(url, `exceeded ${FEED_MAX_REDIRECT_HOPS} redirect hops`);
         }
         const nextUrl = await assertRedirectLocation(currentUrl, location);
-        if (currentCustomHeaders && !sameHostRedirect(url, nextUrl)) {
+        if (currentCustomHeaders && !sameSiteHost(url, nextUrl)) {
           currentCustomHeaders = undefined;
         }
         currentUrl = nextUrl;

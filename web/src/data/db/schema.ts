@@ -120,6 +120,10 @@ export const articles = pgTable("articles", {
   index("articles_feed_idx").on(table.feedId),
   uniqueIndex("articles_guid_idx").on(table.feedId, table.guid),
   index("articles_published_idx").on(table.publishedAt),
+  // Backs the extraction-stats window (feed_id + created_at DESC LIMIT 200)
+  // and the extraction backfill scan — without it both are seq scans on
+  // large feeds.
+  index("articles_feed_created_idx").on(table.feedId, table.createdAt.desc()),
 ]);
 
 export const userArticleStates = pgTable("user_article_states", {

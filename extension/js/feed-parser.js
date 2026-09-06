@@ -484,20 +484,29 @@ class FeedParser {
         item.publishedAt = new Date().toISOString();
       }
       
-      // Clean and limit description
-      if (item.description) {
-        item.description = this.stripHtml(item.description).substring(0, 500);
-      } else if (item.summary) {
-        item.description = this.stripHtml(item.summary).substring(0, 500);
-      } else if (item.content) {
-        item.description = this.stripHtml(item.content).substring(0, 500);
+      // Description stays HTML like content: rendering goes through the
+      // same sanitizer walker. Backfill it from summary/content when the
+      // feed only provides those, and derive a plain-text excerpt for cards.
+      if (!item.description) {
+        item.description = item.summary || item.content || '';
       }
-      
+
+      // Resolve relative img srcs against the feed URL FIRST: any later
+      // parse of the HTML (stripHtml below builds a detached innerHTML -
+      // Chrome still fetches its imgs) must hit the feed origin, never the
+      // chrome-extension:// page origin
+      item.content = this.resolveImgSrcs(item.content, feed.url);
+      item.description = this.resolveImgSrcs(item.description, feed.url);
+
+      item.excerpt = this.stripHtml(item.description || item.summary || item.content || '')
+        .substring(0, 500);
+
       // Extract first image if no thumbnail
-      if (!item.thumbnail && !item.image && item.content) {
-        const imgMatch = item.content.match(/<img[^>]+src=["']([^"']+)["']/i);
+      if (!item.thumbnail && !item.image) {
+        const imgHtml = item.content || item.description;
+        const imgMatch = imgHtml && imgHtml.match(/<img[^>]+src=["']([^"']+)["']/i);
         if (imgMatch) {
-          item.thumbnail = imgMatch[1];
+          item.thumbnail = this.resolveUrl(imgMatch[1], feed.url);
         }
       }
       
@@ -533,6 +542,23 @@ class FeedParser {
       .replace(/&gt;/g, '>')
       .replace(/\s+/g, ' ')
       .trim();
+  }
+
+  // Resolve a possibly-relative URL against a base URL
+  resolveUrl(src, baseUrl) {
+    try {
+      return new URL(src, baseUrl).toString();
+    } catch (error) {
+      return src;
+    }
+  }
+
+  // Resolve every <img src> in an HTML string against a base URL
+  resolveImgSrcs(html, baseUrl) {
+    if (!html) return html;
+    return html.replace(/(<img[^>]+src=["'])([^"']+)(["'])/gi, (match, pre, src, post) =>
+      pre + this.resolveUrl(src, baseUrl) + post
+    );
   }
 
   // Test feed URL without fully parsing

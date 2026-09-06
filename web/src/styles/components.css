@@ -492,18 +492,6 @@ button.chip:hover {
   width: 100%;
 }
 
-.page-header {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-md);
-  flex-wrap: wrap;
-}
-
-.page-title {
-  font: var(--t-display-sm);
-  color: var(--c-text-high);
-}
-
 .page-subtitle {
   font: var(--t-body);
   color: var(--c-text-medium);

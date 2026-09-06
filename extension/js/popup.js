@@ -325,6 +325,10 @@ async function handleDetectFeeds() {
     
     if (response.hasFeeds) {
       showFeedModal(response.feeds);
+    } else if (response.noInjectablePage) {
+      // No http(s) page is focused (e.g. the pop-out popup window itself) -
+      // say so instead of showing an empty modal
+      showFeedModalMessage('Pick a web page first');
     } else {
       // Try common feed URLs
       showFeedModal(response.suggestions.map(url => ({
@@ -1036,6 +1040,17 @@ async function showFeedModal(detectedFeeds) {
     });
   });
   
+  modal.style.display = 'flex';
+}
+
+// Show the subscribe modal with a message instead of a feed list
+// (manual URL entry in the modal still works)
+function showFeedModalMessage(message) {
+  const modal = document.getElementById('feed-modal');
+  const feedsContainer = document.getElementById('detected-feeds');
+
+  feedsContainer.innerHTML = `<div class="detected-feed-message">${escapeHtml(message)}</div>`;
+
   modal.style.display = 'flex';
 }
 

@@ -433,22 +433,22 @@ function extractArticleFromPage() {
 // in the last focused window (not just any active tab - devtools and
 // background windows can hold an "active" tab in their own window and must
 // never receive injections meant for what the user is looking at).
-// Extension pages (pop-out popup, sidepanel in a tab) report themselves as
-// sender.tab but cannot be script-injected, so they also fall back — and the
-// fallback must itself skip non-injectable tabs (the pop-out can be focused).
+// Only http(s) tabs are injectable: a non-http(s) sender tab (the pop-out
+// popup window, a sidepanel opened in a tab) falls back the same way, and
+// when nothing injectable is focused null is returned so callers can say so
+// instead of erroring against a protected page.
 async function getTargetTab(tab) {
-  if (tab && tab.url && !tab.url.startsWith('chrome-extension://')) return tab;
+  if (tab && tab.url && /^https?:\/\//.test(tab.url)) return tab;
   const candidates = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-  const injectable = candidates.filter(
+  return candidates.find(
     (candidate) => candidate.url && /^https?:\/\//.test(candidate.url),
-  );
-  return injectable[0] || candidates[0];
+  ) || null;
 }
 
 // Check if current page has RSS/Atom feeds
 async function checkForFeed(tab) {
   if (!tab) {
-    return { hasFeeds: false, feeds: [], suggestions: [] };
+    return { hasFeeds: false, feeds: [], suggestions: [], noInjectablePage: true };
   }
 
   try {

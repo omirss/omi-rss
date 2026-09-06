@@ -5,6 +5,7 @@ import sanitizeHtml from "sanitize-html";
 import { AppError } from "../lib/api/errors.js";
 import { assertSafeFeedUrl, assertRedirectLocation } from "./feed-fetch.js";
 import { withHostGate } from "./host-gate.js";
+import { sameSiteHost } from "./site-host.js";
 import { findExtractionRules } from "./extraction-rules.js";
 
 // v0.4.0 extraction engine. Pipeline (normative, from the v0.4 spike):
@@ -236,14 +237,6 @@ function safeHostname(url: string): string | null {
     return new URL(url).hostname;
   } catch {
     return null;
-  }
-}
-
-function sameHostRedirect(fromUrl: string, toUrl: string): boolean {
-  try {
-    return new URL(fromUrl).hostname.toLowerCase() === new URL(toUrl).hostname.toLowerCase();
-  } catch {
-    return false;
   }
 }
 
@@ -528,8 +521,9 @@ async function fetchDocumentWithRedirects(
 ): Promise<FetchedDocument> {
   let currentUrl = url;
   // Bring-your-own-subscription headers survive redirect hops only while
-  // the destination stays on the ORIGINAL request's host — cookies and
-  // authorization are origin-scoped, so a cross-origin hop drops them
+  // the destination stays on the ORIGINAL request's site (sameSiteHost:
+  // naive registrable-domain match, exact for IP literals) — cookies and
+  // authorization are site-scoped, so a cross-site hop drops them
   // instead of leaking the owner's credentials to the redirect target.
   let currentCustomHeaders = customHeaders;
 
@@ -555,7 +549,7 @@ async function fetchDocumentWithRedirects(
         throw new AppError(`Blocked feed URL (exceeded ${MAX_REDIRECT_HOPS} redirect hops): ${url}`, 400);
       }
       const nextUrl = await assertRedirectLocation(currentUrl, location);
-      if (currentCustomHeaders && !sameHostRedirect(url, nextUrl)) {
+      if (currentCustomHeaders && !sameSiteHost(url, nextUrl)) {
         currentCustomHeaders = undefined;
       }
       currentUrl = nextUrl;

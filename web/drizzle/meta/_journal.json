@@ -36,6 +36,13 @@
       "when": 1788648512468,
       "tag": "0004_productive_punisher",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1788660758245,
+      "tag": "0005_jittery_thundra",
+      "breakpoints": true
     }
   ]
 }

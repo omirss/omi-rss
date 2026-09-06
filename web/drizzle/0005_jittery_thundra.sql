@@ -1,0 +1,1 @@
+CREATE INDEX "articles_feed_created_idx" ON "articles" USING btree ("feed_id","created_at" DESC NULLS LAST);

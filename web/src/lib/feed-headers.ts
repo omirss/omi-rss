@@ -71,8 +71,8 @@ export function validateHttpHeaders(input: unknown): HttpHeadersValidation {
     if (typeof rawValue !== "string") {
       return { ok: false, error: `Header ${name} must have a string value` };
     }
-    if (/[\r\n]/.test(rawValue)) {
-      return { ok: false, error: `Header ${name} value must not contain line breaks` };
+    if (/[\u0000-\u001f\u007f]/.test(rawValue)) {
+      return { ok: false, error: `Header ${name} value must not contain control characters` };
     }
     if (rawValue.length > HTTP_HEADER_VALUE_MAX) {
       return { ok: false, error: `Header ${name} exceeds ${HTTP_HEADER_VALUE_MAX} characters` };

@@ -104,7 +104,25 @@ describe("validateHttpHeaders size caps", () => {
   it("rejects CRLF header injection in values", () => {
     const result = validateHttpHeaders({ Cookie: "a=1\r\nHost: evil.example" });
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toContain("line breaks");
+    if (!result.ok) expect(result.error).toContain("control characters");
+  });
+
+  it("rejects NUL and other C0 control characters in values", () => {
+    for (const value of ["a=1\u0000b", "a=1\u0001b", "a=1\u0007b", "a=1\u000bb", "a=1\tb", "a=1\u001fb"]) {
+      const result = validateHttpHeaders({ Cookie: value });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error).toContain("control characters");
+    }
+  });
+
+  it("rejects DEL (0x7f) in values", () => {
+    const result = validateHttpHeaders({ Cookie: "a=1\u007fb" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain("control characters");
+  });
+
+  it("accepts non-ASCII text in values", () => {
+    expect(validateHttpHeaders({ "Accept-Language": "français, 中文" }).ok).toBe(true);
   });
 
   it("rejects non-token header names", () => {

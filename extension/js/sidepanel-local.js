@@ -237,6 +237,7 @@ function renderArticles() {
   
   elements.articlesContainer.innerHTML = articles.map(article => {
     const feed = state.feeds.find(f => f.id === article.feedId);
+    const excerpt = article.summary || article.excerpt || '';
     return `
       <article class="article-item ${article.isRead ? 'read' : 'unread'}" data-article-id="${article.id}">
         ${article.image ? '<div class="article-image"></div>' : ''}
@@ -247,7 +248,7 @@ function renderArticles() {
             <span class="article-time">${formatTime(article.publishedAt)}</span>
             ${article.author ? `<span class="article-author">by ${escapeHtml(article.author)}</span>` : ''}
           </div>
-          ${article.summary ? `<p class="article-excerpt">${escapeHtml(article.summary)}</p>` : ''}
+          ${excerpt ? `<p class="article-excerpt">${escapeHtml(excerpt)}</p>` : ''}
           <div class="article-actions">
             <button class="glass-action-btn" data-action="toggle-read" title="${article.isRead ? 'Mark as unread' : 'Mark as read'}">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="${article.isRead ? 'currentColor' : 'none'}" stroke="currentColor">
@@ -330,7 +331,7 @@ async function openArticle(article) {
   elements.articleReader.style.display = 'block';
   
   // Check if we need to fetch full content
-  let content = article.content || article.summary;
+  let content = article.content || article.description || article.summary;
   if (!content && article.url) {
     // Try to extract full content
     try {
@@ -688,6 +689,7 @@ async function toggleArticleStar(articleId) {
   await storageService.updateArticle(article.id, { isStarred: article.isStarred });
 
   renderArticles();
+  updateCounts();
   showNotification(article.isStarred ? 'Article starred' : 'Article unstarred');
 }
 

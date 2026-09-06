@@ -181,10 +181,6 @@
   border-top: var(--hairline) solid var(--c-divider);
 }
 
-.folder-row-disabled {
-  opacity: var(--op-medium);
-}
-
 .folder-color-dot {
   width: 10px;
   height: 10px;

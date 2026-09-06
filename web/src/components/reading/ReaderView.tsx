@@ -22,23 +22,48 @@ interface ActiveRead {
   articleId: string;
   startedAt: number;
   maxScroll: number;
+  contentFitsViewport: boolean;
 }
 
 // Fire-and-forget analytics: at most one article-read post per article per
 // page session, no matter how often it is opened or re-visited.
 const trackedArticleIds = new Set<string>();
 
+const SCROLL_COMPLETION_THRESHOLD = 90;
+export const VIEWPORT_FIT_EPSILON_PX = 2;
+
+export interface ArticleReadMetrics {
+  maxScroll: number;
+  contentFitsViewport: boolean;
+  startedAt: number;
+}
+
+export interface ArticleReadPayload {
+  scrollDepth: number;
+  interactionTime: number;
+  completed: boolean;
+}
+
+// Payload for trackArticleRead. Short articles that fit the reader
+// viewport never fire scroll events (maxScroll stays 0), so a measured
+// viewport fit counts as a full read: scrollDepth 100, completed true.
+export function articleReadPayload(read: ArticleReadMetrics, now: number = Date.now()): ArticleReadPayload {
+  const completed = read.contentFitsViewport || read.maxScroll >= SCROLL_COMPLETION_THRESHOLD;
+  const scrollDepth = read.contentFitsViewport
+    ? 100
+    : Math.round(Math.min(100, Math.max(0, read.maxScroll)));
+  return {
+    scrollDepth,
+    interactionTime: Math.max(1, Math.round((now - read.startedAt) / 1000)),
+    completed,
+  };
+}
+
 function flushReadTracking(active: ActiveRead | null): void {
   if (!active || trackedArticleIds.has(active.articleId)) return;
   trackedArticleIds.add(active.articleId);
-  const interactionTime = Math.max(1, Math.round((Date.now() - active.startedAt) / 1000));
   analyticsApi
-    .trackArticleRead({
-      articleId: active.articleId,
-      scrollDepth: Math.round(Math.min(100, Math.max(0, active.maxScroll))),
-      interactionTime,
-      completed: active.maxScroll >= 90,
-    })
+    .trackArticleRead({ articleId: active.articleId, ...articleReadPayload(active) })
     .catch(() => undefined);
 }
 
@@ -84,7 +109,9 @@ export function ReaderView({
     if (previous && previous.articleId !== articleId) {
       flushReadTracking(previous);
     }
-    activeReadRef.current = articleId ? { articleId, startedAt: Date.now(), maxScroll: 0 } : null;
+    activeReadRef.current = articleId
+      ? { articleId, startedAt: Date.now(), maxScroll: 0, contentFitsViewport: false }
+      : null;
   }, [articleId]);
 
   // Final flush when the reader closes.
@@ -131,6 +158,18 @@ export function ReaderView({
     const raw = detail?.contentExtracted || article?.content || article?.summary || "";
     return sanitizeArticleHtml(raw);
   }, [articleId, detail]);
+
+  // Viewport-fit snapshot for the active read: an article whose content
+  // does not overflow the scroll container can never produce scroll
+  // events, so completion is decided from this measurement at flush time.
+  // Re-measured whenever the rendered content changes height (list
+  // fallback -> fetched detail).
+  useEffect(() => {
+    const el = scrollRef.current;
+    const active = activeReadRef.current;
+    if (!el || !active || active.articleId !== articleId) return;
+    active.contentFitsViewport = el.scrollHeight <= el.clientHeight + VIEWPORT_FIT_EPSILON_PX;
+  }, [articleId, bodyHtml]);
 
   const minutes = estimateReadMinutes(detail?.contentExtracted || article?.content || article?.summary);
 

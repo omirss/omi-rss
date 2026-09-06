@@ -9,6 +9,7 @@ import { validateAuthBootEnv } from "./lib/api/tokens.js";
 import { feeds, articles, userArticleStates, readingStats, notifications } from "./data/db/schema.js";
 import { assertSafeFeedUrl, fetchFeedXml, isTransientFeedUrlError } from "./services/feed-fetch.js";
 import { withHostGate } from "./services/host-gate.js";
+import { sameSiteHost } from "./services/site-host.js";
 import { decodeBody, extractArticle, fetchDocument } from "./services/extraction.js";
 import { runPageFeedUpdate, type PageFeedStore } from "./services/page-feed.js";
 import { initializeEmailService, isEmailConfigured, sendEmail } from "./services/email.js";
@@ -155,9 +156,9 @@ export async function processExtractArticle(articleId: string): Promise<{ articl
   const db = await getDb();
 
   // Single query: article fields plus the feed's bring-your-own-subscription
-  // headers (join, no second roundtrip).
+  // headers and URL (join, no second roundtrip).
   const [article] = await db
-    .select({ id: articles.id, url: articles.url, contentExtracted: articles.contentExtracted, httpHeaders: feeds.httpHeaders })
+    .select({ id: articles.id, url: articles.url, contentExtracted: articles.contentExtracted, httpHeaders: feeds.httpHeaders, feedUrl: feeds.url })
     .from(articles)
     .innerJoin(feeds, eq(articles.feedId, feeds.id))
     .where(eq(articles.id, articleId))
@@ -193,7 +194,16 @@ export async function processExtractArticle(articleId: string): Promise<{ articl
   }
 
   try {
-    const doc = await fetchDocument(url, undefined, article!.httpHeaders ?? undefined);
+    // Bring-your-own-subscription headers only ride the article fetch when
+    // the article URL is on the feed's own site (sameSiteHost: naive
+    // registrable-domain match, exact for IP literals) — item links can
+    // point anywhere and must never receive the owner's cookies or
+    // authorization.
+    const articleHeaders =
+      article!.httpHeaders && sameSiteHost(article!.feedUrl, url)
+        ? article!.httpHeaders
+        : undefined;
+    const doc = await fetchDocument(url, undefined, articleHeaders);
     if (doc.status !== 200 || !doc.body) {
       await storeExtraction(db, articleId, "");
       return { articleId, status: `http-${doc.status}` };

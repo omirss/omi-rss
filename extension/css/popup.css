@@ -1007,6 +1007,7 @@ body {
   bottom: 0;
   background: var(--gradient-glow);
   opacity: 0;
+  pointer-events: none;
   transition: opacity var(--transition-smooth);
 }
 
@@ -1562,6 +1563,12 @@ body {
 
 .detected-feed .btn {
   width: 100%;
+}
+
+.detected-feed-message {
+  padding: var(--sp-md);
+  font-size: 13px;
+  color: var(--text-secondary);
 }
 
 /* Manual add-by-URL row + full-text toggle in the subscribe modal */
