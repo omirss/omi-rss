@@ -212,9 +212,15 @@ scoped:
   consumed, not replaced (any RSSHub URL works as a feed source); rebuilding
   its thousands of community routes means inheriting the maintenance
   treadmill without the community.
-- **greader-compatible API** (the protocol FreshRSS exposes that makes
-  Reeder-class mobile clients work) — evaluate in v1.x; it is a spec, not
-  code to port.
+- **greader-compatible API — NOW THE MOBILE STRATEGY (decided 2026-09-05).**
+  The protocol FreshRSS exposes; the de-facto standard third-party readers
+  speak. Implementing it unlocks completely free, maintained mobile
+  clients (NetNewsWire on iOS; FeedMe/FocusReader on Android) with zero
+  first-party maintenance — replacing the frozen-Flutter-as-mobile plan.
+  The Flutter app stays frozen indefinitely (reference only). FreshRSS is
+  AGPL — spec reference only, never code; the protocol is documented
+  publicly. Pair with a PWA manifest so the webui installs on phones
+  without any client.
 
 **License rules for the eval sprint** (clone FreshRSS, RSSHub, and study
 fivefilters' approach as untracked local references):
