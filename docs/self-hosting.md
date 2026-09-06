@@ -17,7 +17,7 @@ Redis 7. There is no nginx — the web server serves its own static assets.
 
 ```bash
 git clone <repository> omi-rss
-cd omi-rss/app
+cd omi-rss
 ```
 
 Provide the required secrets (no defaults in the prod file):

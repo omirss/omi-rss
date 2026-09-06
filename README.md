@@ -83,7 +83,7 @@ See `app/README.md` — the Flutter client is frozen as reference only.
 Requirements: Docker (or Podman) + Compose.
 
 ```bash
-git clone <this repo> && cd omi-rss/app
+git clone <this repo> && cd omi-rss
 JWT_SECRET=$(openssl rand -hex 32) POSTGRES_PASSWORD=$(openssl rand -hex 16) \
   docker compose -f docker-compose.prod.yml up -d
 ```
