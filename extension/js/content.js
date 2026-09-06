@@ -414,7 +414,9 @@ function enableReaderMode() {
     return;
   }
   
-  // Create reader overlay
+  // Create reader overlay. Page-derived strings never go through the
+  // template: title/author are set as text, body HTML passes through the
+  // OmiSanitize allowlist walker (js/sanitize.js loads before this script).
   const reader = document.createElement('div');
   reader.id = 'omi-reader-mode';
   reader.innerHTML = `
@@ -429,12 +431,21 @@ function enableReaderMode() {
         </div>
       </div>
       <article class="reader-content">
-        <h1>${content.title}</h1>
-        ${content.author ? `<div class="reader-meta">By ${content.author}</div>` : ''}
-        <div class="reader-body">${content.content}</div>
+        <h1></h1>
+        <div class="reader-body"></div>
       </article>
     </div>
   `;
+
+  const titleEl = reader.querySelector('.reader-content > h1');
+  titleEl.textContent = content.title || '';
+  if (content.author) {
+    const meta = document.createElement('div');
+    meta.className = 'reader-meta';
+    meta.textContent = `By ${content.author}`;
+    titleEl.after(meta);
+  }
+  OmiSanitize.renderSanitized(reader.querySelector('.reader-body'), content.content);
   
   // Add event listeners
   reader.querySelector('.reader-close').addEventListener('click', disableReaderMode);

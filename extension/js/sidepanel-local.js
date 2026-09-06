@@ -176,8 +176,8 @@ function renderFeeds() {
     const unreadCount = feed.unreadCount || 0;
     return `
       <a href="#" class="glass-nav-item feed-item ${String(state.selectedFeed) === String(feed.id) ? 'active' : ''}" data-feed-id="${feed.id}">
-        ${feed.favicon ? `
-          <img src="${feed.favicon}" alt="" class="feed-icon" width="16" height="16">
+        ${feed.favicon && OmiSanitize.isSafeUrl(feed.favicon) ? `
+          <img src="${escapeHtml(feed.favicon)}" alt="" class="feed-icon" width="16" height="16">
         ` : `
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
             <circle cx="12" cy="12" r="10"/>

@@ -538,7 +538,7 @@ function renderFeeds() {
   feedsList.innerHTML = feeds.map(feed => `
     <div class="feed-item" data-feed-id="${feed.id}">
       <div class="feed-icon">
-        ${feed.favicon ? `<img src="${feed.favicon}" alt="">` : `
+        ${feed.favicon && OmiSanitize.isSafeUrl(feed.favicon) ? `<img src="${escapeHtml(feed.favicon)}" alt="">` : `
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
             <path d="M4 11a9 9 0 0 1 9 9"/>
             <path d="M4 4a16 16 0 0 1 16 16"/>
@@ -1164,7 +1164,9 @@ function showError(message) {
 function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
-  return div.innerHTML;
+  // textContent->innerHTML escapes & < > but not quotes; escape " so the
+  // result is safe inside double-quoted attributes
+  return div.innerHTML.replace(/"/g, '&quot;');
 }
 
 function formatTime(date) {
