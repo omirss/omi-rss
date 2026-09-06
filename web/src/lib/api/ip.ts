@@ -159,7 +159,32 @@ const BLOCKED_CIDRS: string[] = [
   "::/128",
 ];
 
+// IPv6 ranges whose low 32 bits EMBED an IPv4 address: the IPv4-mapped form
+// (::ffff:0:0/96), the deprecated IPv4-compatible form (::/96) and NAT64
+// (64:ff9b::/96). WHATWG URL canonicalizes [::ffff:127.0.0.1] to hex groups
+// (::ffff:7f00:1), so the embedded value must be checked by address value,
+// never by textual form.
+const V4_EMBEDDING_V6_CIDRS = ["::ffff:0:0/96", "::/96", "64:ff9b::/96"];
+
+function embeddedIpv4String(low32: bigint): string {
+  return [24n, 16n, 8n, 0n].map((shift) => (low32 >> shift) & 0xffn).join(".");
+}
+
 export function isBlockedOutboundAddress(ip: string): boolean {
   const normalized = normalizeIp(ip);
-  return BLOCKED_CIDRS.some((cidr) => ipInCidr(normalized, cidr));
+  if (BLOCKED_CIDRS.some((cidr) => ipInCidr(normalized, cidr))) {
+    return true;
+  }
+  const parsed = ipToBigInt(normalized);
+  if (parsed?.version !== 6) {
+    return false;
+  }
+  if (!V4_EMBEDDING_V6_CIDRS.some((cidr) => ipInCidr(normalized, cidr))) {
+    return false;
+  }
+  // The embedded IPv4 shares the host's routing: evaluate it against the
+  // same blocked ranges (::ffff:8.8.8.8 stays fetchable, ::ffff:127.0.0.1
+  // does not).
+  const embedded = embeddedIpv4String(parsed.value & 0xffffffffn);
+  return BLOCKED_CIDRS.some((cidr) => ipInCidr(embedded, cidr));
 }
