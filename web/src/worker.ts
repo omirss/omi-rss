@@ -13,6 +13,7 @@ import { sameSiteHost } from "./services/site-host.js";
 import { decodeBody, extractArticle, fetchDocument } from "./services/extraction.js";
 import { runPageFeedUpdate, type PageFeedStore } from "./services/page-feed.js";
 import { initializeEmailService, isEmailConfigured, sendEmail } from "./services/email.js";
+import { warmDiscoveryCatalog } from "./services/discovery.js";
 
 interface WorkerContext {
   mode: string;
@@ -35,6 +36,7 @@ const ANALYTICS_JOB = "analytics.aggregate";
 const NOTIFICATION_SEND_EMAIL_JOB = "notification.send-email";
 const NOTIFICATION_MARK_READ_JOB = "notification.mark-read";
 const EXTRACT_ARTICLE_JOB = "extract.article";
+const DISCOVERY_WARM_JOB = "discovery.warm-catalog";
 
 // v0.4.0 extraction engine: extraction jobs run on a dedicated queue
 // (concurrency 2) so an extraction backlog can never delay feed refreshes
@@ -298,6 +300,9 @@ async function processPageFeedSingle(feed: FeedRow): Promise<{ feedId: string; n
 const FEED_UPDATE_CRON = "*/5 * * * *";
 const CLEANUP_CRON = "0 3 * * *";
 const ANALYTICS_CRON = "0 * * * *";
+// Metadata cache entries live 24h; re-warm every 6h so the discover
+// endpoints always find warm enrichment data.
+const DISCOVERY_WARM_CRON = "0 */6 * * *";
 
 const parser = new Parser({
   customFields: {
@@ -809,6 +814,10 @@ export async function run(context: WorkerContext): Promise<() => Promise<void>> 
     await processMarkRead(job.payload as { notificationId: string; userId: string });
   });
 
+  await runtime.queue.process(DISCOVERY_WARM_JOB, async () => {
+    await warmDiscoveryCatalog();
+  });
+
   // Extraction jobs run on a dedicated lower-concurrency queue in this same
   // worker process (see EXTRACT_QUEUE_NAME above).
   const extractQueue = await getExtractQueue();
@@ -826,9 +835,15 @@ export async function run(context: WorkerContext): Promise<() => Promise<void>> 
   await scheduler.add(FEED_UPDATE_ALL_JOB, {}, { repeat: { pattern: FEED_UPDATE_CRON } });
   await scheduler.add(CLEANUP_JOB, {}, { repeat: { pattern: CLEANUP_CRON } });
   await scheduler.add(ANALYTICS_JOB, {}, { repeat: { pattern: ANALYTICS_CRON } });
+  await scheduler.add(DISCOVERY_WARM_JOB, {}, { repeat: { pattern: DISCOVERY_WARM_CRON } });
   context.log(
-    `repeatable jobs registered: ${FEED_UPDATE_ALL_JOB}='${FEED_UPDATE_CRON}' ${CLEANUP_JOB}='${CLEANUP_CRON}' ${ANALYTICS_JOB}='${ANALYTICS_CRON}' queue=${QUEUE_PREFIX}:${QUEUE_NAME}`
+    `repeatable jobs registered: ${FEED_UPDATE_ALL_JOB}='${FEED_UPDATE_CRON}' ${CLEANUP_JOB}='${CLEANUP_CRON}' ` +
+      `${ANALYTICS_JOB}='${ANALYTICS_CRON}' ${DISCOVERY_WARM_JOB}='${DISCOVERY_WARM_CRON}' queue=${QUEUE_PREFIX}:${QUEUE_NAME}`
   );
+
+  // Warm the discovery catalog immediately at boot (fire-and-forget — the
+  // API serves curated data instantly either way, this fills enrichment).
+  void warmDiscoveryCatalog();
 
   context.log(
     `ready database=${runtime.drivers.database} queue=${runtime.drivers.queue} mode=${context.mode}`

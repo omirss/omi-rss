@@ -44,6 +44,53 @@ export function categoryMatchesFilter(filters: string[], category: Pick<FeedCate
 export const DISCOVERY_CATEGORIES = () =>
   CURATED_FEEDS.map(({ id, name, description }) => ({ id, name, description }));
 
+export function curatedFeedUrls(): string[] {
+  const urls = new Set<string>();
+  for (const category of CURATED_FEEDS) {
+    for (const feed of category.feeds) {
+      urls.add(feed.url);
+    }
+  }
+  return [...urls];
+}
+
+// Request-path warm trigger: at most one warm pass per cooldown window so
+// feeds that never enrich (paywalled/blocked — no cached metadata) don't
+// re-trigger a full live pass on every request. The worker cron calls
+// warmDiscoveryCatalog directly and bypasses this.
+const WARM_TRIGGER_COOLDOWN_MS = 10 * 60 * 1000;
+let lastWarmTriggerAt = 0;
+
+function triggerCatalogWarm(): void {
+  if (Date.now() - lastWarmTriggerAt < WARM_TRIGGER_COOLDOWN_MS) {
+    return;
+  }
+  lastWarmTriggerAt = Date.now();
+  void warmDiscoveryCatalog();
+}
+
+// Single-flight catalog warm: populates the feed:metadata:* cache for the
+// whole curated catalog. Concurrent callers share one pass; a completed
+// warm clears the slot so the worker cron keeps re-refreshing TTLs.
+let catalogWarm: Promise<void> | null = null;
+
+export function warmDiscoveryCatalog(): Promise<void> {
+  if (!catalogWarm) {
+    catalogWarm = (async () => {
+      const urls = curatedFeedUrls();
+      await Promise.all(urls.map((url) => feedDiscoveryService.fetchFeedMetadata(url)));
+      console.info(`Discovery catalog warm complete: ${urls.length} feeds checked`);
+    })()
+      .catch((error) => {
+        console.error("Discovery catalog warm failed:", error);
+      })
+      .finally(() => {
+        catalogWarm = null;
+      });
+  }
+  return catalogWarm;
+}
+
 interface UserInterests {
   categories: Map<string, number>;
   keywords: Map<string, number>;
@@ -183,12 +230,21 @@ export class FeedDiscoveryService {
         suggestions = suggestions.slice(0, options.limit);
       }
 
+      // Request-path enrichment is cache-only (R7 perf): the catalog must
+      // respond instantly with curated data. A cache miss kicks off the
+      // background warm instead of blocking on a live fetch.
+      let coldMetadata = false;
       const enhanced = await Promise.all(
         suggestions.map(async (suggestion) => {
-          const metadata = await this.fetchFeedMetadata(suggestion.url);
+          const metadata = await this.getCachedFeedMetadata(suggestion.url);
+          if (Object.keys(metadata).length === 0) coldMetadata = true;
           return { ...suggestion, ...metadata };
         }),
       );
+
+      if (coldMetadata) {
+        triggerCatalogWarm();
+      }
 
       const runtime = await getDataRuntime();
       await runtime.cache.set(
@@ -242,12 +298,20 @@ export class FeedDiscoveryService {
         ? uniqueResults.slice(0, options.limit)
         : uniqueResults;
 
-      return Promise.all(
+      let coldMetadata = false;
+      const enriched = await Promise.all(
         limited.map(async (result) => {
-          const metadata = await this.fetchFeedMetadata(result.url);
+          const metadata = await this.getCachedFeedMetadata(result.url);
+          if (Object.keys(metadata).length === 0) coldMetadata = true;
           return { ...result, ...metadata };
         }),
       );
+
+      if (coldMetadata) {
+        triggerCatalogWarm();
+      }
+
+      return enriched;
     } catch (error) {
       console.error("Failed to search feeds:", error);
       throw error;
@@ -396,6 +460,19 @@ export class FeedDiscoveryService {
     }
 
     return Math.min(score / 100, 1);
+  }
+
+  // Cache-only variant for the request path: never fetches live. A cache
+  // miss returns {} so the curated fields survive untouched, and a cache
+  // outage degrades to the curated catalog instead of failing the request.
+  private async getCachedFeedMetadata(url: string): Promise<Partial<FeedSuggestion>> {
+    try {
+      const runtime = await getDataRuntime();
+      const cached = await runtime.cache.get(`feed:metadata:${url}`);
+      return cached ? (JSON.parse(cached) as Partial<FeedSuggestion>) : {};
+    } catch {
+      return {};
+    }
   }
 
   async fetchFeedMetadata(url: string): Promise<Partial<FeedSuggestion>> {
