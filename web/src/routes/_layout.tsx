@@ -30,6 +30,10 @@ export function head() {
     title: "Omi RSS",
     description: "Omi RSS reader",
     headScripts: [{ id: "omi-theme-boot", content: THEME_BOOT_SCRIPT }],
+    link: [
+      { rel: "manifest", href: "/manifest.webmanifest" },
+      { rel: "apple-touch-icon", href: "/apple-touch-icon.png" },
+    ],
   };
 }
 
