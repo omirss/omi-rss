@@ -5,7 +5,7 @@ import { EmptyState, ErrorState, SkeletonList } from "../components/states.js";
 import { useToast } from "../components/Toast.js";
 import { useSession } from "../lib/auth.js";
 import { CheckIcon, CompassIcon, PlusIcon, RefreshIcon, RssIcon } from "../components/Icons.js";
-import { articlesApi, feedsApi, toCount } from "../lib/client.js";
+import { articlesApi, feedsApi } from "../lib/client.js";
 import type { ArticleListItem, ArticleQuery, FeedWithUnread, Pagination } from "../lib/api-types.js";
 import { ArticleList } from "../components/reading/ArticleList.js";
 import { FilterBar } from "../components/reading/FilterBar.js";
@@ -169,7 +169,7 @@ export default function HomePage() {
     setMarkingAll(true);
     try {
       const response = await articlesApi.markAllRead({ feedId: feedId || undefined });
-      const count = toCount(response.count);
+      const count = response.count;
       showToast({
         title: count > 0 ? `Marked ${count} article${count === 1 ? "" : "s"} as read` : "No unread articles",
         kind: "success",
@@ -231,7 +231,7 @@ export default function HomePage() {
     }
   };
 
-  const total = pagination ? toCount(pagination.total) : 0;
+  const total = pagination ? pagination.total : 0;
   const hasMore = pagination ? page < pagination.totalPages : false;
 
   let content;

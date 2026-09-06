@@ -263,10 +263,6 @@ async function requestBlob(path: string, config: RequestConfig = {}): Promise<Bl
   return response.blob();
 }
 
-export function toCount(value: Count | string): number {
-  return typeof value === "number" ? value : parseInt(value, 10) || 0;
-}
-
 export function saveBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");

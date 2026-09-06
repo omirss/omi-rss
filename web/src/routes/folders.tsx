@@ -4,7 +4,7 @@ import { AppShell } from "../components/AppShell.js";
 import { EmptyState, ErrorState, SkeletonList } from "../components/states.js";
 import { AlertIcon, FileTextIcon, FolderIcon, PlusIcon, RssIcon } from "../components/Icons.js";
 import { useToast } from "../components/Toast.js";
-import { ApiError, feedsApi, foldersApi, toCount } from "../lib/client.js";
+import { ApiError, feedsApi, foldersApi } from "../lib/client.js";
 import type { ExtractionStats, FeedWithUnread, FolderNode } from "../lib/api-types.js";
 import { validateHttpHeaders } from "../lib/feed-headers.js";
 import { Modal } from "../components/secondary/widgets.js";
@@ -386,7 +386,7 @@ export default function FoldersPage() {
   };
 
   const renderFeedRow = (feed: FeedWithUnread, depth: number) => {
-    const unread = toCount(feed.unreadCount);
+    const unread = feed.unreadCount;
     const failing = feedIsFailing(feed);
     const keptLastGood = feedKeptLastGood(feed);
     const stats = extractionStats.get(feed.id);
@@ -480,7 +480,7 @@ export default function FoldersPage() {
     );
   };
 
-  const deleteFeedCount = deleteTarget ? toCount(deleteTarget.feedCount) : 0;
+  const deleteFeedCount = deleteTarget ? deleteTarget.feedCount : 0;
   const deleteChildCount = deleteTarget ? deleteTarget.children.length : 0;
 
   return (
@@ -520,8 +520,8 @@ export default function FoldersPage() {
         {phase === "ready" && (folders.length > 0 || feeds.length > 0) ? (
           <div class="glass-card folder-listing">
             {rows.map(({ folder, depth, siblingIndex, siblingCount }) => {
-              const feedCount = toCount(folder.feedCount);
-              const unreadCount = toCount(folder.unreadCount);
+              const feedCount = folder.feedCount;
+              const unreadCount = folder.unreadCount;
               const folderFeeds = feedGroups.grouped.get(folder.id) ?? [];
               return (
                 <div key={folder.id}>

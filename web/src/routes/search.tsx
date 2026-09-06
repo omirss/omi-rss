@@ -4,7 +4,7 @@ import { AppShell } from "../components/AppShell.js";
 import { EmptyState, ErrorState, SkeletonList } from "../components/states.js";
 import { SearchIcon } from "../components/Icons.js";
 import { useToast } from "../components/Toast.js";
-import { articlesApi, toCount } from "../lib/client.js";
+import { articlesApi } from "../lib/client.js";
 import type { ArticleListItem, Pagination } from "../lib/api-types.js";
 import { ArticleList } from "../components/reading/ArticleList.js";
 import { ReaderView } from "../components/reading/ReaderView.js";
@@ -127,7 +127,7 @@ export default function SearchPage() {
     void runSearch(submitted, next, "append");
   };
 
-  const total = pagination ? toCount(pagination.total) : 0;
+  const total = pagination ? pagination.total : 0;
   const hasMore = pagination ? page < pagination.totalPages : false;
 
   let content;

@@ -4,7 +4,7 @@ import { EmptyState, ErrorState, SkeletonList } from "../components/states.js";
 import { useToast } from "../components/Toast.js";
 import { useSession } from "../lib/auth.js";
 import { BookmarkIcon, RssIcon } from "../components/Icons.js";
-import { articlesApi, toCount } from "../lib/client.js";
+import { articlesApi } from "../lib/client.js";
 import type { ArticleListItem, Pagination } from "../lib/api-types.js";
 import { ArticleList } from "../components/reading/ArticleList.js";
 import { ReaderView } from "../components/reading/ReaderView.js";
@@ -75,7 +75,7 @@ export default function SavedPage() {
   const removeArticle = (articleId: string) => {
     const removedIndex = articles.findIndex((article) => article.id === articleId);
     setArticles((current) => current.filter((article) => article.id !== articleId));
-    setPagination((current) => (current ? { ...current, total: Math.max(0, toCount(current.total) - 1) } : current));
+    setPagination((current) => (current ? { ...current, total: Math.max(0, current.total - 1) } : current));
     if (readerIndex !== null && removedIndex !== -1) {
       if (removedIndex === readerIndex) {
         setReaderIndex(null);
@@ -107,7 +107,7 @@ export default function SavedPage() {
     setPage(page + 1);
   };
 
-  const total = pagination ? toCount(pagination.total) : 0;
+  const total = pagination ? pagination.total : 0;
   const hasMore = pagination ? page < pagination.totalPages : false;
 
   let content;

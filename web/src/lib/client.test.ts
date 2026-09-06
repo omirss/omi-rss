@@ -6,7 +6,6 @@ import {
   SESSION_EXPIRED_EVENT,
   authApi,
   articlesApi,
-  toCount,
 } from "./client.js";
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -125,14 +124,6 @@ describe("request refresh rotation", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(tokenStore.getTokens()).toEqual({ token: "access-1", refreshToken: "refresh-1" });
-  });
-});
-
-describe("toCount", () => {
-  it("coerces numeric strings from postgres aggregates", () => {
-    expect(toCount("42")).toBe(42);
-    expect(toCount(7)).toBe(7);
-    expect(toCount("not-a-number")).toBe(0);
   });
 });
 

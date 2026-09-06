@@ -1,6 +1,5 @@
 import type { ComponentChildren } from "preact";
 import type { FeedWithUnread } from "../../lib/api-types.js";
-import { toCount } from "../../lib/client.js";
 import "./reading.css";
 
 export type ArticleFilter = "all" | "unread" | "starred";
@@ -47,7 +46,7 @@ export function FilterBar({ filter, onFilterChange, feeds, feedId, onFeedChange,
         >
           <option value="">All feeds</option>
           {feeds.map((feed) => {
-            const unread = toCount(feed.unreadCount);
+            const unread = feed.unreadCount;
             const label = feed.customTitle || feed.title;
             const failing = feed.errorCount > 0 || Boolean(feed.lastFetchError);
             return (

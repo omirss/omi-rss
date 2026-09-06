@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "preact/hooks";
 import { AppShell } from "../components/AppShell.js";
 import { EmptyState, ErrorState, Skeleton } from "../components/states.js";
 import { StatisticsIcon } from "../components/Icons.js";
-import { toCount, statsApi } from "../lib/client.js";
+import { statsApi } from "../lib/client.js";
 import type { StatsHistory, StatsOverview } from "../lib/api-types.js";
 import { Section, StatCard, StatGrid, VBarChart, formatDayShort } from "../components/secondary/widgets.js";
 
@@ -14,7 +14,7 @@ const HISTORY_DAYS = 30;
 
 function buildHistoryItems(history: StatsHistory | null) {
   if (!history) return [];
-  const counts = new Map(history.data.map((entry) => [entry.period, toCount(entry.count)]));
+  const counts = new Map(history.data.map((entry) => [entry.period, entry.count]));
   const items: Array<{ label: string; count: number }> = [];
   const start = new Date(history.startDate);
   const end = new Date(history.endDate);
@@ -57,10 +57,10 @@ export default function StatisticsPage() {
   const historyItems = useMemo(() => buildHistoryItems(history), [history]);
   const historyAxis: [string, string] | undefined =
     historyItems.length > 0 ? [historyItems[0].label, historyItems[historyItems.length - 1].label] : undefined;
-  const totalRead = totals ? toCount(totals.readArticles) : 0;
-  const totalArticles = totals ? toCount(totals.totalArticles) : 0;
+  const totalRead = totals ? totals.readArticles : 0;
+  const totalArticles = totals ? totals.totalArticles : 0;
   const unread = Math.max(0, totalArticles - totalRead);
-  const hasActivity = totals !== undefined && (totalArticles > 0 || toCount(totals.totalFeeds) > 0);
+  const hasActivity = totals !== undefined && (totalArticles > 0 || totals.totalFeeds > 0);
   const streak = overview?.readingStreak;
 
   return (
@@ -99,11 +99,11 @@ export default function StatisticsPage() {
           <>
             <Section title="Totals">
               <StatGrid>
-                <StatCard value={`${toCount(totals.totalFeeds)}`} label="Feeds" hint={`${toCount(totals.totalFolders)} folders`} />
+                <StatCard value={`${totals.totalFeeds}`} label="Feeds" hint={`${totals.totalFolders} folders`} />
                 <StatCard value={`${totalArticles}`} label="Articles" hint="Across all feeds" />
                 <StatCard value={`${totalRead}`} label="Read" hint={`${totals.readPercentage}% of library`} />
                 <StatCard value={`${unread}`} label="Unread" />
-                <StatCard value={`${toCount(totals.starredArticles)}`} label="Starred" />
+                <StatCard value={`${totals.starredArticles}`} label="Starred" />
                 <StatCard value={`${overview.velocity.averagePerDay}`} label="Avg. articles per day" hint="Last 30 days" />
                 <StatCard
                   value={`${streak ? streak.currentStreak : 0} day${streak && streak.currentStreak === 1 ? "" : "s"}`}
@@ -146,7 +146,7 @@ export default function StatisticsPage() {
                             </span>
                           </td>
                           <td class="sec-table-count" style="text-align: right;">
-                            {toCount(feed.readCount)}
+                            {feed.readCount}
                           </td>
                         </tr>
                       ))}
