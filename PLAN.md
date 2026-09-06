@@ -38,24 +38,28 @@ discovery provider drops in later without touching the reader core.
 **Nothing in Webroll adds requirements to omi-rss v0.2.** It is referenced
 here so its existence is deliberate, not forgotten.
 
-## Current state (v0.4.0)
+## Current state (v0.5.0)
 
-The extraction axis landed: full-text extraction (FullTextRSS role) and
-page-to-feed generation (scoped RSSHub role) ship as one server-side
-engine — readability + linkedom + sanitize-html per a measured research
-spike — with per-feed opt-in, SSRF-safe fetching, per-host politeness,
-and a resilient page-feed updater (content-hash identity, keep-last-good
-on selector miss, conditional GET). The extension gained a region picker
-("generate feed from this page"); the webui gained the full-text toggle
-and page-feed creation. Remaining: store submissions, Docker registry
-publish (owner decisions); greader API evaluation stays a v1.x question.
+Shipped and deployed: reader core, full-stack Neutron app (web/),
+full-text extraction, page feeds, bring-your-own-subscription headers,
+archive fallback, one visual identity across webui/popup/sidepanel,
+deployed to infra-home via teploy. Remaining: store submissions, Docker
+registry publish (owner decisions); greader API evaluation stays v1.x.
+
+## v0.5.0 — Extraction UX, BYO subscriptions, parity (2026-09-05)
+
+- Full-text at subscribe time (default on) + reader badges + per-feed
+  extraction health indicators
+- Per-feed HTTP headers (cookies) — allowlisted, host-scoped on
+  redirects AND article links, never logged; migration 0004
+- Archive fallback (archive.org / archive.today) in all three readers
+- Extension parity pass: light mode, one chip/dot/toast language,
+  error states with retry, pop-out opens the full web app
+- Page transitions, confirm-password, drawer/spacing polish waves
+- Security hardening from the release audit: password change revokes
+  tokens; control-char header rejection; stats index (0005)
 
 ## v0.4.0 — Extraction and page feeds (2026-09-05)
-
-See Current state above and the commit history for detail. The original
-ambition — FreshRSS + FullTextRSS + RSSHub combined — is now: reader
-(v0.2), platform (Neutron, v0.3), extraction + page feeds (v0.4);
-greader-compatible API remains the open evaluation.
 
 ## v0.3.0 — Full-stack Neutron migration (2026-09-04/05)
 
