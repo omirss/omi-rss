@@ -369,8 +369,10 @@ function sniffOpmlFile(file: File): Promise<string | null> {
                     </label>
                     <label class="field">
                       <span class="label">Email</span>
-                      <input class="input" type="email" value={me.email} disabled />
-                      <span class="field-hint">Email cannot be changed.</span>
+                      <input class="input" type="email" value={me.email ?? ""} disabled />
+                      <span class="field-hint">
+                        {me.email ? "Email cannot be changed." : "No email on this account (username-only sign-up)."}
+                      </span>
                     </label>
                   </div>
                 </form>

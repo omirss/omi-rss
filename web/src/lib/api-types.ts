@@ -3,7 +3,7 @@ export type Count = number;
 
 export interface UserProfile {
   id: string;
-  email: string;
+  email: string | null;
   username: string;
   firstName: string | null;
   lastName: string | null;
@@ -271,7 +271,7 @@ export interface AuthResponse {
 }
 
 export interface RegisterRequest {
-  email: string;
+  email?: string | null;
   username: string;
   password: string;
   firstName?: string;
@@ -283,7 +283,7 @@ export interface RegisterResponse {
   refreshToken: string;
   user: {
     id: string;
-    email: string;
+    email: string | null;
     username: string;
   };
 }

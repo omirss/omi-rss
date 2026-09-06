@@ -9,7 +9,7 @@ interface SessionContextValue {
   status: SessionStatus;
   user: UserProfile | null;
   login: (emailOrUsername: string, password: string) => Promise<void>;
-  register: (input: { email: string; username: string; password: string; firstName?: string; lastName?: string }) => Promise<void>;
+  register: (input: { email?: string | null; username: string; password: string; firstName?: string; lastName?: string }) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }

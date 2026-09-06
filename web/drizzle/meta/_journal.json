@@ -43,6 +43,13 @@
       "when": 1788660758245,
       "tag": "0005_jittery_thundra",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788734760166,
+      "tag": "0006_wild_forgotten_one",
+      "breakpoints": true
     }
   ]
 }

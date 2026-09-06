@@ -61,7 +61,7 @@ export default function LoginPage({ data }: { data?: LoginLoaderData }) {
         setError("Username must be at least 3 characters");
         return;
       }
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
         setError("Enter a valid email address");
         return;
       }
@@ -81,7 +81,7 @@ export default function LoginPage({ data }: { data?: LoginLoaderData }) {
     setSubmitting(true);
     try {
       if (tab === "register") {
-        await register({ email: email.trim(), username: username.trim(), password });
+        await register({ email: email.trim() || null, username: username.trim(), password });
       } else {
         await login(emailOrUsername.trim(), password);
       }
@@ -150,7 +150,7 @@ export default function LoginPage({ data }: { data?: LoginLoaderData }) {
             ) : (
               <>
                 <label class="field">
-                  <span class="label">Email</span>
+                  <span class="label">Email (optional)</span>
                   <input
                     class="input"
                     type="email"
@@ -158,6 +158,7 @@ export default function LoginPage({ data }: { data?: LoginLoaderData }) {
                     onInput={(event) => setEmail(event.currentTarget.value)}
                     autocomplete="email"
                   />
+                  <span class="field-hint">Add one only if you want verification and reset emails</span>
                 </label>
                 <label class="field">
                   <span class="label">Username</span>

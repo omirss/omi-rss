@@ -27,7 +27,7 @@ import {
 
 export interface GreaderUser {
   id: string;
-  email: string;
+  email: string | null;
   username: string;
   role: string;
   tokenVersion: number;

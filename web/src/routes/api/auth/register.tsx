@@ -16,8 +16,15 @@ import { signAccessToken, signRefreshToken } from "../../../lib/api/tokens.js";
 
 export const config = { mode: "app" };
 
+// Email is optional (username+password sign-up). Empty string and null are
+// tolerated as absent so client forms can send the field unconditionally.
+const optionalEmail = z
+  .union([z.string().email(), z.literal(""), z.null()])
+  .optional()
+  .transform((value) => (value ? value : undefined));
+
 const registerSchema = z.object({
-  email: z.string().email(),
+  email: optionalEmail,
   username: z.string().min(3).max(50),
   password: z.string().min(8).max(100),
   firstName: z.string().optional(),
@@ -32,7 +39,7 @@ export async function action({ request }: { request: Request }) {
     if (clientKey !== null) {
       await consumeAuthRateLimit(clientKey);
     } else {
-      await consumeAnonAuthRateLimit(`${data.email}:${data.username}`);
+      await consumeAnonAuthRateLimit(`${data.email ?? ""}:${data.username}`);
     }
 
     const db = await getDb();
@@ -46,10 +53,16 @@ export async function action({ request }: { request: Request }) {
       }
     }
 
+    // Absent email must not match anything: eq(email, null) is never true in
+    // SQL, but guarding explicitly keeps the username-only contract obvious.
+    const conflict = data.email
+      ? or(eq(users.email, data.email), eq(users.username, data.username))
+      : eq(users.username, data.username);
+
     const [existingUser] = await db
       .select()
       .from(users)
-      .where(or(eq(users.email, data.email), eq(users.username, data.username)))
+      .where(conflict)
       .limit(1);
 
     if (existingUser) {
@@ -60,12 +73,13 @@ export async function action({ request }: { request: Request }) {
 
     const passwordHash = await bcrypt.hash(data.password, parseInt(process.env.BCRYPT_ROUNDS || "10"));
 
-    const emailVerificationToken = crypto.randomBytes(32).toString("hex");
+    // No email -> no verification flow: null token, no queue job.
+    const emailVerificationToken = data.email ? crypto.randomBytes(32).toString("hex") : null;
 
     const [newUser] = await db
       .insert(users)
       .values({
-        email: data.email,
+        email: data.email ?? null,
         username: data.username,
         passwordHash,
         firstName: data.firstName,
@@ -78,17 +92,19 @@ export async function action({ request }: { request: Request }) {
         username: users.username,
       });
 
-    const runtime = await getDataRuntime();
-    await runtime.queue.add("notification.send-email", {
-      userId: newUser.id,
-      email: data.email,
-      subject: "Verify your Omi RSS account",
-      template: "email-verification",
-      data: {
-        username: data.username,
-        verificationUrl: `${process.env.FRONTEND_URL}/verify-email?token=${emailVerificationToken}`,
-      },
-    });
+    if (data.email) {
+      const runtime = await getDataRuntime();
+      await runtime.queue.add("notification.send-email", {
+        userId: newUser.id,
+        email: data.email,
+        subject: "Verify your Omi RSS account",
+        template: "email-verification",
+        data: {
+          username: data.username,
+          verificationUrl: `${process.env.FRONTEND_URL}/verify-email?token=${emailVerificationToken}`,
+        },
+      });
+    }
 
     const token = signAccessToken(newUser.id, newUser.email, newUser.username, "user", 0);
     const refreshToken = signRefreshToken(newUser.id, 0);

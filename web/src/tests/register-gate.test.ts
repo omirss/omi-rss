@@ -12,12 +12,15 @@ vi.mock("../lib/api/rate-limit.js", () => ({
 
 import { action } from "../routes/api/auth/register.js";
 import { getDb } from "../lib/api/db.js";
+import { getDataRuntime } from "../data/runtime.js";
 
 // ALLOW_REGISTRATION gate: "false" closes sign-ups only once at least one
 // user exists — an empty instance always allows the bootstrap registration.
-// Default (unset or any other value) is open.
+// Default (unset or any other value) is open. Email is optional: absent,
+// null and "" all register a username-only account with no verification
+// flow.
 
-function registerRequest(): Request {
+function registerRequest(body: Record<string, unknown> = {}): Request {
   return new Request("http://localhost/api/auth/register", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -25,6 +28,7 @@ function registerRequest(): Request {
       email: "new-user@example.com",
       username: "new-user",
       password: "a-long-password",
+      ...body,
     }),
   });
 }
@@ -34,6 +38,7 @@ function registerRequest(): Request {
 // supplies them in call order.
 function fakeDb(selectResults: unknown[]) {
   const calls: unknown[][] = [];
+  const inserts: Record<string, unknown>[] = [];
   const select = () => {
     const rows = selectResults[Math.min(calls.length, selectResults.length - 1)] as unknown[];
     calls.push(rows);
@@ -49,14 +54,17 @@ function fakeDb(selectResults: unknown[]) {
   const db = {
     select,
     insert: () => ({
-      values: () => ({
-        returning: async () => [
-          { id: "u-new", email: "new-user@example.com", username: "new-user" },
-        ],
-      }),
+      values: (value: Record<string, unknown>) => {
+        inserts.push(value);
+        return {
+          returning: async () => [
+            { id: "u-new", email: value.email ?? null, username: value.username },
+          ],
+        };
+      },
     }),
   };
-  return { db, calls };
+  return { db, calls, inserts };
 }
 
 beforeAll(() => {
@@ -66,6 +74,8 @@ beforeAll(() => {
 
 beforeEach(() => {
   vi.mocked(getDb).mockReset();
+  vi.mocked(getDataRuntime).mockReset();
+  vi.mocked(getDataRuntime).mockImplementation(async () => ({ queue: { add: vi.fn() } } as never));
   delete process.env.ALLOW_REGISTRATION;
 });
 
@@ -106,5 +116,68 @@ describe("ALLOW_REGISTRATION gate on POST /api/auth/register", () => {
     const response = await action({ request: registerRequest() });
 
     expect(response.status).toBe(201);
+  });
+});
+
+describe("optional email on POST /api/auth/register", () => {
+  it("registers without email: null column, no verification token, no email job", async () => {
+    const queueAdd = vi.fn();
+    vi.mocked(getDataRuntime).mockImplementation(async () => ({ queue: { add: queueAdd } } as never));
+    const { db, inserts } = fakeDb([[]]);
+    vi.mocked(getDb).mockResolvedValue(db as never);
+
+    const response = await action({
+      request: registerRequest({ email: undefined, username: "no-email-user" }),
+    });
+
+    expect(response.status).toBe(201);
+    expect(inserts[0].email).toBeNull();
+    expect(inserts[0].emailVerificationToken).toBeNull();
+    expect(queueAdd).not.toHaveBeenCalled();
+    const body = (await response.json()) as { user: { email: string | null } };
+    expect(body.user.email).toBeNull();
+  });
+
+  it("treats an empty-string email as absent", async () => {
+    const queueAdd = vi.fn();
+    vi.mocked(getDataRuntime).mockImplementation(async () => ({ queue: { add: queueAdd } } as never));
+    const { db, inserts } = fakeDb([[]]);
+    vi.mocked(getDb).mockResolvedValue(db as never);
+
+    const response = await action({ request: registerRequest({ email: "" }) });
+
+    expect(response.status).toBe(201);
+    expect(inserts[0].email).toBeNull();
+    expect(queueAdd).not.toHaveBeenCalled();
+  });
+
+  it("keeps the verification flow when an email is provided", async () => {
+    const queueAdd = vi.fn();
+    vi.mocked(getDataRuntime).mockImplementation(async () => ({ queue: { add: queueAdd } } as never));
+    const { db, inserts } = fakeDb([[]]);
+    vi.mocked(getDb).mockResolvedValue(db as never);
+
+    const response = await action({ request: registerRequest() });
+
+    expect(response.status).toBe(201);
+    expect(inserts[0].email).toBe("new-user@example.com");
+    expect(typeof inserts[0].emailVerificationToken).toBe("string");
+    expect(queueAdd).toHaveBeenCalledWith(
+      "notification.send-email",
+      expect.objectContaining({ email: "new-user@example.com" }),
+    );
+  });
+
+  it("conflicts with 409 on a duplicate username", async () => {
+    // Gate unset: only the conflict select runs.
+    const { db, inserts } = fakeDb([[{ id: "u-existing", username: "new-user" }]]);
+    vi.mocked(getDb).mockResolvedValue(db as never);
+
+    const response = await action({
+      request: registerRequest({ email: undefined, username: "new-user" }),
+    });
+
+    expect(response.status).toBe(409);
+    expect(inserts).toHaveLength(0);
   });
 });

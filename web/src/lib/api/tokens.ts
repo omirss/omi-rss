@@ -28,7 +28,7 @@ export function normalizeTokenVersion(value: unknown): number {
 
 export function signAccessToken(
   userId: string,
-  email: string,
+  email: string | null,
   username: string,
   role: string,
   tokenVersion: number = 0
@@ -95,7 +95,7 @@ export type GreaderTokenType = "greader-auth" | "greader-post";
 
 export function signGreaderAuthToken(
   userId: string,
-  email: string,
+  email: string | null,
   username: string,
   role: string,
   tokenVersion: number = 0
