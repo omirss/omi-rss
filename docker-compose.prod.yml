@@ -91,6 +91,7 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgres://omi_rss:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/omi_rss
       REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
       # Email delivery (optional): the worker is the process that sends.
       # Empty SMTP_HOST keeps email disabled.
       SMTP_HOST: ${SMTP_HOST:-}

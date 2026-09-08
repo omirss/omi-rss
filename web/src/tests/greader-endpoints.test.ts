@@ -11,6 +11,7 @@ import { getDb } from "../lib/api/db.js";
 import { fetchFeedXml } from "../services/feed-fetch.js";
 import { getDataRuntime } from "../data/runtime.js";
 import { signGreaderPostToken } from "../lib/api/tokens.js";
+import { itemToJson } from "../lib/greader/queries.js";
 
 // Endpoint contracts against a fake drizzle db (thenable query objects,
 // house pattern from feeds-update-route.test.ts / payload-shape.test.ts):
@@ -137,6 +138,7 @@ const ITEM_ROW = {
   url: "https://example.com/a1",
   author: "Jane Doe",
   content: "<p>hello</p>",
+  contentExtracted: null,
   summary: null,
   publishedAt: new Date("2026-08-01T12:00:00Z"),
   enclosures: [{ url: "https://example.com/img.jpg", type: "image/jpeg" }],
@@ -150,6 +152,17 @@ const ITEM_ROW = {
 };
 
 const FEED_XML = `<?xml version="1.0"?><rss version="2.0"><channel><title>Example Feed</title><link>https://example.com/</link></channel></rss>`;
+
+describe("greader content selection matches the web reader", () => {
+  it.each([
+    ["<p>extracted body</p>", "<p>extracted body</p>"],
+    ["", "<p>hello</p>"],
+    [null, "<p>hello</p>"],
+  ])("uses extracted content when available (%s)", (contentExtracted, expected) => {
+    expect(itemToJson({ ...ITEM_ROW, contentExtracted }).summary)
+      .toEqual({ direction: "ltr", content: expected });
+  });
+});
 
 beforeEach(() => {
   vi.mocked(getDb).mockReset();

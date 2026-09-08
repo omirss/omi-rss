@@ -87,18 +87,20 @@ saved articles in a reader.
 - Website content: article text and feed content the user saves or subscribes
   to, processed to provide the reading experience. Stored locally (and on the
   user's own server when paired). Not used for any unrelated purpose.
-- Personal communications: not collected.
+- Personally identifying information: an email address when used to sign in.
+- Personal communications: not collected as a separate feature.
 - Health: not collected. Financial: not collected. Location: not collected.
-  Browsing history: not collected (content scripts act only on user command;
-  no record of visited pages is retained).
+  Browsing activity: selected saved/subscribed URLs and synchronized read/save
+  state are handled to provide the reader, not a general browsing-history log.
 - Data sold to third parties: no.
 - Data used for creditworthiness or lending: no.
 - Data used for third-party advertising or advertising-related purposes: no.
 - Third-party analytics or tracking: none. No analytics SDKs or trackers are
   bundled. Local reading statistics, when shown, are computed and displayed
   locally for the user only.
-- Data security: all data stays in browser-local storage or, when the user
-  pairs a server, on that user-chosen self-hosted instance.
+- Storage and transmission: reader data is stored locally or on the paired
+  server. Some preferences use browser sync storage. Feed, favicon, and article
+  requests can reach publishers, redirects, and content hosts.
 
 ### Certified developer-privacy claims
 

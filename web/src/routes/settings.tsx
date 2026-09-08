@@ -37,6 +37,7 @@ export default function SettingsPage() {
   const [phase, setPhase] = useState<MePhase>("loading");
   const [me, setMe] = useState<UserDetail | null>(null);
   const [profileUsername, setProfileUsername] = useState("");
+  const [profileEmail, setProfileEmail] = useState("");
   const [profileFirstName, setProfileFirstName] = useState("");
   const [profileLastName, setProfileLastName] = useState("");
   const [savingProfile, setSavingProfile] = useState(false);
@@ -63,6 +64,7 @@ export default function SettingsPage() {
       const { user: detail } = await usersApi.getMe();
       setMe(detail);
       setProfileUsername(detail.username);
+      setProfileEmail(detail.email ?? "");
       setProfileFirstName(detail.firstName ?? "");
       setProfileLastName(detail.lastName ?? "");
       setPhase("ready");
@@ -78,6 +80,7 @@ export default function SettingsPage() {
   const profileDirty =
     me !== null &&
     (profileUsername !== me.username ||
+      profileEmail.trim() !== (me.email ?? "") ||
       profileFirstName !== (me.firstName ?? "") ||
       profileLastName !== (me.lastName ?? ""));
 
@@ -90,6 +93,7 @@ export default function SettingsPage() {
         username: profileUsername.trim(),
         firstName: profileFirstName.trim(),
         lastName: profileLastName.trim(),
+        ...(profileEmail.trim() !== (me?.email ?? "") ? { email: profileEmail.trim() } : {}),
       });
       await refreshUser();
       await load();
@@ -369,9 +373,12 @@ function sniffOpmlFile(file: File): Promise<string | null> {
                     </label>
                     <label class="field">
                       <span class="label">Email</span>
-                      <input class="input" type="email" value={me.email ?? ""} disabled />
+                      <input class="input" type="email" value={profileEmail}
+                        required={Boolean(me.email)} disabled={savingProfile}
+                        onInput={(event) => setProfileEmail(event.currentTarget.value)} />
                       <span class="field-hint">
-                        {me.email ? "Email cannot be changed." : "No email on this account (username-only sign-up)."}
+                        {me.emailVerified ? "Email verified. " : "Email is optional. "}
+                        Adding or changing an address requires verification. Email delivery requires your server's SMTP setup.
                       </span>
                     </label>
                   </div>

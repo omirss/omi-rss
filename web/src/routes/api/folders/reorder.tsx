@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { folders } from "../../../data/db/schema.js";
 import { getDb } from "../../../lib/api/db.js";
 import { handle, jsonResponse } from "../../../lib/api/errors.js";
@@ -19,23 +19,25 @@ export async function action({ request, context }: { request: Request; context: 
 
     const db = await getDb();
 
-    const userFolders = await db
-      .select({ id: folders.id })
-      .from(folders)
-      .where(eq(folders.userId, auth.id));
+    await db.transaction(async (tx) => {
+      const userFolders = await tx
+        .select({ id: folders.id })
+        .from(folders)
+        .where(eq(folders.userId, auth.id));
 
-    const userFolderIds = new Set(userFolders.map(f => f.id));
-    const validFolderIds = folderIds.filter(id => userFolderIds.has(id));
+      const userFolderIds = new Set(userFolders.map(f => f.id));
+      const validFolderIds = folderIds.filter(id => userFolderIds.has(id));
 
-    for (let i = 0; i < validFolderIds.length; i++) {
-      await db
-        .update(folders)
-        .set({
-          position: i + 1,
-          updatedAt: new Date(),
-        })
-        .where(eq(folders.id, validFolderIds[i]));
-    }
+      for (let i = 0; i < validFolderIds.length; i++) {
+        await tx
+          .update(folders)
+          .set({
+            position: i + 1,
+            updatedAt: new Date(),
+          })
+          .where(and(eq(folders.id, validFolderIds[i]), eq(folders.userId, auth.id)));
+      }
+    });
 
     return jsonResponse({ message: "Folders reordered successfully" });
   });

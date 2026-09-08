@@ -231,6 +231,7 @@ export interface ItemRow {
   url: string;
   author: string | null;
   content: string | null;
+  contentExtracted: string | null;
   summary: string | null;
   publishedAt: Date | null;
   enclosures: unknown;
@@ -253,6 +254,7 @@ function itemQuery(db: Database, userId: string) {
       url: articles.url,
       author: articles.author,
       content: articles.content,
+      contentExtracted: articles.contentExtracted,
       summary: articles.summary,
       publishedAt: articles.publishedAt,
       enclosures: articles.enclosures,
@@ -398,7 +400,7 @@ export function itemToJson(row: ItemRow): Record<string, unknown> {
   const published = row.publishedAt
     ? Math.floor(row.publishedAt.getTime() / 1000)
     : Number(BigInt(rankUsec) / 1000000n);
-  const html = row.content || row.summary || "";
+  const html = row.contentExtracted || row.content || row.summary || "";
   const categories = [stateStreamId(STATE_READING_LIST)];
   if (row.folderName) {
     categories.push(labelStreamId(row.folderName));

@@ -74,8 +74,18 @@ required statement is covered by the declarations below.
 - Website content: article/feed content the user saves or subscribes to,
   processed to provide the reading experience. Kept local (and on the user's
   own server when paired).
-- No health, financial, location, or browsing-history collection.
+- Email addresses used to sign in are personally identifying information.
+- Saved/subscribed URLs and synchronized read/save state are browsing activity
+  and website activity, not a general browser-history log.
+- No dedicated health, financial, or location collection.
 - No third-party analytics, trackers, or advertising. No sale of data.
+
+The Firefox manifest declares these five required categories using
+`browser_specific_settings.gecko.data_collection_permissions`. Transmission
+to a user-selected server still counts under Mozilla's taxonomy; `none` would
+be inaccurate. Firefox desktop 140+ and Android 142+ are required so built-in
+consent is available, rather than silently omitting consent on older versions.
+See [Mozilla's current consent guidance](https://extensionworkshop.com/documentation/develop/firefox-builtin-data-consent/).
 
 ## Permission justifications (AMO prompts for these at upload)
 

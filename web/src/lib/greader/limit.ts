@@ -1,6 +1,7 @@
-import Redis from "ioredis";
+import type Redis from "ioredis";
 import { RateLimiterRedis, RateLimiterRes } from "rate-limiter-flexible";
 import { AppError } from "../api/errors.js";
+import { waitForLimiterRedis } from "../api/rate-limit.js";
 
 // greader-specific per-user budget: sync clients burst (NetNewsWire/FeedMe
 // easily exceed the 100/15min web-user budget during initial sync), so the
@@ -13,17 +14,11 @@ const POINTS = 600;
 const WINDOW_SECONDS = 900;
 
 let greaderLimiter: RateLimiterRedis | null = null;
-let limiterRedisClient: Redis | null = null;
 
-function getGreaderLimiter(): RateLimiterRedis {
+function getGreaderLimiter(client: Redis): RateLimiterRedis {
   if (!greaderLimiter) {
-    limiterRedisClient = new Redis(process.env.REDIS_URL || "redis://localhost:6380", {
-      maxRetriesPerRequest: 1,
-      enableOfflineQueue: false,
-    });
-    limiterRedisClient.on("error", (err) => console.warn("greader rate limiter Redis error:", err.message));
     greaderLimiter = new RateLimiterRedis({
-      storeClient: limiterRedisClient,
+      storeClient: client,
       keyPrefix: "omiweb_greader_limit",
       points: POINTS,
       duration: WINDOW_SECONDS,
@@ -35,7 +30,7 @@ function getGreaderLimiter(): RateLimiterRedis {
 
 export async function consumeGreaderRateLimit(userId: string): Promise<void> {
   try {
-    await getGreaderLimiter().consume(userId);
+    await getGreaderLimiter(await waitForLimiterRedis()).consume(userId);
   } catch (error) {
     if (error instanceof RateLimiterRes) {
       throw new AppError("Too many requests, please try again later", 429);

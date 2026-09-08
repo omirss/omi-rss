@@ -72,7 +72,7 @@ describe("PATCH /api/users/me email handling", () => {
   it("setting an email resets verification and queues the verification email", async () => {
     const queueAdd = vi.fn();
     vi.mocked(getDataRuntime).mockImplementation(async () => ({ queue: { add: queueAdd } } as never));
-    const { db, getSetPatch } = fakeDb([[]]);
+    const { db, getSetPatch } = fakeDb([[{ email: null }], []]);
     vi.mocked(getDb).mockResolvedValue(db as never);
 
     const response = await action({
@@ -97,7 +97,7 @@ describe("PATCH /api/users/me email handling", () => {
   it("conflicts with 409 when the email belongs to another account", async () => {
     const queueAdd = vi.fn();
     vi.mocked(getDataRuntime).mockImplementation(async () => ({ queue: { add: queueAdd } } as never));
-    const { db, getSetPatch } = fakeDb([[{ id: "u2", email: "taken@test.local" }]]);
+    const { db, getSetPatch } = fakeDb([[{ email: null }], [{ id: "u2", email: "taken@test.local" }]]);
     vi.mocked(getDb).mockResolvedValue(db as never);
 
     const response = await action({
@@ -116,7 +116,7 @@ describe("PATCH /api/users/me email handling", () => {
     for (const email of [undefined, null, ""]) {
       const queueAdd = vi.fn();
       vi.mocked(getDataRuntime).mockImplementation(async () => ({ queue: { add: queueAdd } } as never));
-      const { db, getSetPatch } = fakeDb([]);
+      const { db, getSetPatch } = fakeDb([[{ email: "kept@test.local" }]]);
       vi.mocked(getDb).mockResolvedValue(db as never);
 
       const response = await action({
@@ -131,5 +131,24 @@ describe("PATCH /api/users/me email handling", () => {
       expect("emailVerificationToken" in patch).toBe(false);
       expect(queueAdd).not.toHaveBeenCalled();
     }
+  });
+
+  it("leaves verification and token untouched when the same email is submitted", async () => {
+    const queueAdd = vi.fn();
+    vi.mocked(getDataRuntime).mockResolvedValue({ queue: { add: queueAdd } } as never);
+    const { db, getSetPatch } = fakeDb([[{ email: "kept@test.local" }]]);
+    vi.mocked(getDb).mockResolvedValue(db as never);
+    const response = await action({ request: patchRequest({ email: "kept@test.local" }), context });
+    expect(response.status).toBe(200);
+    expect(getSetPatch()).not.toHaveProperty("email");
+    expect(getSetPatch()).not.toHaveProperty("emailVerified");
+    expect(getSetPatch()).not.toHaveProperty("emailVerificationToken");
+    expect(queueAdd).not.toHaveBeenCalled();
+  });
+
+  it("rejects malformed email before writing", async () => {
+    const response = await action({ request: patchRequest({ email: "invalid" }), context });
+    expect(response.status).toBe(400);
+    expect(getDb).not.toHaveBeenCalled();
   });
 });

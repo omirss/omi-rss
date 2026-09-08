@@ -52,15 +52,19 @@ function fakeDb(selectResults: unknown[]) {
     return q as never;
   };
   const db = {
+    transaction: async (callback: (tx: unknown) => unknown): Promise<unknown> => callback(db),
+    execute: vi.fn(),
     select,
     insert: () => ({
       values: (value: Record<string, unknown>) => {
         inserts.push(value);
-        return {
+        const query = {
+          onConflictDoNothing: () => query,
           returning: async () => [
             { id: "u-new", email: value.email ?? null, username: value.username },
           ],
         };
+        return query;
       },
     }),
   };

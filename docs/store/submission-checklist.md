@@ -33,7 +33,7 @@ neutral background; no content was stretched.
    - Extension icon: pulled automatically from the zip.
 4. Privacy tab: single-purpose statement and permission justifications from
    cws-listing.md; answer the data-usage declarations exactly as listed
-   (no sale, no ads, no analytics; auth info + website content only, local /
+   (no sale, no ads, no analytics; see the listing's current data categories, local /
    user's own server).
 5. Privacy policy URL: https://omirss.com/privacy (live — paste in both dashboards).
 6. Distribution: Public. Regions: all.

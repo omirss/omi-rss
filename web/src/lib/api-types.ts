@@ -338,6 +338,7 @@ export interface BatchArticleUpdate {
 }
 
 export interface ProfileUpdateRequest {
+  email?: string;
   firstName?: string;
   lastName?: string;
   username?: string;

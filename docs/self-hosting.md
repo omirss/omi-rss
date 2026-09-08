@@ -68,8 +68,15 @@ databases only while developing on `web/`, use `compose.dev.yml`
 (`podman compose -f compose.dev.yml up -d`): PostgreSQL 16 published on
 host `5433` and Redis 7 on `6380`, matching `web/.env.example`.
 
+The default Compose JWT secret is intentionally public and for local use only.
+Use the production variant with your own secret (at least 32 characters) and
+database password for any exposed instance. Both web and worker require it.
+
 Verify: `curl http://localhost:8080/health` returns 200. The API is served
 under `/api`; the web UI is at `/`.
+`/health` is liveness only. `/ready` requires PostgreSQL and Redis and returns
+503 on dependency failure or after a 2.5-second readiness timeout. Authentication
+waits up to 2 seconds for a cold Redis connection and fails closed in production.
 
 What each service does:
 
@@ -79,7 +86,9 @@ What each service does:
   5 minutes, full-text extraction for feeds with it enabled (bounded,
   per-host-polite), page-feed monitoring with conditional GET, analytics
   hourly, cleanup nightly, notification emails when SMTP is configured.
-  It starts only after `web` is healthy.
+  It starts only after `web` is healthy. At startup and periodically it also
+  warms the curated Discover catalog, including unsubscribed feeds. These
+  requests reach publishers and may follow redirects to their content hosts.
 
 Per-feed HTTP headers (bring-your-own-subscription): edit any feed and
 paste your paid-subscription cookie — the worker sends it with fetches

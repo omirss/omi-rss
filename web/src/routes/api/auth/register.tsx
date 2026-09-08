@@ -1,7 +1,7 @@
 import { z } from "zod";
 import bcrypt from "bcrypt";
 import crypto from "node:crypto";
-import { count, eq, or } from "drizzle-orm";
+import { count, eq, or, sql } from "drizzle-orm";
 import { users } from "../../../data/db/schema.js";
 import { getDb } from "../../../lib/api/db.js";
 import { AppError, handle, jsonResponse } from "../../../lib/api/errors.js";
@@ -38,54 +38,53 @@ export async function action({ request }: { request: Request }) {
     }
 
     const db = await getDb();
-
-    // ALLOW_REGISTRATION=false closes sign-ups, but an empty instance always
-    // allows the first user (bootstrap) so a fresh deploy is never locked out.
-    if (process.env.ALLOW_REGISTRATION === "false") {
-      const [{ value: userCount }] = await db.select({ value: count() }).from(users);
-      if (userCount > 0) {
-        throw new AppError("Registration is closed", 403);
-      }
-    }
-
-    // Absent email must not match anything: eq(email, null) is never true in
-    // SQL, but guarding explicitly keeps the username-only contract obvious.
-    const conflict = data.email
-      ? or(eq(users.email, data.email), eq(users.username, data.username))
-      : eq(users.username, data.username);
-
-    const [existingUser] = await db
-      .select()
-      .from(users)
-      .where(conflict)
-      .limit(1);
-
-    if (existingUser) {
-      // Generic message + kept 409 status (client contract): no account
-      // existence oracle through the response body.
-      throw new AppError("Registration failed", 409);
-    }
-
     const passwordHash = await bcrypt.hash(data.password, parseInt(process.env.BCRYPT_ROUNDS || "10"));
-
-    // No email -> no verification flow: null token, no queue job.
     const emailVerificationToken = data.email ? crypto.randomBytes(32).toString("hex") : null;
 
-    const [newUser] = await db
-      .insert(users)
-      .values({
-        email: data.email ?? null,
-        username: data.username,
-        passwordHash,
-        firstName: data.firstName,
-        lastName: data.lastName,
-        emailVerificationToken,
-      })
-      .returning({
-        id: users.id,
-        email: users.email,
-        username: users.username,
-      });
+    const newUser = await db.transaction(async (tx) => {
+      // Lock before the count snapshot so only one connection can bootstrap.
+      if (process.env.ALLOW_REGISTRATION === "false") {
+        await tx.execute(sql`LOCK TABLE ${users} IN SHARE ROW EXCLUSIVE MODE`);
+        const [{ value: userCount }] = await tx.select({ value: count() }).from(users);
+        if (userCount > 0) {
+          throw new AppError("Registration is closed", 403);
+        }
+      }
+
+      const conflict = data.email
+        ? or(eq(users.email, data.email), eq(users.username, data.username))
+        : eq(users.username, data.username);
+
+      const [existingUser] = await tx
+        .select()
+        .from(users)
+        .where(conflict)
+        .limit(1);
+
+      if (existingUser) {
+        throw new AppError("Registration failed", 409);
+      }
+
+      const [newUser] = await tx
+        .insert(users)
+        .values({
+          email: data.email ?? null,
+          username: data.username,
+          passwordHash,
+          firstName: data.firstName,
+          lastName: data.lastName,
+          emailVerificationToken,
+        })
+        .onConflictDoNothing()
+        .returning({
+          id: users.id,
+          email: users.email,
+          username: users.username,
+        });
+      // Concurrent open registrations use the same non-enumerating response.
+      if (!newUser) throw new AppError("Registration failed", 409);
+      return newUser;
+    });
 
     if (data.email) {
       const runtime = await getDataRuntime();

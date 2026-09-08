@@ -107,7 +107,12 @@ export async function action({ request, context }: { request: Request; context: 
       }
     }
 
-    if (data.email) {
+    const [currentUser] = await db.select({ email: users.email }).from(users)
+      .where(eq(users.id, auth.id)).limit(1);
+    if (!currentUser) throw new AppError("User not found", 404);
+    const emailChanged = Boolean(data.email && data.email !== currentUser.email);
+
+    if (emailChanged && data.email) {
       const [existingUser] = await db
         .select()
         .from(users)
@@ -122,7 +127,7 @@ export async function action({ request, context }: { request: Request; context: 
     // Setting an email resets verification and queues the same
     // verification email register sends, so accounts created without an
     // email can gain (and verify) one later — required for password resets.
-    const emailPatch = data.email
+    const emailPatch = emailChanged
       ? {
           email: data.email,
           emailVerified: false,
@@ -133,7 +138,9 @@ export async function action({ request, context }: { request: Request; context: 
     const [updatedUser] = await db
       .update(users)
       .set({
-        ...data,
+        username: data.username,
+        firstName: data.firstName,
+        lastName: data.lastName,
         ...emailPatch,
         updatedAt: new Date(),
       })
@@ -147,7 +154,7 @@ export async function action({ request, context }: { request: Request; context: 
         avatarUrl: users.avatarUrl,
       });
 
-    if (data.email) {
+    if (emailChanged) {
       const runtime = await getDataRuntime();
       await runtime.queue.add("notification.send-email", {
         userId: auth.id,

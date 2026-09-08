@@ -56,6 +56,7 @@ pnpm test                   # unit tests
 ```
 
 Health check: `GET /health`, readiness: `GET /ready`.
+Readiness requires both PostgreSQL and Redis to respond within a bounded timeout.
 
 ### Extension
 
@@ -92,7 +93,7 @@ The stack is four services: `web` (UI + API, port 8080 by default), `worker` (sa
 
 For a localhost stack with dev-friendly defaults, use `docker-compose.yml` instead; for databases only (local development on `web/`), use `compose.dev.yml`.
 
-Extension: load unpacked, or build store-ready zips with `cd extension && ./build.sh`.
+Extension: load unpacked, or build distribution zips with `cd extension && ./build.sh`.
 
 See [docs/self-hosting.md](docs/self-hosting.md) for the full guide.
 
@@ -122,6 +123,36 @@ The server and worker read these from the environment (`web/.env.example` carrie
 | `NODE_ENV` | `development` or `production`; production enables strict auth/rate-limit behavior |
 
 Compose additionally supports `WEB_PORT` (host port for `web`, default `8080`), `POSTGRES_PASSWORD`, and `RATE_LIMIT_*` (see [docs/self-hosting.md](docs/self-hosting.md)).
+
+## Network And Reader Limits
+
+The worker fetches the curated Discover catalog at startup and periodically,
+including feeds no user has subscribed to. It also fetches subscribed feeds,
+monitored pages, and article URLs, and contacts your SMTP relay when configured.
+Publishers and their redirects/CDNs can see these requests; reader images and
+links can contact external hosts. There is no project telemetry service.
+
+Full-text extraction is text-oriented and removes audio, video, and iframes.
+The web reader has no podcast/enclosure player; its default CSP restricts
+external media. The Google Reader API includes enclosure metadata, but playback
+and full sync in individual native clients have not been verified.
+
+The web app supplies a manifest and install icons. Installation depends on the
+browser; these assets do not establish offline reading support. The web app
+does not implement service-worker or offline article caching. Browser PWA
+installation has not been verified. The extension's
+local storage and sync queue are separate from the web app.
+
+## Isolated Stack Regression
+
+After installing `web/` dependencies, run
+`node web/scripts/current-stack-smoke.mjs /absolute/path/to/evidence-directory`.
+It builds the real Docker image, starts both Compose variants with fresh volumes
+and loopback ports, and tests cold bootstrap, worker email delivery, extracted
+content, transactional reorder, and dependency outages. It removes only its
+own Compose projects, volumes, and image on completion; no existing database
+or Redis instance is used. Container logs and resolved synthetic configurations
+are written to the supplied existing directory.
 
 ## Status
 

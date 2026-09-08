@@ -36,11 +36,35 @@ function getLimiterRedisClient(): Redis {
   if (!limiterRedisClient) {
     limiterRedisClient = new Redis(process.env.REDIS_URL || "redis://localhost:6380", {
       maxRetriesPerRequest: 1,
+      commandTimeout: 2000,
       enableOfflineQueue: false,
     });
     limiterRedisClient.on("error", (err) => console.warn("Rate limiter Redis error:", err.message));
   }
   return limiterRedisClient;
+}
+
+export async function waitForLimiterRedis(): Promise<Redis> {
+  const client = getLimiterRedisClient();
+  if (client.status === "ready") return client;
+  await new Promise<void>((resolve, reject) => {
+    const cleanup = () => {
+      clearTimeout(timer);
+      client.off("ready", onReady);
+      client.off("end", onEnd);
+    };
+    const onReady = () => { cleanup(); resolve(); };
+    const onEnd = () => { cleanup(); reject(new Error("Redis connection ended")); };
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error("Redis readiness timed out"));
+    }, 2000);
+    client.once("ready", onReady);
+    client.once("end", onEnd);
+    if (client.status === "ready") onReady();
+    else if (client.status === "end") onEnd();
+  });
+  return client;
 }
 
 function getApiLimiter(): RateLimiterRedis {
@@ -201,6 +225,7 @@ export const apiRateLimit: MiddlewareFn = async (request, _context, next) => {
     return next();
   }
   try {
+    await waitForLimiterRedis();
     await getApiLimiter().consume(key);
     return next();
   } catch (error) {
@@ -222,6 +247,7 @@ function isProduction(): boolean {
 // letting unthrottled password guessing through.
 export async function consumeAuthRateLimit(key: string): Promise<void> {
   try {
+    await waitForLimiterRedis();
     await getAuthLimiter().consume(key);
   } catch (error) {
     if (error instanceof RateLimiterRes) {
@@ -243,6 +269,7 @@ export async function consumeAnonAuthRateLimit(identifier: string): Promise<void
   const digest = createHash("sha256").update(identifier.trim().toLowerCase()).digest("hex").slice(0, 32);
   await consumeAuthRateLimit(`ident:${digest}`);
   try {
+    await waitForLimiterRedis();
     await getAnonFallbackLimiter().consume("shared");
   } catch (error) {
     if (error instanceof RateLimiterRes) {
@@ -259,6 +286,7 @@ export async function consumeAnonAuthRateLimit(identifier: string): Promise<void
 // is down (the fail-closed mandate covers the auth limiter only).
 export async function consumeUserRateLimit(userId: string): Promise<void> {
   try {
+    await waitForLimiterRedis();
     await getUserLimiter().consume(userId);
   } catch (error) {
     if (error instanceof RateLimiterRes) {

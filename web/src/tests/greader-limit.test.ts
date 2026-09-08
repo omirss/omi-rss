@@ -18,7 +18,7 @@ vi.mock("rate-limiter-flexible", () => {
   };
 });
 
-vi.mock("ioredis", () => ({ default: vi.fn().mockImplementation(() => ({ on: vi.fn() })) }));
+vi.mock("../lib/api/rate-limit.js", () => ({ waitForLimiterRedis: vi.fn(async () => ({})) }));
 
 import { consumeGreaderRateLimit } from "../lib/greader/limit.js";
 import { AppError } from "../lib/api/errors.js";
