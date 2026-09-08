@@ -15,11 +15,11 @@ importers:
         specifier: 0.6.0
         version: 0.6.0
       '@neutron-build/cli':
-        specifier: 0.2.1
-        version: 0.2.1(@types/node@22.19.11)(sanitize-html@2.17.7)(sharp@0.35.4(@types/node@22.19.11))(tsx@4.23.13)(yaml@2.9.0)
+        specifier: ^0.2.3
+        version: 0.2.3(@types/node@22.19.11)(sanitize-html@2.17.7)(sharp@0.35.4(@types/node@22.19.11))(tsx@4.23.13)(yaml@2.9.0)
       '@neutron-build/core':
-        specifier: 0.2.0
-        version: 0.2.0(sanitize-html@2.17.7)(sharp@0.35.4(@types/node@22.19.11))
+        specifier: ^0.2.2
+        version: 0.2.2(sanitize-html@2.17.7)(sharp@0.35.4(@types/node@22.19.11))
       '@neutron-build/data':
         specifier: 0.1.1
         version: 0.1.1(bullmq@5.81.4)(drizzle-orm@0.45.2(postgres@3.4.9))(ioredis@5.8.1)(postgres@3.4.9)
@@ -887,13 +887,13 @@ packages:
     cpu: [x64]
     os: [linux]
 
-  '@neutron-build/cli@0.2.1':
-    resolution: {integrity: sha512-Li/oGC4T4EF8tpA/EJPyzJACVgR/Zd43uGFdGuF4eOMwBgdw6Y8d1+IK8MuaIr5fnF4+2f1Wjxcvr3R4w+e3xA==}
+  '@neutron-build/cli@0.2.3':
+    resolution: {integrity: sha512-N2rDS8yRk5s8EIUVmLLO/JYfONY31rmN4WOJxpREmgFrMGCHgBGLeMHabpACVsMZQOV1182Aoy10HLv680mmiA==}
     engines: {node: '>=20'}
     hasBin: true
 
-  '@neutron-build/core@0.2.0':
-    resolution: {integrity: sha512-uZ8k4ujqIjuDEfbTu1ydOIumcyVzUeuT0JgNbM7NUuyIZgCt3rCyFQn9I04VPTeftBE3mDx+b7EjWeCrXp2uZw==}
+  '@neutron-build/core@0.2.2':
+    resolution: {integrity: sha512-HF8dGl33sSpw6UpPyWk+e031f3UCdLzAHPzSGJMU1nE0Sn8Jaro5fVdypry5hXGbLxXP9wSg7sS0R5U+Kd2ZtQ==}
     engines: {node: '>=20'}
     peerDependencies:
       sanitize-html: '>=2.0.0'
@@ -1342,6 +1342,11 @@ packages:
 
   convert-source-map@2.0.0:
     resolution: {integrity: sha512-Kvp459HrV2FEJ1CAsi1Ku+MY3kasH19TFykTz2xWmMeq6bk2NU3XXvfJ+Q61m0xktWwt+1HSYf3JZsTms3aRJg==}
+
+  create-neutron@0.1.5:
+    resolution: {integrity: sha512-4vCVAE6bYAMKvFuqZfw/38A6aCnql1ndh6qRlYS1b9hVWeAzJJ5nk02iEVYDttr4A+iAD1hky5U6BZYFpDkYcw==}
+    engines: {node: '>=20'}
+    hasBin: true
 
   cron-parser@4.9.0:
     resolution: {integrity: sha512-p0SaNjrHOnQeR8/VnfGbmg9te2kfyYSQ7Sc/j/6DtPL3JQvKxmjO9TSjNFpujqV3vEYYBvNNvXSxzyksBWAx1Q==}
@@ -3081,9 +3086,10 @@ snapshots:
   '@napi-rs/lzma-linux-x64-gnu@1.5.1':
     optional: true
 
-  '@neutron-build/cli@0.2.1(@types/node@22.19.11)(sanitize-html@2.17.7)(sharp@0.35.4(@types/node@22.19.11))(tsx@4.23.13)(yaml@2.9.0)':
+  '@neutron-build/cli@0.2.3(@types/node@22.19.11)(sanitize-html@2.17.7)(sharp@0.35.4(@types/node@22.19.11))(tsx@4.23.13)(yaml@2.9.0)':
     dependencies:
-      '@neutron-build/core': 0.2.0(sanitize-html@2.17.7)(sharp@0.35.4(@types/node@22.19.11))
+      '@neutron-build/core': 0.2.2(sanitize-html@2.17.7)(sharp@0.35.4(@types/node@22.19.11))
+      create-neutron: 0.1.5
       preact: 10.29.8(preact-render-to-string@6.7.0)
       preact-render-to-string: 6.7.0(preact@10.29.8)
       vite: 6.4.3(@types/node@22.19.11)(tsx@4.23.13)(yaml@2.9.0)
@@ -3106,7 +3112,7 @@ snapshots:
       - utf-8-validate
       - yaml
 
-  '@neutron-build/core@0.2.0(sanitize-html@2.17.7)(sharp@0.35.4(@types/node@22.19.11))':
+  '@neutron-build/core@0.2.2(sanitize-html@2.17.7)(sharp@0.35.4(@types/node@22.19.11))':
     dependencies:
       '@babel/parser': 7.29.8
       '@hono/node-server': 1.19.17(hono@4.13.7)
@@ -3140,7 +3146,7 @@ snapshots:
 
   '@neutron-build/ops@0.1.2(sanitize-html@2.17.7)(sharp@0.35.4(@types/node@22.19.11))':
     dependencies:
-      '@neutron-build/core': 0.2.0(sanitize-html@2.17.7)(sharp@0.35.4(@types/node@22.19.11))
+      '@neutron-build/core': 0.2.2(sanitize-html@2.17.7)(sharp@0.35.4(@types/node@22.19.11))
     transitivePeerDependencies:
       - bufferutil
       - sanitize-html
@@ -3151,7 +3157,7 @@ snapshots:
 
   '@neutron-build/security@0.1.2(sanitize-html@2.17.7)(sharp@0.35.4(@types/node@22.19.11))':
     dependencies:
-      '@neutron-build/core': 0.2.0(sanitize-html@2.17.7)(sharp@0.35.4(@types/node@22.19.11))
+      '@neutron-build/core': 0.2.2(sanitize-html@2.17.7)(sharp@0.35.4(@types/node@22.19.11))
     transitivePeerDependencies:
       - bufferutil
       - sanitize-html
@@ -3513,6 +3519,8 @@ snapshots:
   console-control-strings@1.1.0: {}
 
   convert-source-map@2.0.0: {}
+
+  create-neutron@0.1.5: {}
 
   cron-parser@4.9.0:
     dependencies:
