@@ -23,21 +23,26 @@ later, but nothing depends on one existing.
 
 Website: <https://omirss.com> (source in a separate private repo).
 
-## North Star: Webroll
+## North Star: Webroll — DECLINED 2026-09-08
 
-`docs/webroll/CONCEPT.md` describes the long-term evolution: omi-rss is the
-reader lane (day-one value); Webroll adds a public trust and discovery network
-on top (registry of independent sites, owner identities, vouches, share
-routing).
+`docs/webroll/CONCEPT.md` described the long-term evolution: a public trust
+and discovery network (registry of independent sites, owner identities,
+vouches, share routing) on top of the reader.
 
-Architecture agreement already in place: Webroll's canonical state is public
-append-only logs with a public read API, so a self-hosted omi-rss can consume
-the network as data — no special coupling. The seam in this repo is the
-server's discovery module: OPML is the only provider today; a Webroll
-discovery provider drops in later without touching the reader core.
+**Decision 2026-09-08: not building it.** A vouch/trust network requires an
+active trust anchor — vouching, revoking, key recovery — and the owner does
+not want that maintenance role. A trust network whose anchor will not do
+trust work is a dead network; better decided before building than after.
 
-**Nothing in Webroll adds requirements to omi-rss v0.2.** It is referenced
-here so its existence is deliberate, not forgotten.
+Discovery stays what it is, deliberately zero-social-maintenance:
+- the curated catalog (maintained in-repo, changes rarely)
+- OPML import/export — users bring their own trust out-of-band and can
+  publish their own lists wherever they like; omi-rss does not mediate it
+
+The architectural seam (discovery providers; OPML is the only provider)
+remains, so if demand from actual self-hosters ever changes this calculus,
+a future provider can still drop in without touching the reader core. The
+concept doc stays as the recorded design in case that day comes.
 
 ## Current state (v0.6.1)
 
