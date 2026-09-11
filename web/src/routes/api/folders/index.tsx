@@ -5,6 +5,7 @@ import { getDb } from "../../../lib/api/db.js";
 import { AppError, handle, handleLoader, jsonResponse } from "../../../lib/api/errors.js";
 import { readJsonBody } from "../../../lib/api/body.js";
 import { requireAuth } from "../../../lib/api/auth.js";
+import { assertFolderOwned } from "../../../lib/api/folders.js";
 
 export const config = { mode: "app" };
 
@@ -46,7 +47,9 @@ export async function loader({ context }: { context: Record<string, unknown> }) 
         `.as("unreadCount"),
       })
       .from(folders)
-      .leftJoin(feeds, eq(feeds.folderId, folders.id))
+      // Join on owner as well as folder id: a folder only ever counts the
+      // owner's feeds (audit F014 — cross-tenant attachments).
+      .leftJoin(feeds, and(eq(feeds.folderId, folders.id), eq(feeds.userId, folders.userId)))
       .leftJoin(articles, eq(articles.feedId, feeds.id))
       .where(eq(folders.userId, auth.id))
       .groupBy(folders.id)
@@ -88,6 +91,10 @@ export async function action({ request, context }: { request: Request; context: 
     const auth = context.user as { id: string };
     const data = createFolderSchema.parse(await readJsonBody(request));
     const db = await getDb();
+
+    if (data.parentId) {
+      await assertFolderOwned(db, data.parentId, auth.id);
+    }
 
     const existingFolder = await db
       .select()

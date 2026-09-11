@@ -6,6 +6,7 @@ import { getDb } from "../../../lib/api/db.js";
 import { AppError, handle, handleLoader, jsonResponse, noContent } from "../../../lib/api/errors.js";
 import { readJsonBody } from "../../../lib/api/body.js";
 import { requireAuth } from "../../../lib/api/auth.js";
+import { assertFolderOwned } from "../../../lib/api/folders.js";
 
 export const config = { mode: "app" };
 
@@ -98,27 +99,35 @@ export async function action({ request, params, context }: { request: Request; p
     }
 
     if (request.method === "DELETE") {
-      const [feedCount] = await db
-        .select({ count: sql<number>`COUNT(*)` })
-        .from(feeds)
-        .where(eq(feeds.folderId, folderId));
+      // One transaction under the same per-user advisory lock the cycle
+      // trigger takes: the emptiness pre-checks and the delete commit
+      // atomically, so a subfolder moved under this folder between check
+      // and delete can no longer be cascade-deleted by the race.
+      await db.transaction(async (tx) => {
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${auth.id}::text, 719))`);
 
-      if (Number(feedCount.count) > 0) {
-        throw new AppError("Cannot delete folder with feeds. Move or delete feeds first.", 400);
-      }
+        const [feedCount] = await tx
+          .select({ count: sql<number>`COUNT(*)` })
+          .from(feeds)
+          .where(eq(feeds.folderId, folderId));
 
-      const [subfolderCount] = await db
-        .select({ count: sql<number>`COUNT(*)` })
-        .from(folders)
-        .where(eq(folders.parentId, folderId));
+        if (Number(feedCount.count) > 0) {
+          throw new AppError("Cannot delete folder with feeds. Move or delete feeds first.", 400);
+        }
 
-      if (Number(subfolderCount.count) > 0) {
-        throw new AppError("Cannot delete folder with subfolders. Delete subfolders first.", 400);
-      }
+        const [subfolderCount] = await tx
+          .select({ count: sql<number>`COUNT(*)` })
+          .from(folders)
+          .where(eq(folders.parentId, folderId));
 
-      await db
-        .delete(folders)
-        .where(eq(folders.id, folderId));
+        if (Number(subfolderCount.count) > 0) {
+          throw new AppError("Cannot delete folder with subfolders. Delete subfolders first.", 400);
+        }
+
+        await tx
+          .delete(folders)
+          .where(eq(folders.id, folderId));
+      });
 
       return noContent();
     }
@@ -129,6 +138,8 @@ export async function action({ request, params, context }: { request: Request; p
       if (data.parentId === folderId) {
         throw new AppError("Folder cannot be its own parent", 400);
       }
+
+      await assertFolderOwned(db, data.parentId, auth.id);
 
       const isDescendant = await checkIfDescendant(db, folderId, data.parentId, auth.id);
       if (isDescendant) {
@@ -160,44 +171,59 @@ export async function action({ request, params, context }: { request: Request; p
       }
     }
 
-    const [updatedFolder] = await db
-      .update(folders)
-      .set({
-        ...data,
-        updatedAt: new Date(),
-      })
-      .where(eq(folders.id, folderId))
-      .returning();
+    try {
+      const [updatedFolder] = await db
+        .update(folders)
+        .set({
+          ...data,
+          updatedAt: new Date(),
+        })
+        .where(eq(folders.id, folderId))
+        .returning();
 
-    return jsonResponse({ folder: updatedFolder });
+      return jsonResponse({ folder: updatedFolder });
+    } catch (error) {
+      // The omi_check_folder_parent trigger is the TOCTOU backstop for the
+      // cycle pre-check above — surface its rejections as 409s.
+      if (error instanceof Error && /folder (cycle detected|cannot be its own parent|hierarchy deeper)/.test(error.message)) {
+        throw new AppError(error.message, 409);
+      }
+      throw error;
+    }
   });
 }
 
-async function checkIfDescendant(
+// Iterative walk with a seen-set: recursion-free, and a historical cycle in
+// the table terminates with a positive answer instead of infinite recursion.
+export async function checkIfDescendant(
   db: Database,
   parentId: string,
   potentialDescendantId: string,
   userId: string,
 ): Promise<boolean> {
-  const children = await db
+  const childrenByParent = await db
     .select({ id: folders.id, parentId: folders.parentId })
     .from(folders)
-    .where(
-      and(
-        eq(folders.userId, userId),
-        eq(folders.parentId, parentId),
-      ),
-    );
+    .where(eq(folders.userId, userId));
 
-  for (const child of children) {
-    if (child.id === potentialDescendantId) {
-      return true;
-    }
-    const isChildDescendant = await checkIfDescendant(db, child.id, potentialDescendantId, userId);
-    if (isChildDescendant) {
-      return true;
-    }
+  const childrenOf = new Map<string, string[]>();
+  for (const row of childrenByParent) {
+    if (row.parentId === null) continue;
+    const siblings = childrenOf.get(row.parentId) ?? [];
+    siblings.push(row.id);
+    childrenOf.set(row.parentId, siblings);
   }
 
+  const queue = [parentId];
+  const seen = new Set<string>([parentId]);
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    if (current === potentialDescendantId) return true;
+    for (const child of childrenOf.get(current) ?? []) {
+      if (seen.has(child)) continue;
+      seen.add(child);
+      queue.push(child);
+    }
+  }
   return false;
 }

@@ -4,6 +4,7 @@ import { getDb } from "../../../lib/api/db.js";
 import { AppError, handle, jsonResponse } from "../../../lib/api/errors.js";
 import { readJsonBody } from "../../../lib/api/body.js";
 import { requireAuth } from "../../../lib/api/auth.js";
+import { assertFolderOwned } from "../../../lib/api/folders.js";
 import { getDataRuntime } from "../../../data/runtime.js";
 import { validatePageFeedInput, verifyPageSelector } from "../../../services/page-feed.js";
 import { faviconUrlFor } from "../../../lib/favicon.js";
@@ -34,6 +35,10 @@ export async function action({ request, context }: { request: Request; context: 
 
     if (existingFeed) {
       throw new AppError("Already subscribed to this page feed", 409);
+    }
+
+    if (input.folderId) {
+      await assertFolderOwned(db, input.folderId, auth.id);
     }
 
     const verification = await verifyPageSelector(input.pageUrl, input.pageSelector);

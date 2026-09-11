@@ -3,6 +3,7 @@ import { eq, and, or, sql, inArray, type SQL } from "drizzle-orm";
 import Parser from "rss-parser";
 import { articles, feeds, folders, userArticleStates, users } from "../../data/db/schema.js";
 import { getDb } from "../api/db.js";
+import { isUniqueViolation } from "../api/pg-errors.js";
 import { AppError } from "../api/errors.js";
 import {
   authRateLimitKey,
@@ -693,24 +694,34 @@ async function subscribeFeed(
   }
 
   const feedImage = feedData.image as string | { url?: string } | undefined;
-  const [feed] = await db
-    .insert(feeds)
-    .values({
-      userId,
-      url,
-      title: feedData.title || "Untitled Feed",
-      description: feedData.description,
-      siteUrl: feedData.link,
-      imageUrl: typeof feedImage === "string" ? feedImage : feedImage?.url,
-      customTitle: customTitle || undefined,
-      folderId: folderId ?? undefined,
-      favicon: faviconUrlFor(feedData.link),
-    })
-    .returning();
+  let feed: typeof feeds.$inferSelect | undefined;
+  try {
+    [feed] = await db
+      .insert(feeds)
+      .values({
+        userId,
+        url,
+        title: feedData.title || "Untitled Feed",
+        description: feedData.description,
+        siteUrl: feedData.link,
+        imageUrl: typeof feedImage === "string" ? feedImage : feedImage?.url,
+        customTitle: customTitle || undefined,
+        folderId: folderId ?? undefined,
+        favicon: faviconUrlFor(feedData.link),
+      })
+      .returning();
+  } catch (error) {
+    // The (user_id, url) unique index is the real dup-check: a concurrent
+    // subscribe that raced past the pre-check reports "already subscribed".
+    if (isUniqueViolation(error)) {
+      return null;
+    }
+    throw error;
+  }
 
   const runtime = await getDataRuntime();
-  await runtime.queue.add("feed.update-single", { feedId: feed.id });
-  return { feed };
+  await runtime.queue.add("feed.update-single", { feedId: feed!.id });
+  return { feed: feed! };
 }
 
 async function resolveOrCreateFolder(userId: string, name: string): Promise<string> {
