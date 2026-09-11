@@ -30,14 +30,14 @@ describe("email service", () => {
       expect(nodemailer.createTransport).not.toHaveBeenCalled();
     });
 
-    it("should stay disabled when transporter verification fails", async () => {
+    it("should stay configured when transporter verification fails (relay merely unreachable)", async () => {
       process.env.SMTP_HOST = "smtp.example.com";
       vi.mocked(nodemailer.createTransport).mockReturnValue({
         verify: vi.fn().mockRejectedValue(new Error("connect ECONNREFUSED")),
       } as never);
 
       await expect(initializeEmailService()).resolves.toBeUndefined();
-      expect(isEmailConfigured()).toBe(false);
+      expect(isEmailConfigured()).toBe(true);
     });
 
     it("should be configured after successful verification", async () => {

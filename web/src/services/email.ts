@@ -26,7 +26,9 @@ export function isEmailConfigured(): boolean {
 
 // Initialize email transporter. No-op (with warning) when SMTP is not
 // configured so self-hosted instances without SMTP still boot, register
-// and log in fine.
+// and log in fine. A failing verify() (relay briefly unreachable at boot)
+// keeps the transporter — the configuration exists, and delivery retries
+// once SMTP recovers instead of staying disabled until restart.
 export async function initializeEmailService(): Promise<void> {
   if (!process.env.SMTP_HOST) {
     transporter = undefined;
@@ -36,27 +38,27 @@ export async function initializeEmailService(): Promise<void> {
     return;
   }
 
-  try {
-    transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: parseInt(process.env.SMTP_PORT || "587"),
-      secure: process.env.SMTP_PORT === "465",
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-      },
-    });
+  transporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: parseInt(process.env.SMTP_PORT || "587"),
+    secure: process.env.SMTP_PORT === "465",
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+    },
+  });
 
+  try {
     await transporter.verify();
-    if (!process.env.FRONTEND_URL) {
-      console.warn(
-        `FRONTEND_URL not set; email links will use the http://localhost:${process.env.PORT || "3000"} fallback`
-      );
-    }
     console.info("Email service initialized successfully");
   } catch (error) {
-    transporter = undefined;
-    console.error("Failed to initialize email service:", error);
+    console.warn("Email service verify failed (will retry on send):", error);
+  }
+
+  if (!process.env.FRONTEND_URL) {
+    console.warn(
+      `FRONTEND_URL not set; email links will use the http://localhost:${process.env.PORT || "3000"} fallback`
+    );
   }
 }
 
