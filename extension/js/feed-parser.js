@@ -42,10 +42,14 @@ class FeedParser {
 
   // Fetch feed content. Extension contexts with host_permissions fetch
   // cross-origin without CORS; failures propagate to parseFeed's catch.
+  // The abort timer stays armed through the BODY read and the body is
+  // streamed under a hard 5 MiB cap, so a server that sends headers then
+  // stalls, or streams forever, cannot pin the scheduler slot or buffer
+  // unbounded memory.
   async fetchFeed(url, options = {}) {
     const { timeout = 30000 } = options;
+    const maxBytes = 5 * 1024 * 1024;
 
-    // Create abort controller for timeout
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
@@ -57,11 +61,38 @@ class FeedParser {
         }
       });
 
-      if (response.ok) {
+      if (!response.ok) {
+        try { await response.body?.cancel(); } catch (err) { /* already released */ }
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const reader = response.body ? response.body.getReader() : null;
+      if (!reader) {
         return response;
       }
 
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      const chunks = [];
+      let total = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.byteLength;
+        if (total > maxBytes) {
+          await reader.cancel().catch(() => {});
+          throw new Error(`Feed body exceeded ${maxBytes} bytes`);
+        }
+        chunks.push(value);
+      }
+
+      return new Response(new Blob(chunks), {
+        status: response.status,
+        headers: response.headers
+      });
+    } catch (error) {
+      if (error && error.name === 'AbortError') {
+        throw new Error(`Feed fetch timed out after ${timeout}ms`);
+      }
+      throw error;
     } finally {
       clearTimeout(timeoutId);
     }
@@ -118,21 +149,25 @@ class FeedParser {
     let feed;
 
     if (isAtom) {
+      // Feed-level links live before the first <entry>; Atom links are
+      // self-closing so paired-tag matching never finds them.
+      const head = xmlText.split(/<entry[\s>]/i)[0];
+      const siteLink = this.getAtomTextLink(head, feedUrl);
       feed = {
         type: 'atom',
         title: pick(xmlText, 'title'),
         description: pick(xmlText, 'subtitle') || '',
         url: feedUrl,
-        siteUrl: pick(xmlText, 'link') || feedUrl,
+        siteUrl: siteLink || feedUrl,
         items: []
       };
 
       for (const entry of readBlocks(xmlText, 'entry')) {
-        const linkMatch = entry.match(/<link[^>]*href=["']([^"']+)["'][^>]*>/i);
+        const link = this.getAtomTextLink(entry, feedUrl);
         feed.items.push({
-          guid: pick(entry, 'id') || (linkMatch ? linkMatch[1] : ''),
+          guid: pick(entry, 'id') || link || '',
           title: pick(entry, 'title') || 'Untitled',
-          link: (linkMatch && linkMatch[1]) || '',
+          link: link || '',
           summary: pick(entry, 'summary') || '',
           content: pick(entry, 'content') || '',
           published: pick(entry, 'published') || pick(entry, 'updated') || null,
@@ -305,10 +340,13 @@ class FeedParser {
       )
     };
     
-    // Extract content
+    // Extract content; type="xhtml" content keeps its markup (it is a
+    // serialized div per RFC 4287) instead of being flattened to text.
     const content = entry.querySelector('content');
     if (content) {
-      article.content = content.textContent || '';
+      article.content = content.getAttribute('type') === 'xhtml'
+        ? content.innerHTML
+        : content.textContent || '';
     }
     
     // Extract author
@@ -384,15 +422,39 @@ class FeedParser {
     return element?.textContent?.trim() || null;
   }
 
-  // Helper: Get Atom link
+  // Helper: Get Atom link. Only DIRECT link children count, and a missing
+  // rel means 'alternate' per RFC 4287 — an entry without its own link
+  // must not inherit one nested inside its content.
   getAtomLink(parent, rel) {
-    const links = parent.querySelectorAll('link');
-    for (const link of links) {
-      if (link.getAttribute('rel') === rel) {
-        return link.getAttribute('href');
+    for (const child of parent.children) {
+      if (!child.tagName || child.tagName.toLowerCase() !== 'link') continue;
+      if ((child.getAttribute('rel') || 'alternate') === rel && child.getAttribute('href')) {
+        return child.getAttribute('href');
       }
     }
     return null;
+  }
+
+  // Text-mode Atom link extraction (service workers have no DOMParser):
+  // prefers the alternate link, resolves against the feed URL.
+  getAtomTextLink(blockText, baseUrl) {
+    const linkTags = [];
+    const re = /<link\b[^>]*>/gi;
+    let match;
+    while ((match = re.exec(blockText)) !== null) {
+      linkTags.push(match[0]);
+    }
+    let fallback = null;
+    for (const tag of linkTags) {
+      const href = tag.match(/href=["']([^"']+)["']/i);
+      if (!href) continue;
+      const rel = tag.match(/rel=["']([^"']+)["']/i);
+      if (!rel || rel[1] === 'alternate') {
+        return this.resolveUrl(href[1], baseUrl);
+      }
+      if (!fallback) fallback = href[1];
+    }
+    return fallback ? this.resolveUrl(fallback, baseUrl) : null;
   }
 
   // Normalize and validate feed URL
@@ -423,16 +485,19 @@ class FeedParser {
       if (!item.guid) {
         item.guid = item.link || `${feed.url}#item-${index}`;
       }
-      
-      // Normalize dates
-      if (item.pubDate) {
-        item.publishedAt = new Date(item.pubDate).toISOString();
-      } else if (item.published) {
-        item.publishedAt = new Date(item.published).toISOString();
-      } else {
-        item.publishedAt = new Date().toISOString();
+
+      // Normalize dates - one invalid pubDate must not throw a RangeError
+      // that discards every valid item in the feed; it falls back to
+      // arrival time per item.
+      const rawDate = item.pubDate || item.published || item.publishedAt;
+      const parsedDate = rawDate ? new Date(rawDate) : new Date();
+      item.publishedAt = (parsedDate && Number.isFinite(parsedDate.getTime()) ? parsedDate : new Date()).toISOString();
+
+      // Resolve relative item links against the feed URL.
+      if (item.link) {
+        item.link = this.resolveUrl(item.link, feed.url);
       }
-      
+
       // Description stays HTML like content: rendering goes through the
       // same sanitizer walker. Backfill it from summary/content when the
       // feed only provides those, and derive a plain-text excerpt for cards.
@@ -561,3 +626,9 @@ class FeedParser {
 
 // Export for use in extension
 const feedParser = new FeedParser();
+
+// Exported for the node test runner only; extension contexts load this
+// file as a classic script where feedParser is a plain global.
+if (typeof module !== 'undefined') {
+  module.exports = { FeedParser, feedParser };
+}
