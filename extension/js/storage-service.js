@@ -91,11 +91,21 @@ class StorageService {
     return this.db.transaction(storeNames, mode);
   }
 
+  // Resolves when the transaction DURABLY commits, rejects on abort —
+  // request.onsuccess fires before commit, so "resolved = durable" needs
+  // this on every write path.
+  txDone(tx) {
+    return new Promise((resolve, reject) => {
+      tx.addEventListener('complete', () => resolve(), { once: true });
+      tx.addEventListener('abort', () => reject(tx.error || new Error('transaction aborted')), { once: true });
+    });
+  }
+
   // Feed operations
   async addFeed(feedData) {
     const tx = await this.transaction(['feeds'], 'readwrite');
     const store = tx.objectStore('feeds');
-    
+
     // Prepare feed data
     const feed = {
       ...feedData,
@@ -106,21 +116,23 @@ class StorageService {
       updateInterval: feedData.updateInterval || 3600000 // 1 hour default
     };
 
-    return new Promise((resolve, reject) => {
+    const request = await new Promise((resolve, reject) => {
       const request = store.add(feed);
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () => resolve(request);
       request.onerror = () => reject(request.error);
     });
+    await this.txDone(tx);
+    return request.result;
   }
 
   async updateFeed(id, updates) {
     const tx = await this.transaction(['feeds'], 'readwrite');
     const store = tx.objectStore('feeds');
-    
+
     // Get existing feed
     const getRequest = store.get(id);
-    
-    return new Promise((resolve, reject) => {
+
+    const updated = await new Promise((resolve, reject) => {
       getRequest.onsuccess = () => {
         const feed = getRequest.result;
         if (!feed) {
@@ -131,13 +143,15 @@ class StorageService {
         // Update feed
         const updated = { ...feed, ...updates, lastUpdated: new Date().toISOString() };
         const updateRequest = store.put(updated);
-        
+
         updateRequest.onsuccess = () => resolve(updated);
         updateRequest.onerror = () => reject(updateRequest.error);
       };
-      
+
       getRequest.onerror = () => reject(getRequest.error);
     });
+    await this.txDone(tx);
+    return updated;
   }
 
   async deleteFeed(id) {
@@ -260,7 +274,7 @@ class StorageService {
     const tx = await this.transaction(['articles'], 'readwrite');
     const store = tx.objectStore('articles');
 
-    return new Promise((resolve, reject) => {
+    const updated = await new Promise((resolve, reject) => {
       const getRequest = store.get(id);
       getRequest.onsuccess = () => {
         const article = getRequest.result;
@@ -268,13 +282,14 @@ class StorageService {
           reject(new Error('Article not found'));
           return;
         }
-        const updated = { ...article, ...updates };
-        const putRequest = store.put(updated);
-        putRequest.onsuccess = () => resolve(updated);
+        const putRequest = store.put({ ...article, ...updates });
+        putRequest.onsuccess = () => resolve({ ...article, ...updates });
         putRequest.onerror = () => reject(putRequest.error);
       };
       getRequest.onerror = () => reject(getRequest.error);
     });
+    await this.txDone(tx);
+    return updated;
   }
 
   async getAllArticles() {
@@ -340,7 +355,13 @@ class StorageService {
       if (feed) {
         feed.unreadCount = (feed.unreadCount || 0) + newArticleCount;
         feed.lastFetched = new Date().toISOString();
-        feedStore.put(feed);
+        // Awaited: an unnoticed failure here would silently desync the
+        // unread count from the stored articles.
+        await new Promise((resolve, reject) => {
+          const request = feedStore.put(feed);
+          request.onsuccess = () => resolve();
+          request.onerror = () => reject(request.error);
+        });
       }
     }
 
@@ -436,7 +457,13 @@ class StorageService {
 
       if (feed) {
         feed.unreadCount = Math.max(0, (feed.unreadCount || 0) + (isRead ? -1 : 1));
-        feedStore.put(feed);
+        // Awaited: an unnoticed failure here would silently desync the
+        // unread count from the stored articles.
+        await new Promise((resolve, reject) => {
+          const request = feedStore.put(feed);
+          request.onsuccess = () => resolve();
+          request.onerror = () => reject(request.error);
+        });
       }
     }
 
@@ -451,7 +478,7 @@ class StorageService {
   async markArticleSaved(articleId, isSaved = true) {
     const tx = await this.transaction(['articles'], 'readwrite');
     const store = tx.objectStore('articles');
-    
+
     // Get article
     const article = await new Promise((resolve, reject) => {
       const request = store.get(articleId);
@@ -466,12 +493,13 @@ class StorageService {
     // Update article
     article.isSaved = isSaved;
     article.savedAt = isSaved ? new Date().toISOString() : null;
-    
+
     await new Promise((resolve, reject) => {
       const request = store.put(article);
       request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
     });
+    await this.txDone(tx);
 
     return article;
   }
@@ -536,7 +564,7 @@ class StorageService {
   async addFolder(name, parentId = null) {
     const tx = await this.transaction(['folders'], 'readwrite');
     const store = tx.objectStore('folders');
-    
+
     const folder = {
       name,
       parentId,
@@ -544,14 +572,16 @@ class StorageService {
       createdAt: new Date().toISOString()
     };
 
-    return new Promise((resolve, reject) => {
+    const request = await new Promise((resolve, reject) => {
       const request = store.add(folder);
       request.onsuccess = () => {
         folder.id = request.result;
-        resolve(folder);
+        resolve(request);
       };
       request.onerror = () => reject(request.error);
     });
+    await this.txDone(tx);
+    return folder;
   }
 
   async getAllFolders() {
@@ -580,12 +610,13 @@ class StorageService {
   async setSetting(key, value) {
     const tx = await this.transaction(['settings'], 'readwrite');
     const store = tx.objectStore('settings');
-    
-    return new Promise((resolve, reject) => {
+
+    await new Promise((resolve, reject) => {
       const request = store.put({ key, value, updatedAt: new Date().toISOString() });
       request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
     });
+    await this.txDone(tx);
   }
 
   // Statistics operations
@@ -684,85 +715,143 @@ class StorageService {
     }
   }
 
-  // Export all data for backup
+  // Export all data for backup. ONE readonly transaction over every store
+  // so the snapshot is consistent (a concurrent refresh can no longer tear
+  // it), with no article cap — the old 10k limit silently truncated large
+  // libraries into apparently-successful backups — and syncMetadata is
+  // included.
   async exportAllData() {
     await this.ensureReady();
-    
-    const data = {
-      version: this.dbVersion,
-      exportedAt: new Date().toISOString(),
-      feeds: await this.getAllFeeds(),
-      articles: await this.getArticles({ limit: 10000 }),
-      folders: await this.getAllFolders(),
-      settings: {},
-      statistics: []
-    };
 
-    // Get all settings
-    const tx = await this.transaction(['settings', 'statistics'], 'readonly');
-    
-    const settings = await new Promise((resolve) => {
-      const request = tx.objectStore('settings').getAll();
-      request.onsuccess = () => resolve(request.result || []);
-    });
-    
-    settings.forEach(s => {
-      data.settings[s.key] = s.value;
-    });
+    const storeNames = ['feeds', 'articles', 'folders', 'settings', 'syncMetadata', 'statistics'];
 
-    // Get statistics
-    data.statistics = await new Promise((resolve) => {
-      const request = tx.objectStore('statistics').getAll();
-      request.onsuccess = () => resolve(request.result || []);
-    });
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction(storeNames, 'readonly');
+      const results = {};
 
-    return data;
+      for (const name of storeNames) {
+        const request = tx.objectStore(name).getAll();
+        request.onsuccess = () => {
+          results[name] = request.result || [];
+        };
+        request.onerror = () => {
+          reject(request.error);
+        };
+      }
+
+      tx.oncomplete = () => {
+        const settings = {};
+        for (const row of results.settings || []) {
+          settings[row.key] = row.value;
+        }
+        resolve({
+          version: this.dbVersion,
+          exportedAt: new Date().toISOString(),
+          feeds: results.feeds || [],
+          articles: results.articles || [],
+          folders: results.folders || [],
+          settings,
+          syncMetadata: results.syncMetadata || [],
+          statistics: results.statistics || []
+        });
+      };
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('export aborted'));
+    });
   }
 
-  // Import data from backup
+  // Import data from backup. The whole backup is validated BEFORE any
+  // store is touched, then every store is cleared and re-added with the
+  // ORIGINAL ids and read/star flags in ONE readwrite transaction — an
+  // abort restores the previous data instead of leaving a half-applied
+  // import over a wiped library.
   async importData(data) {
     if (!data || data.version !== this.dbVersion) {
       throw new Error('Invalid or incompatible data format');
     }
 
-    // Clear existing data first
-    await this.clearAllData();
-
-    // Import folders first (for hierarchy)
-    if (data.folders) {
-      for (const folder of data.folders) {
-        await this.addFolder(folder.name, folder.parentId);
-      }
+    const feeds = Array.isArray(data.feeds) ? data.feeds : null;
+    const articles = Array.isArray(data.articles) ? data.articles : null;
+    if (!feeds || !articles) {
+      throw new Error('Backup is missing feeds or articles');
     }
+    const folders = Array.isArray(data.folders) ? data.folders : [];
+    const settings = (data.settings && typeof data.settings === 'object' && !Array.isArray(data.settings))
+      ? data.settings
+      : {};
+    const statistics = Array.isArray(data.statistics) ? data.statistics : [];
+    const syncMetadata = Array.isArray(data.syncMetadata) ? data.syncMetadata : [];
 
-    // Import feeds
-    if (data.feeds) {
-      for (const feed of data.feeds) {
-        await this.addFeed(feed);
-      }
-    }
-
-    // Import articles
-    if (data.articles) {
-      const articlesByFeed = {};
-      data.articles.forEach(article => {
-        if (!articlesByFeed[article.feedId]) {
-          articlesByFeed[article.feedId] = [];
+    const uniqueIds = (rows, label) => {
+      const seen = new Set();
+      for (const row of rows) {
+        if (!row || row.id === undefined) {
+          throw new Error(`${label} row is missing an id`);
         }
-        articlesByFeed[article.feedId].push(article);
-      });
+        if (seen.has(row.id)) {
+          throw new Error(`${label} contains duplicate id ${row.id}`);
+        }
+        seen.add(row.id);
+      }
+      return seen;
+    };
 
-      for (const [feedId, articles] of Object.entries(articlesByFeed)) {
-        await this.addArticles(articles, parseInt(feedId));
+    const feedIds = uniqueIds(feeds, 'feeds');
+    uniqueIds(articles, 'articles');
+    const folderIds = uniqueIds(folders, 'folders');
+    for (const folder of folders) {
+      if (folder.parentId !== null && folder.parentId !== undefined && !folderIds.has(folder.parentId)) {
+        throw new Error(`folder ${folder.id} references an unknown parent folder`);
+      }
+    }
+    for (const feed of feeds) {
+      if (feed.folderId !== null && feed.folderId !== undefined && !folderIds.has(feed.folderId)) {
+        throw new Error(`feed ${feed.id} references an unknown folder`);
+      }
+    }
+    for (const article of articles) {
+      if (article.feedId === undefined || article.feedId === null || !feedIds.has(article.feedId)) {
+        throw new Error(`article ${article.id} references an unknown feed`);
       }
     }
 
-    // Import settings
-    if (data.settings) {
-      for (const [key, value] of Object.entries(data.settings)) {
-        await this.setSetting(key, value);
+    await this.ensureReady();
+
+    const storeNames = ['feeds', 'articles', 'folders', 'settings', 'syncMetadata', 'statistics'];
+
+    await new Promise((resolve, reject) => {
+      const tx = this.db.transaction(storeNames, 'readwrite');
+      for (const name of storeNames) {
+        tx.objectStore(name).clear();
       }
-    }
+
+      const puts = [];
+      for (const folder of folders) puts.push(tx.objectStore('folders').put(folder));
+      for (const feed of feeds) puts.push(tx.objectStore('feeds').put(feed));
+      for (const article of articles) puts.push(tx.objectStore('articles').put(article));
+      for (const [key, value] of Object.entries(settings)) {
+        puts.push(tx.objectStore('settings').put({ key, value, updatedAt: new Date().toISOString() }));
+      }
+      for (const row of syncMetadata) puts.push(tx.objectStore('syncMetadata').put(row));
+      for (const row of statistics) puts.push(tx.objectStore('statistics').put(row));
+
+      let failure = null;
+      for (const put of puts) {
+        put.onerror = () => {
+          failure = failure || put.error;
+          tx.abort();
+        };
+      }
+      tx.oncomplete = () => {
+        if (failure) {
+          reject(failure);
+        } else {
+          resolve(true);
+        }
+      };
+      tx.onerror = () => reject(tx.error || failure || new Error('import failed'));
+      tx.onabort = () => reject(tx.error || failure || new Error('import aborted - previous data retained'));
+    });
 
     return true;
   }
