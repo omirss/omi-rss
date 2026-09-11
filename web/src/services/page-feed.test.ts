@@ -174,6 +174,24 @@ describe("page-feed guid identity", () => {
   });
 });
 
+describe("page-feed redirect base URL", () => {
+  it("resolves relative links against the final document URL, not the configured one", () => {
+    const html = `<html><body><article class="post"><h2><a href="story">Item</a></h2></article></body></html>`;
+    const redirected = extractPageItems(html, "https://x.example/old", SELECTOR, "https://x.example/news/");
+    expect(redirected[0].link).toBe("https://x.example/news/story");
+
+    const direct = extractPageItems(html, "https://x.example/news/", SELECTOR);
+    expect(direct[0].link).toBe("https://x.example/news/story");
+  });
+
+  it("repeated polls of the redirected page produce stable guids (pageUrl-keyed identity)", () => {
+    const html = `<html><body><article class="post"><h2><a href="story">Item</a></h2></article></body></html>`;
+    const first = extractPageItems(html, "https://x.example/old", SELECTOR, "https://x.example/news/");
+    const second = extractPageItems(html, "https://x.example/old", SELECTOR, "https://x.example/news/");
+    expect(first[0].guid).toBe(second[0].guid);
+  });
+});
+
 describe("validatePageFeedInput", () => {
   const valid = { pageUrl: "https://example.com/blog", pageSelector: "article.post" };
 

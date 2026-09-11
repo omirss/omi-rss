@@ -42,7 +42,7 @@ export async function verifyPageSelector(
     throw new AppError(`Unable to fetch page (HTTP ${doc.status}): ${pageUrl}`, 400);
   }
   const html = decodeBody(doc.body, doc.contentType);
-  const { items, title } = extractPageData(html, pageUrl, pageSelector);
+  const { items, title } = extractPageData(html, pageUrl, pageSelector, doc.finalUrl || pageUrl);
   if (items.length === 0) {
     throw new AppError(`Selector matched 0 elements on ${pageUrl}`, 400);
   }
@@ -117,7 +117,10 @@ export async function runPageFeedUpdate(
   }
 
   const html = decodeBody(doc.body, doc.contentType);
-  const items = extractPageItems(html, pageUrl, pageSelector);
+  // Relative links resolve against the FINAL document URL — a redirected
+  // page must not produce item URLs under the stale configured path.
+  const baseUrl = doc.finalUrl || pageUrl;
+  const items = extractPageItems(html, pageUrl, pageSelector, baseUrl);
 
   if (items.length === 0) {
     await store.markSelectorMiss(feedId, `Selector matched 0 elements on ${pageUrl}`);

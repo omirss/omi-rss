@@ -46,4 +46,41 @@ describe("getDataRuntime poison cache", () => {
     expect(a).toBe(b);
     expect(creators.createDrizzleDatabase).toHaveBeenCalledTimes(1);
   });
+
+  it("closes already-created drivers when a later allocation fails", async () => {
+    const dbClose = vi.fn();
+    const cacheClose = vi.fn();
+    creators.createDrizzleDatabase.mockResolvedValue({
+      profile: { provider: "postgres" },
+      close: dbClose,
+    });
+    creators.createRedisCacheClient.mockResolvedValue({ close: cacheClose });
+    creators.createRedisSessionStore.mockRejectedValue(new Error("sessions down"));
+
+    const getDataRuntime = await freshRuntime();
+    await expect(getDataRuntime()).rejects.toThrow("sessions down");
+
+    expect(dbClose).toHaveBeenCalledTimes(1);
+    expect(cacheClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("close() runs every closer even when one rejects", async () => {
+    const closes = [vi.fn(), vi.fn(async () => { throw new Error("queue close failed"); }), vi.fn(), vi.fn()];
+    creators.createDrizzleDatabase.mockResolvedValue({
+      profile: { provider: "postgres" },
+      close: closes[0],
+    });
+    creators.createRedisCacheClient.mockResolvedValue({ close: closes[1] });
+    creators.createRedisSessionStore.mockResolvedValue({ close: closes[2] });
+    creators.createBullMqQueueDriver.mockResolvedValue({ close: closes[3] });
+
+    const getDataRuntime = await freshRuntime();
+    const runtime = await getDataRuntime();
+
+    await expect(runtime.close()).rejects.toThrow("queue close failed");
+
+    for (const close of closes) {
+      expect(close).toHaveBeenCalledTimes(1);
+    }
+  });
 });

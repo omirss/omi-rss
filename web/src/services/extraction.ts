@@ -372,17 +372,20 @@ function pageItemGuid(pageUrl: string, link: string | null, title: string): stri
   return crypto.createHash("sha256").update(`${pageUrl}|${identity}|${title}`).digest("hex");
 }
 
-function collectPageItems(document: ExtractDocument, pageUrl: string, selector: string): PageItem[] {
+function collectPageItems(document: ExtractDocument, pageUrl: string, selector: string, baseUrl: string): PageItem[] {
   const items: PageItem[] = [];
   const seen = new Set<string>();
 
   for (const element of document.querySelectorAll(selector)) {
-    const link = firstHttpLink(element, pageUrl);
+    // Links/images resolve against the FINAL document URL (baseUrl); item
+    // identity keeps the configured pageUrl so redirects never duplicate
+    // or lose items.
+    const link = firstHttpLink(element, baseUrl);
     const title = elementHeadingTitle(element) ?? "Untitled";
     const guid = pageItemGuid(pageUrl, link, title);
     if (seen.has(guid)) continue;
     seen.add(guid);
-    absolutizeUrls(element, pageUrl);
+    absolutizeUrls(element, baseUrl);
     items.push({ guid, title, link, contentHtml: sanitizeContentHtml(element.innerHTML) });
     if (items.length >= MAX_PAGE_ITEMS) break;
   }
@@ -393,9 +396,9 @@ function collectPageItems(document: ExtractDocument, pageUrl: string, selector: 
 // Page-feed item extraction: every selector match becomes an item; identity
 // is sha256(pageUrl + "|" + normalize(link-or-title) + "|" + title) so DOM
 // reshuffles never duplicate or lose items (spike Q5; identity revised
-// v0.4.1).
-export function extractPageItems(html: string, pageUrl: string, selector: string): PageItem[] {
-  return collectPageItems(parseDocument(html, pageUrl), pageUrl, selector);
+// v0.4.1). baseUrl (post-redirect document URL) drives link resolution.
+export function extractPageItems(html: string, pageUrl: string, selector: string, baseUrl: string = pageUrl): PageItem[] {
+  return collectPageItems(parseDocument(html, baseUrl), pageUrl, selector, baseUrl);
 }
 
 // Single-parse variant for page-feed creation: items and document title
@@ -404,9 +407,10 @@ export function extractPageData(
   html: string,
   pageUrl: string,
   selector: string,
+  baseUrl: string = pageUrl,
 ): { items: PageItem[]; title: string | null } {
-  const document = parseDocument(html, pageUrl);
-  return { items: collectPageItems(document, pageUrl, selector), title: documentTitle(document) };
+  const document = parseDocument(html, baseUrl);
+  return { items: collectPageItems(document, pageUrl, selector, baseUrl), title: documentTitle(document) };
 }
 
 export function extractPageTitle(html: string): string | null {
