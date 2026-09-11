@@ -589,6 +589,35 @@ function parseTsUsec(raw: string | null): string | null {
   return raw.length > 17 ? raw.slice(0, raw.length - 3) : raw;
 }
 
+// Conditions for mark-all-as-read. Returns null for a no-op stream: the
+// `read` stream has no unread members by definition, and without this guard
+// it (and `starred`) fell through to the base conditions and marked EVERY
+// unread article read.
+export function markAllReadConditions(
+  userId: string,
+  stream: Exclude<ResolvedStream, "unknown">,
+  tsUsec: string | null,
+): SQL[] | null {
+  if (stream.kind === "read") {
+    return null;
+  }
+  const conditions: SQL[] = [
+    eq(feeds.userId, userId) as SQL,
+    sql`(${userArticleStates.isRead} = false OR ${userArticleStates.isRead} IS NULL)`,
+  ];
+  if (stream.kind === "feed") {
+    conditions.push(eq(articles.feedId, stream.feedId) as SQL);
+  } else if (stream.kind === "folder") {
+    conditions.push(eq(feeds.folderId, stream.folderId) as SQL);
+  } else if (stream.kind === "starred") {
+    conditions.push(eq(userArticleStates.isStarred, true) as SQL);
+  }
+  if (tsUsec !== null) {
+    conditions.push(sql`${arrivalRankSql()} <= ${tsUsec}::bigint`);
+  }
+  return conditions;
+}
+
 async function handleMarkAllRead(request: Request, context: Record<string, unknown>): Promise<Response> {
   const user = needUser(context);
   const params = await readGreaderParams(request);
@@ -612,17 +641,9 @@ async function handleMarkAllRead(request: Request, context: Record<string, unkno
     return greaderOk();
   }
 
-  const conditions: SQL[] = [
-    eq(feeds.userId, user.id) as SQL,
-    sql`(${userArticleStates.isRead} = false OR ${userArticleStates.isRead} IS NULL)`,
-  ];
-  if (stream.kind === "feed") {
-    conditions.push(eq(articles.feedId, stream.feedId) as SQL);
-  } else if (stream.kind === "folder") {
-    conditions.push(eq(feeds.folderId, stream.folderId) as SQL);
-  }
-  if (tsUsec !== null) {
-    conditions.push(sql`${arrivalRankSql()} <= ${tsUsec}::bigint`);
+  const conditions = markAllReadConditions(user.id, stream, tsUsec);
+  if (conditions === null) {
+    return greaderOk();
   }
 
   // Insert-select upsert, mark-all-read route pattern (every column, table
@@ -931,7 +952,10 @@ async function handleRenameTag(request: Request, context: Record<string, unknown
 
 // Google semantics: remove the folder; feeds keep existing (move to root).
 // The house DELETE /folders/:id refuses non-empty folders, so feeds are
-// detached first — the greader contract wins here.
+// detached first — the greader contract wins here. One transaction under
+// the per-user advisory lock: children are re-parented (the parentId FK
+// cascades and would otherwise delete the whole nested hierarchy), direct
+// feeds detached, then the folder deleted — atomically.
 async function handleDisableTag(request: Request, context: Record<string, unknown>): Promise<Response> {
   const user = needUser(context);
   const params = await readGreaderParams(request);
@@ -946,20 +970,35 @@ async function handleDisableTag(request: Request, context: Record<string, unknow
   }
 
   const db = await getDb();
-  const [folder] = await db
-    .select({ id: folders.id })
-    .from(folders)
-    .where(and(eq(folders.userId, user.id), eq(folders.name, label)))
-    .limit(1);
-  if (!folder) {
-    return greaderOk();
-  }
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${user.id}::text, 719))`);
 
-  await db
-    .update(feeds)
-    .set({ folderId: null, updatedAt: new Date() })
-    .where(and(eq(feeds.folderId, folder.id), eq(feeds.userId, user.id)));
-  await db.delete(folders).where(eq(folders.id, folder.id));
+    const matches = await tx
+      .select({ id: folders.id, parentId: folders.parentId })
+      .from(folders)
+      .where(and(eq(folders.userId, user.id), eq(folders.name, label)))
+      .for("update");
+
+    if (matches.length === 0) {
+      return;
+    }
+    if (matches.length > 1) {
+      throw new AppError("Ambiguous label name — refusing to pick one", 409);
+    }
+    const folder = matches[0];
+
+    await tx
+      .update(folders)
+      .set({ parentId: folder.parentId, updatedAt: new Date() })
+      .where(and(eq(folders.parentId, folder.id), eq(folders.userId, user.id)));
+
+    await tx
+      .update(feeds)
+      .set({ folderId: null, updatedAt: new Date() })
+      .where(and(eq(feeds.folderId, folder.id), eq(feeds.userId, user.id)));
+
+    await tx.delete(folders).where(eq(folders.id, folder.id));
+  });
 
   return greaderOk();
 }
