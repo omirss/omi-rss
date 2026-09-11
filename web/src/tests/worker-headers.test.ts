@@ -100,6 +100,23 @@ describe("processExtractArticle header wiring", () => {
     expect(vi.mocked(fetchDocument)).toHaveBeenCalledWith("http://8.8.8.8/other-article", undefined, undefined);
   });
 
+  it("fetches the URL again for a second article with the same URL (no process-wide memo)", async () => {
+    const { processExtractArticle } = await import("../worker.js");
+    const { db } = fakeDb({
+      id: "a5",
+      url: "http://8.8.8.8/article",
+      feedUrl: "http://8.8.8.8/feed.xml",
+      contentExtracted: null,
+      httpHeaders: null,
+    });
+    vi.mocked(getDb).mockResolvedValue(db as never);
+
+    await processExtractArticle("a5");
+    await processExtractArticle("a5");
+
+    expect(vi.mocked(fetchDocument)).toHaveBeenCalledTimes(2);
+  });
+
   it("drops the feed's httpHeaders when the article URL is a different host", async () => {
     const { processExtractArticle } = await import("../worker.js");
     const { db } = fakeDb({

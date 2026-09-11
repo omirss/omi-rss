@@ -49,13 +49,11 @@ const EXTRACT_QUEUE_NAME = "omiweb-extract";
 const EXTRACT_QUEUE_CONCURRENCY = 2;
 const EXTRACT_RUN_MAX_ARTICLES = 20;
 const EXTRACT_RUN_BUDGET_MS = 10000;
-const EXTRACTION_MEMO_MAX = 64;
 
 type FeedRow = typeof feeds.$inferSelect;
 
 let extractQueuePromise: Promise<BullMqQueueDriver> | null = null;
 const pageFeedInFlight = new Set<string>();
-const extractionMemo = new Map<string, string>();
 
 function getExtractQueue(): Promise<BullMqQueueDriver> {
   if (!extractQueuePromise) {
@@ -107,20 +105,6 @@ async function storeExtraction(db: Database, articleId: string, contentExtracted
     .update(articles)
     .set({ contentExtracted, updatedAt: new Date() })
     .where(and(eq(articles.id, articleId), isNull(articles.contentExtracted)));
-}
-
-// LRU memo: reads refresh recency; inserts evict the least-recently-used
-// entry at the 64-entry cap (Map preserves insertion order).
-function memoizeExtraction(url: string, contentHtml: string): void {
-  if (extractionMemo.has(url)) {
-    extractionMemo.delete(url);
-  } else if (extractionMemo.size >= EXTRACTION_MEMO_MAX) {
-    const oldest = extractionMemo.keys().next().value;
-    if (oldest !== undefined) {
-      extractionMemo.delete(oldest);
-    }
-  }
-  extractionMemo.set(url, contentHtml);
 }
 
 // Enqueues extraction jobs for the feed's pending articles (contentExtracted
@@ -188,13 +172,6 @@ export async function processExtractArticle(articleId: string): Promise<{ articl
 
   const url = article!.url;
 
-  const memoized = extractionMemo.get(url);
-  if (memoized !== undefined) {
-    memoizeExtraction(url, memoized);
-    await storeExtraction(db, articleId, memoized);
-    return { articleId, status: "memoized" };
-  }
-
   try {
     // Bring-your-own-subscription headers only ride the article fetch when
     // the article URL is on the feed's own site (sameSiteHost: naive
@@ -212,7 +189,6 @@ export async function processExtractArticle(articleId: string): Promise<{ articl
     }
     const html = decodeBody(doc.body, doc.contentType);
     const extracted = extractArticle(html, doc.finalUrl || url);
-    memoizeExtraction(url, extracted.contentHtml);
     await storeExtraction(db, articleId, extracted.contentHtml);
     return { articleId, status: `ok-${extracted.method}` };
   } catch (error) {
