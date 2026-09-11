@@ -6,9 +6,9 @@ vi.mock("../lib/api/db.js", () => ({ getDb: vi.fn() }));
 import { action } from "../routes/api/users/me/password.js";
 import { getDb } from "../lib/api/db.js";
 
-// POST /api/users/me/password: a successful change must bump
-// users.token_version (bumpTokenVersion) like logout and password reset,
-// revoking every outstanding access AND refresh token.
+// POST /api/users/me/password: a successful change bumps
+// users.token_version atomically with the password write (revoking every
+// outstanding access AND refresh token) and clears any pending reset token.
 
 const OLD_PASSWORD = "old-password-123";
 const NEW_PASSWORD = "new-password-456";
@@ -38,9 +38,12 @@ function fakeDb(users: unknown[]) {
     select: () => selectQuery(users),
     update: () => ({
       set: (patch: Record<string, unknown>) => ({
-        where: async () => {
-          updates.push(patch);
-        },
+        where: () => ({
+          returning: async () => {
+            updates.push(patch);
+            return [{ id: "u1" }];
+          },
+        }),
       }),
     }),
   };
@@ -59,7 +62,7 @@ afterAll(() => {
 });
 
 describe("POST /api/users/me/password", () => {
-  it("updates the hash and bumps the token version (revoking outstanding tokens)", async () => {
+  it("updates the hash, clears pending reset tokens and bumps the token version in one statement", async () => {
     const { db, updates } = fakeDb([{ id: "u1", passwordHash: OLD_HASH }]);
     vi.mocked(getDb).mockResolvedValue(db as never);
 
@@ -69,16 +72,41 @@ describe("POST /api/users/me/password", () => {
     });
 
     expect(response.status).toBe(200);
-    expect(updates).toHaveLength(2);
-    const passwordPatch = updates[0] as { passwordHash?: string; updatedAt?: Date };
-    expect(typeof passwordPatch.passwordHash).toBe("string");
-    expect(passwordPatch.passwordHash).not.toBe(OLD_HASH);
-    expect(await bcrypt.compare(NEW_PASSWORD, passwordPatch.passwordHash!)).toBe(true);
-    // Second update is bumpTokenVersion's token_version increment.
-    expect("tokenVersion" in updates[1]).toBe(true);
+    expect(updates).toHaveLength(1);
+    const patch = updates[0] as { passwordHash?: string; tokenVersion?: unknown; passwordResetToken?: null };
+    expect(typeof patch.passwordHash).toBe("string");
+    expect(patch.passwordHash).not.toBe(OLD_HASH);
+    expect(await bcrypt.compare(NEW_PASSWORD, patch.passwordHash!)).toBe(true);
+    expect("tokenVersion" in patch).toBe(true);
+    expect(patch.passwordResetToken).toBeNull();
   });
 
-  it("does not bump the token version when the current password is wrong", async () => {
+  it("conflicts when the password was changed concurrently (precondition hash no longer matches)", async () => {
+    const { db, updates } = fakeDb([{ id: "u1", passwordHash: OLD_HASH }]);
+    vi.mocked(getDb).mockResolvedValue({
+      ...db,
+      update: () => ({
+        set: (patch: Record<string, unknown>) => ({
+          where: () => ({
+            returning: async () => {
+              updates.push(patch);
+              return [];
+            },
+          }),
+        }),
+      }),
+    } as never);
+
+    const response = await action({
+      request: putRequest({ currentPassword: OLD_PASSWORD, newPassword: NEW_PASSWORD }),
+      context,
+    });
+
+    expect(response.status).toBe(409);
+    expect(updates).toHaveLength(1);
+  });
+
+  it("does not write when the current password is wrong", async () => {
     const { db, updates } = fakeDb([{ id: "u1", passwordHash: OLD_HASH }]);
     vi.mocked(getDb).mockResolvedValue(db as never);
 
