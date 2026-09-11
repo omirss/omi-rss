@@ -1,7 +1,12 @@
 # omi-rss — local/self-host stack (web + worker + postgres + redis)
 # No nginx: the Neutron server serves the webui and static assets itself.
-# For public exposure, terminate TLS at your edge (see docs/self-hosting.md)
-# and proxy to the published web port (default http://localhost:8080).
+#
+# Security defaults (audit):
+#   - JWT_SECRET is REQUIRED for web/worker (export it, no default exists):
+#       JWT_SECRET=$(openssl rand -hex 32)
+#   - The web port binds loopback only. For public exposure, terminate TLS
+#     at your edge (see docs/self-hosting.md), proxy to the published web
+#     port, and opt into a wider bind with WEB_BIND (e.g. WEB_BIND=0.0.0.0).
 #
 # Start:  podman-compose up -d   (or docker compose up -d)
 # Stop:   podman-compose down
@@ -53,16 +58,20 @@ services:
       PORT: 3000
       DATABASE_URL: postgres://omi_rss:${POSTGRES_PASSWORD:-omi_rss}@postgres:5432/omi_rss
       REDIS_URL: redis://redis:6379
-      JWT_SECRET: ${JWT_SECRET:-local-development-only-change-this-secret}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
       # false closes registration once the first user exists (recommended
       # for public instances after you register your own account)
       ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-true}
+      # Rate limiting / proxy trust (see web/.env.example)
+      TRUSTED_PROXY: ${TRUSTED_PROXY:-false}
+      RATE_LIMIT_WINDOW_MS: ${RATE_LIMIT_WINDOW_MS:-900000}
+      RATE_LIMIT_MAX_REQUESTS: ${RATE_LIMIT_MAX_REQUESTS:-100}
       # UPLOAD_DIR: /app/uploads   (default)
       # FRONTEND_URL: origin for verification/reset email links (set when
       # SMTP is enabled; the worker env below carries the SMTP_* vars)
       FRONTEND_URL: ${FRONTEND_URL:-}
     ports:
-      - "${WEB_PORT:-8080}:3000"
+      - "${WEB_BIND:-127.0.0.1}:${WEB_PORT:-8080}:3000"
     volumes:
       - web_uploads:/app/uploads
     # Apply pending drizzle migrations, then serve (idempotent).
@@ -89,7 +98,10 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgres://omi_rss:${POSTGRES_PASSWORD:-omi_rss}@postgres:5432/omi_rss
       REDIS_URL: redis://redis:6379
-      JWT_SECRET: ${JWT_SECRET:-local-development-only-change-this-secret}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
+      # Article retention (days) for the nightly cleanup job; starred
+      # articles are always kept.
+      ARTICLE_RETENTION_DAYS: ${ARTICLE_RETENTION_DAYS:-90}
       # Email delivery (optional): the worker is the process that sends.
       # Empty SMTP_HOST keeps email disabled.
       SMTP_HOST: ${SMTP_HOST:-}
