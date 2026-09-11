@@ -552,24 +552,28 @@ async function handleDetectFeeds() {
 function handleAddFeed() {
   const dialog = document.createElement('div');
   dialog.className = 'glass-dialog-overlay';
+  // No inline onclick handlers: the extension CSP (script-src 'self')
+  // blocks them, so Cancel is wired with addEventListener below.
   dialog.innerHTML = `
     <div class="glass-dialog">
       <h3>Add New Feed</h3>
       <input type="url" id="new-feed-url" placeholder="Enter feed URL..." class="glass-input">
       <div class="dialog-actions">
-        <button class="glass-btn" onclick="this.closest('.glass-dialog-overlay').remove()">Cancel</button>
+        <button class="glass-btn dialog-cancel" type="button">Cancel</button>
         <button class="glass-btn primary" id="add-feed-confirm">Add Feed</button>
       </div>
     </div>
   `;
-  
+
   document.body.appendChild(dialog);
-  
+
   const input = dialog.querySelector('#new-feed-url');
   const confirmBtn = dialog.querySelector('#add-feed-confirm');
-  
+
+  dialog.querySelector('.dialog-cancel').addEventListener('click', () => dialog.remove());
+
   input.focus();
-  
+
   confirmBtn.addEventListener('click', async () => {
     const url = input.value.trim();
     if (url) {
@@ -577,7 +581,7 @@ function handleAddFeed() {
       dialog.remove();
     }
   });
-  
+
   input.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') {
       confirmBtn.click();
@@ -659,9 +663,12 @@ async function markArticleRead(articleId) {
     const article = state.articles.find(a => String(a.id) === String(articleId));
     if (!article) return;
 
-    await storageService.updateArticle(article.id, { isRead: true });
+    // markArticleRead (not the generic updateArticle) maintains the feed
+    // unread count, readAt and the reading statistics.
+    await storageService.markArticleRead(article.id, true);
 
     article.isRead = true;
+    await loadFeeds();
     updateCounts();
   } catch (error) {
     console.error('Failed to mark article as read:', error);
@@ -673,9 +680,17 @@ async function toggleArticleRead(articleId) {
   const article = state.articles.find(a => String(a.id) === String(articleId));
   if (!article) return;
 
+  // Persist FIRST, then flip the in-memory flag — a failed write leaves
+  // the UI consistent with storage instead of ahead of it.
+  try {
+    await storageService.markArticleRead(article.id, !article.isRead);
+  } catch (error) {
+    console.error('Failed to toggle read state:', error);
+    return;
+  }
   article.isRead = !article.isRead;
-  await storageService.updateArticle(article.id, { isRead: article.isRead });
 
+  await loadFeeds();
   renderArticles();
   updateCounts();
 }
@@ -685,25 +700,54 @@ async function toggleArticleStar(articleId) {
   const article = state.articles.find(a => String(a.id) === String(articleId));
   if (!article) return;
 
-  article.isStarred = !article.isStarred;
-  await storageService.updateArticle(article.id, { isStarred: article.isStarred });
+  // Star writes BOTH flags until the schema is unified: the saved-articles
+  // filter reads isSaved while the reader reads isStarred.
+  const next = !article.isStarred;
+  try {
+    await storageService.updateArticle(article.id, {
+      isStarred: next,
+      isSaved: next,
+      starredAt: next ? new Date().toISOString() : null,
+      savedAt: next ? new Date().toISOString() : null,
+      updatedAt: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Failed to toggle star state:', error);
+    return;
+  }
+  article.isStarred = next;
+  article.isSaved = next;
 
   renderArticles();
   updateCounts();
-  showNotification(article.isStarred ? 'Article starred' : 'Article unstarred');
+  showNotification(next ? 'Article starred' : 'Article unstarred');
 }
 
 // Share article
 async function shareArticle(article) {
   try {
+    // Local parser items carry their address in `link`, server items in
+    // `url`; only real web URLs are shareable.
+    const value = article.url || article.link;
+    let url;
+    try {
+      url = new URL(value);
+    } catch (error) {
+      url = null;
+    }
+    if (!url || (url.protocol !== 'http:' && url.protocol !== 'https:')) {
+      showError('Article has no shareable web URL');
+      return;
+    }
+
     if (navigator.share) {
       await navigator.share({
         title: article.title,
         text: article.summary,
-        url: article.url
+        url: url.href
       });
     } else {
-      await navigator.clipboard.writeText(article.url);
+      await navigator.clipboard.writeText(url.href);
       showNotification('Link copied to clipboard');
     }
   } catch (error) {
@@ -835,6 +879,8 @@ function showError(message) {
 function showFeedDialog(feeds) {
   const dialog = document.createElement('div');
   dialog.className = 'glass-dialog-overlay';
+  // No inline onclick handlers: the extension CSP (script-src 'self')
+  // blocks them, so Cancel is wired with addEventListener below.
   dialog.innerHTML = `
     <div class="glass-dialog">
       <h3>Found ${feeds.length} feed${feeds.length > 1 ? 's' : ''}</h3>
@@ -847,22 +893,24 @@ function showFeedDialog(feeds) {
         `).join('')}
       </div>
       <div class="dialog-actions">
-        <button class="glass-btn" onclick="this.closest('.glass-dialog-overlay').remove()">Cancel</button>
+        <button class="glass-btn dialog-cancel" type="button">Cancel</button>
         <button class="glass-btn primary" id="subscribe-feeds">Subscribe</button>
       </div>
     </div>
   `;
-  
+
   document.body.appendChild(dialog);
-  
+
+  dialog.querySelector('.dialog-cancel').addEventListener('click', () => dialog.remove());
+
   document.getElementById('subscribe-feeds').addEventListener('click', async () => {
     const checkboxes = dialog.querySelectorAll('input[type="checkbox"]:checked');
     const selectedFeeds = Array.from(checkboxes).map(cb => feeds[parseInt(cb.dataset.feedIndex)]);
-    
+
     for (const feed of selectedFeeds) {
       await subscribeFeed(feed.url);
     }
-    
+
     dialog.remove();
   });
 }
