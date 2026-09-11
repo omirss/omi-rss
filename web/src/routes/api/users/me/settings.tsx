@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { users } from "../../../../data/db/schema.js";
 import { getDb } from "../../../../lib/api/db.js";
 import { AppError, handle, jsonResponse } from "../../../../lib/api/errors.js";
@@ -20,25 +20,13 @@ export async function action({ request, context }: { request: Request; context: 
     const data = updateSettingsSchema.parse(await readJsonBody(request));
     const db = await getDb();
 
-    const [user] = await db
-      .select({ settings: users.settings })
-      .from(users)
-      .where(eq(users.id, auth.id))
-      .limit(1);
-
-    if (!user) {
-      throw new AppError("User not found", 404);
-    }
-
-    const newSettings = {
-      ...((user.settings as object) || {}),
-      ...data.settings,
-    };
-
+    // Merge inside the UPDATE against the locked current row (jsonb concat
+    // has the same semantics as the JS spread) — a read-merge-write in JS
+    // lets two concurrent PUTs silently discard each other's keys.
     const [updatedUser] = await db
       .update(users)
       .set({
-        settings: newSettings,
+        settings: sql`COALESCE(${users.settings}, '{}'::jsonb) || ${JSON.stringify(data.settings)}::jsonb`,
         updatedAt: new Date(),
       })
       .where(eq(users.id, auth.id))
@@ -46,6 +34,10 @@ export async function action({ request, context }: { request: Request; context: 
         id: users.id,
         settings: users.settings,
       });
+
+    if (!updatedUser) {
+      throw new AppError("User not found", 404);
+    }
 
     return jsonResponse({
       user: updatedUser,

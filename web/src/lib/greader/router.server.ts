@@ -560,10 +560,23 @@ async function handleEditTag(request: Request, context: Record<string, unknown>)
     .onConflictDoUpdate({
       target: [userArticleStates.userId, userArticleStates.articleId],
       set: {
-        isRead: sql`excluded.is_read`,
-        readAt: sql`excluded.read_at`,
-        isStarred: sql`excluded.is_starred`,
-        starredAt: sql`excluded.starred_at`,
+        // Unspecified fields reference the CURRENT row (post-lock latest
+        // version) instead of the statement-start snapshot; repeated true
+        // writes keep the original event timestamp.
+        isRead: isRead === undefined ? sql`${userArticleStates.isRead}` : sql`excluded.is_read`,
+        readAt:
+          isRead === true
+            ? sql`CASE WHEN ${userArticleStates.isRead} THEN COALESCE(${userArticleStates.readAt}, now()) ELSE now() END`
+            : isRead === false
+              ? sql`NULL`
+              : sql`${userArticleStates.readAt}`,
+        isStarred: isStarred === undefined ? sql`${userArticleStates.isStarred}` : sql`excluded.is_starred`,
+        starredAt:
+          isStarred === true
+            ? sql`CASE WHEN ${userArticleStates.isStarred} THEN COALESCE(${userArticleStates.starredAt}, now()) ELSE now() END`
+            : isStarred === false
+              ? sql`NULL`
+              : sql`${userArticleStates.starredAt}`,
         updatedAt: sql`excluded.updated_at`,
       },
     });

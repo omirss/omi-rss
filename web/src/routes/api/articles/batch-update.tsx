@@ -104,10 +104,25 @@ export async function action({ request, context }: { request: Request; context: 
         .onConflictDoUpdate({
           target: [userArticleStates.userId, userArticleStates.articleId],
           set: {
-            isRead: sql`excluded.is_read`,
-            readAt: sql`excluded.read_at`,
-            isStarred: sql`excluded.is_starred`,
-            starredAt: sql`excluded.starred_at`,
+            // In the conflict SET, unspecified fields reference the CURRENT
+            // row (post-lock latest version) instead of the statement-start
+            // snapshot, so a concurrent write to another field between the
+            // SELECT and the conflict cannot be silently reverted. Timestamps
+            // of a repeated true keep the original event time.
+            isRead: updates.isRead === undefined ? sql`${userArticleStates.isRead}` : sql`excluded.is_read`,
+            readAt:
+              updates.isRead === true
+                ? sql`CASE WHEN ${userArticleStates.isRead} THEN COALESCE(${userArticleStates.readAt}, now()) ELSE now() END`
+                : updates.isRead === false
+                  ? sql`NULL`
+                  : sql`${userArticleStates.readAt}`,
+            isStarred: updates.isStarred === undefined ? sql`${userArticleStates.isStarred}` : sql`excluded.is_starred`,
+            starredAt:
+              updates.isStarred === true
+                ? sql`CASE WHEN ${userArticleStates.isStarred} THEN COALESCE(${userArticleStates.starredAt}, now()) ELSE now() END`
+                : updates.isStarred === false
+                  ? sql`NULL`
+                  : sql`${userArticleStates.starredAt}`,
             updatedAt: sql`excluded.updated_at`,
           },
         });
