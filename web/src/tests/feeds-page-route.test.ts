@@ -4,13 +4,18 @@ vi.mock("../lib/api/db.js", () => ({ getDb: vi.fn() }));
 vi.mock("../data/runtime.js", () => ({
   getDataRuntime: vi.fn(async () => ({ queue: { add: vi.fn() } })),
 }));
+vi.mock("../services/extraction.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../services/extraction.js")>();
+  return { ...actual, fetchDocument: vi.fn() };
+});
 
 import { action, middleware } from "../routes/api/feeds/page.js";
 import { getDb } from "../lib/api/db.js";
 import { getDataRuntime } from "../data/runtime.js";
+import { fetchDocument } from "../services/extraction.js";
 
 // Route-handler tests for POST /api/feeds/page with a fake db and stubbed
-// outbound fetch — no network, no database. The pageUrl is a literal public
+// document fetch — no network, no database. The pageUrl is a literal public
 // IP so assertSafeFeedUrl needs no DNS.
 
 const PAGE_URL = "https://93.184.216.34/blog";
@@ -18,6 +23,17 @@ const SELECTOR = "article.post";
 const PAGE_HTML = `<!doctype html><html><head><title>Fixture Blog</title></head><body>
   <article class="post"><h2><a href="/posts/one">First</a></h2></article>
 </body></html>`;
+
+function stubPageFetch(html: string, status = 200): void {
+  vi.mocked(fetchDocument).mockResolvedValue({
+    status,
+    body: status === 200 ? new TextEncoder().encode(html) : null,
+    contentType: "text/html",
+    etag: null,
+    lastModified: null,
+    finalUrl: PAGE_URL,
+  });
+}
 
 function pageFeedBody(overrides: Record<string, unknown> = {}): Request {
   return new Request("http://localhost/api/feeds/page", {
@@ -60,6 +76,7 @@ function fakeDb(existingFeedRows: unknown[], insertRows: unknown[]) {
 beforeEach(() => {
   vi.mocked(getDb).mockReset();
   vi.mocked(getDataRuntime).mockClear();
+  vi.mocked(fetchDocument).mockReset();
 });
 
 afterEach(() => {
@@ -90,15 +107,7 @@ describe("POST /api/feeds/page handler", () => {
   it("returns 400 when the selector matches 0 elements (selector miss)", async () => {
     const { db } = fakeDb([], []);
     vi.mocked(getDb).mockResolvedValue(db as never);
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () =>
-        new Response('<html><body><div class="redesigned">no matches here</div></body></html>', {
-          status: 200,
-          headers: { "content-type": "text/html" },
-        }),
-      ),
-    );
+    stubPageFetch('<html><body><div class="redesigned">no matches here</div></body></html>');
 
     const response = await action({
       request: pageFeedBody({ pageSelector: "article.post" }),
@@ -122,10 +131,7 @@ describe("POST /api/feeds/page handler", () => {
     };
     const { db } = fakeDb([], [insertedFeed]);
     vi.mocked(getDb).mockResolvedValue(db as never);
-    const fetchImpl = vi.fn(async () =>
-      new Response(PAGE_HTML, { status: 200, headers: { "content-type": "text/html" } }),
-    );
-    vi.stubGlobal("fetch", fetchImpl);
+    stubPageFetch(PAGE_HTML);
 
     const response = await action({ request: pageFeedBody(), context: { user: { id: "u1" } } });
 
@@ -133,7 +139,7 @@ describe("POST /api/feeds/page handler", () => {
     const body = (await response.json()) as { feed: { id: string; sourceType: string } };
     expect(body.feed.id).toBe("feed-1");
     expect(body.feed.sourceType).toBe("page");
-    expect(fetchImpl).toHaveBeenCalled();
+    expect(fetchDocument).toHaveBeenCalled();
     const runtime = await vi.mocked(getDataRuntime).mock.results[0]?.value;
     expect((runtime as { queue: { add: ReturnType<typeof vi.fn> } }).queue.add).toHaveBeenCalledWith(
       "feed.update-single",

@@ -3,7 +3,7 @@ import { Readability } from "@mozilla/readability";
 import { parseHTML } from "linkedom";
 import sanitizeHtml from "sanitize-html";
 import { AppError } from "../lib/api/errors.js";
-import { assertSafeFeedUrl, assertRedirectLocation } from "./feed-fetch.js";
+import { assertSafeFeedUrl, assertRedirectLocation, fetchPinned, headerValue } from "./feed-fetch.js";
 import { withHostGate } from "./host-gate.js";
 import { sameSiteHost } from "./site-host.js";
 import { findExtractionRules } from "./extraction-rules.js";
@@ -15,8 +15,8 @@ import { findExtractionRules } from "./extraction-rules.js";
 // absolutize URLs → sanitize-html → store (capped 256KB).
 // Sanitization is sanitize-html server-side; DOMPurify silently no-ops on
 // linkedom windows, so it stays client-side only (ReaderView).
-// Resilience patterns (retry codes, per-URL memoization, keep-last-good,
-// single-flight) adapted from RSSHub (MIT).
+// Resilience patterns (retry codes, keep-last-good, single-flight) adapted
+// from RSSHub (MIT).
 
 const EXTRACT_USER_AGENT = "omi-rss/0.6.0 (+https://omirss.com)";
 const FETCH_TIMEOUT_MS = 10000;
@@ -413,29 +413,6 @@ export function extractPageTitle(html: string): string | null {
   return documentTitle(parseHTML(truncateHtml(html)).document as unknown as ExtractDocument);
 }
 
-async function readCapped(body: ReadableStream<Uint8Array> | null, cap: number): Promise<Uint8Array | null> {
-  if (!body) return null;
-  const parts: Uint8Array[] = [];
-  let total = 0;
-  for await (const chunk of body as unknown as AsyncIterable<Uint8Array>) {
-    if (total + chunk.length > cap) {
-      parts.push(chunk.slice(0, cap - total));
-      total = cap;
-      break;
-    }
-    parts.push(chunk);
-    total += chunk.length;
-    if (total === cap) break;
-  }
-  const buffer = new Uint8Array(total);
-  let offset = 0;
-  for (const part of parts) {
-    buffer.set(part, offset);
-    offset += part.length;
-  }
-  return buffer;
-}
-
 export interface FetchedDocument {
   status: number;
   body: Uint8Array | null;
@@ -451,13 +428,14 @@ export interface ConditionalGetHeaders {
 }
 
 // Hardened document fetch for article extraction and page-feed polls:
-// assertSafeFeedUrl up front (article URLs are feed data = SSRF surface),
-// per-host semaphore on EVERY request including each redirect hop (A→B
-// joins B's gate, not just A's), UA, 10s timeout, 2MB body cap, manual
-// redirects with every hop re-validated, retry 408/429/5xx ×2 with 1s
-// backoff, and conditional GET (If-None-Match/If-Modified-Since) for
-// page-feeds. Response bodies on non-read paths (redirects, non-OK
-// statuses, retry candidates) are cancelled so sockets release promptly.
+// fetchPinned (SSRF-pinned transport) on EVERY request including each
+// redirect hop, per-host semaphore held through DNS + connect + headers +
+// BODY consumption (A→B joins B's gate, not just A's), UA, 10s deadline
+// covering the whole request, 2MB body cap, manual redirects with every hop
+// re-validated, retry 408/429/5xx ×2 with 1s backoff, and conditional GET
+// (If-None-Match/If-Modified-Since) for page-feeds. Response bodies on
+// non-read paths (redirects, non-OK statuses, retry candidates) are
+// destroyed so sockets release promptly.
 export async function fetchDocument(
   url: string,
   conditional?: ConditionalGetHeaders,
@@ -488,32 +466,6 @@ export async function fetchDocument(
   throw lastError instanceof Error ? lastError : new Error(`Failed to fetch document: ${url}`);
 }
 
-async function discardBody(response: Response): Promise<void> {
-  try {
-    await response.body?.cancel();
-  } catch {
-    // Already consumed or locked — nothing left to release.
-  }
-}
-
-async function fetchWithTimeout(
-  url: string,
-  headers: Record<string, string>,
-): Promise<Response> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-  try {
-    return await fetch(url, { headers, redirect: "manual", signal: controller.signal });
-  } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") {
-      throw new Error(`Document fetch timed out after ${FETCH_TIMEOUT_MS}ms: ${url}`);
-    }
-    throw error;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
 async function fetchDocumentWithRedirects(
   url: string,
   conditional?: ConditionalGetHeaders,
@@ -521,10 +473,10 @@ async function fetchDocumentWithRedirects(
 ): Promise<FetchedDocument> {
   let currentUrl = url;
   // Bring-your-own-subscription headers survive redirect hops only while
-  // the destination stays on the ORIGINAL request's site (sameSiteHost:
-  // naive registrable-domain match, exact for IP literals) — cookies and
-  // authorization are site-scoped, so a cross-site hop drops them
-  // instead of leaking the owner's credentials to the redirect target.
+  // the destination stays on the ORIGINAL request's origin (sameSiteHost:
+  // exact scheme+host+port match) — cookies and authorization are
+  // origin-scoped, so any other hop drops them instead of leaking the
+  // owner's credentials to the redirect target.
   let currentCustomHeaders = customHeaders;
 
   for (let hop = 0; hop <= MAX_REDIRECT_HOPS; hop++) {
@@ -536,12 +488,22 @@ async function fetchDocumentWithRedirects(
     if (conditional?.lastModified) headers["If-Modified-Since"] = conditional.lastModified;
     Object.assign(headers, currentCustomHeaders);
 
-    // Each hop re-enters the host gate for its DESTINATION host.
-    const response = await withHostGate(currentUrl, () => fetchWithTimeout(currentUrl, headers));
+    // Each hop re-enters the host gate for its DESTINATION host, and the
+    // gate + deadline both cover the body read — a publisher that sends
+    // headers then stalls can never pin a worker past the deadline or
+    // overlap a second fetch to the same host.
+    const response = await withHostGate(currentUrl, () =>
+      fetchPinned(currentUrl, {
+        headers,
+        timeoutMs: FETCH_TIMEOUT_MS,
+        maxBytes: MAX_BODY_BYTES,
+        truncateOnOversize: true,
+        readBody: (status) => (status >= 200 && status < 300) || status === 304,
+      }),
+    );
 
     if (response.status >= 300 && response.status < 400) {
-      const location = response.headers.get("location");
-      await discardBody(response);
+      const location = headerValue(response.headers.location);
       if (!location) {
         return emptyResult(response.status, currentUrl);
       }
@@ -556,19 +518,17 @@ async function fetchDocumentWithRedirects(
       continue;
     }
 
-    if (response.ok || response.status === 304) {
-      const body = await readCapped(response.body, MAX_BODY_BYTES);
+    if ((response.status >= 200 && response.status < 300) || response.status === 304) {
       return {
         status: response.status,
-        body,
-        contentType: response.headers.get("content-type"),
-        etag: response.headers.get("etag"),
-        lastModified: response.headers.get("last-modified"),
+        body: response.body,
+        contentType: headerValue(response.headers["content-type"]),
+        etag: headerValue(response.headers.etag),
+        lastModified: headerValue(response.headers["last-modified"]),
         finalUrl: currentUrl,
       };
     }
 
-    await discardBody(response);
     return emptyResult(response.status, currentUrl);
   }
 

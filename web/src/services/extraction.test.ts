@@ -1,6 +1,7 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeAll, afterAll, afterEach } from "vitest";
 import { parseHTML } from "linkedom";
 import crypto from "node:crypto";
+import http from "node:http";
 import {
   decodeBody,
   truncateHtml,
@@ -20,7 +21,8 @@ import {
 
 vi.mock("./host-gate.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./host-gate.js")>();
-  const withHostGate = vi.fn((url: string, fn: () => Promise<unknown>) => fn());
+  const real = actual.withHostGate;
+  const withHostGate = vi.fn((url: string, fn: () => Promise<unknown>) => real(url, fn));
   return { ...actual, withHostGate };
 });
 
@@ -337,96 +339,156 @@ describe("page-feed guid normalization (v0.4.1 identity)", () => {
 });
 
 describe("fetchDocument resource handling", () => {
+  type Handler = (req: http.IncomingMessage, res: http.ServerResponse, path: string) => void;
+
+  interface TestServer {
+    origin: string;
+    route(handler: Handler): void;
+  }
+
+  const closers: Array<() => Promise<void>> = [];
+
+  function startServer(): Promise<TestServer> {
+    let handler: Handler = (_req, res) => {
+      res.writeHead(404);
+      res.end();
+    };
+    const server = http.createServer((req, res) => {
+      handler(req, res, req.url ?? "/");
+    });
+    return new Promise((resolve) => {
+      server.listen(0, "127.0.0.1", () => {
+        const { port } = server.address() as { address: string; port: number };
+        closers.push(
+          () =>
+            new Promise<void>((done) => {
+              server.closeAllConnections();
+              server.close(() => done());
+            }),
+        );
+        resolve({
+          origin: `http://127.0.0.1:${port}`,
+          route: (next) => {
+            handler = next;
+          },
+        });
+      });
+    });
+  }
+
+  let serverA: TestServer;
+  let serverB: TestServer;
+
+  beforeAll(async () => {
+    serverA = await startServer();
+    serverB = await startServer();
+    process.env.ALLOW_PRIVATE_FEED_URLS = "true";
+  });
+
+  afterAll(async () => {
+    delete process.env.ALLOW_PRIVATE_FEED_URLS;
+    await Promise.all(closers.map((close) => close()));
+  });
+
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
 
-  interface FakeResponseSpec {
-    status: number;
-    headers?: Record<string, string>;
-    body?: string;
-  }
-
-  function cancellableResponse(spec: FakeResponseSpec): { response: Response; cancelled: () => boolean } {
-    let cancelled = false;
-    const stream = new ReadableStream<Uint8Array>({
-      start(controller) {
-        if (spec.body !== undefined) {
-          controller.enqueue(new TextEncoder().encode(spec.body));
-        }
-        controller.close();
-      },
-      cancel() {
-        cancelled = true;
-      },
+  it("follows redirect hops to the final document", async () => {
+    serverA.route((_req, res) => {
+      res.writeHead(302, { location: `${serverB.origin}/b` });
+      res.end("redirect junk");
     });
-    return {
-      response: new Response(stream, { status: spec.status, headers: spec.headers }),
-      cancelled: () => cancelled,
-    };
-  }
-
-  it("cancels the response body on redirect hops", async () => {
-    const redirect = cancellableResponse({
-      status: 302,
-      headers: { location: "https://93.184.215.35/b" },
-      body: "redirect junk",
+    serverB.route((_req, res) => {
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end("<html>x</html>");
     });
-    const final = cancellableResponse({ status: 200, body: "<html>x</html>" });
-    const fetchImpl = vi
-      .fn()
-      .mockResolvedValueOnce(redirect.response)
-      .mockResolvedValueOnce(final.response);
-    vi.stubGlobal("fetch", fetchImpl);
 
-    const doc = await fetchDocument("https://93.184.216.34/a");
+    const doc = await fetchDocument(`${serverA.origin}/a`);
     expect(doc.status).toBe(200);
-    expect(doc.finalUrl).toBe("https://93.184.215.35/b");
+    expect(doc.finalUrl).toBe(`${serverB.origin}/b`);
     expect(new TextDecoder().decode(doc.body!)).toBe("<html>x</html>");
-    expect(redirect.cancelled()).toBe(true);
-    expect(final.cancelled()).toBe(false);
   });
 
-  it("cancels the response body on non-OK statuses", async () => {
-    const notFound = cancellableResponse({ status: 404, body: "not here" });
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(notFound.response));
+  it("destroys the connection instead of draining a non-OK body", async () => {
+    let socketClosedEarly = false;
+    serverA.route((_req, res) => {
+      res.writeHead(404, { "content-type": "text/plain" });
+      res.on("close", () => {
+        if (!res.writableEnded) socketClosedEarly = true;
+      });
+      let written = 0;
+      const writer = setInterval(() => {
+        written++;
+        if (written > 20 || res.destroyed) {
+          clearInterval(writer);
+          return;
+        }
+        res.write("not here ");
+      }, 10);
+      res.on("close", () => clearInterval(writer));
+    });
 
-    const doc = await fetchDocument("https://93.184.216.34/a");
+    const doc = await fetchDocument(`${serverA.origin}/a`);
     expect(doc.status).toBe(404);
     expect(doc.body).toBeNull();
-    expect(notFound.cancelled()).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(socketClosedEarly).toBe(true);
   });
 
-  it("cancels retryable-status bodies between retry attempts", async () => {
-    const retryable = cancellableResponse({ status: 503, body: "busy" });
-    const ok = cancellableResponse({ status: 200, body: "<html>ok</html>" });
-    const fetchImpl = vi
-      .fn()
-      .mockResolvedValueOnce(retryable.response)
-      .mockResolvedValueOnce(ok.response);
-    vi.stubGlobal("fetch", fetchImpl);
+  it("retries retryable statuses and succeeds on the later attempt", async () => {
+    let calls = 0;
+    serverA.route((_req, res) => {
+      calls++;
+      if (calls === 1) {
+        res.writeHead(503);
+        res.end("busy");
+        return;
+      }
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end("<html>ok</html>");
+    });
 
-    const doc = await fetchDocument("https://93.184.216.34/a");
+    const doc = await fetchDocument(`${serverA.origin}/a`);
     expect(doc.status).toBe(200);
-    expect(fetchImpl).toHaveBeenCalledTimes(2);
-    expect(retryable.cancelled()).toBe(true);
+    expect(calls).toBe(2);
+  });
+
+  it("holds the host gate through body consumption (no overlap on one host)", async () => {
+    const intervals: Array<{ start: number; end: number }> = [];
+    serverA.route((_req, res) => {
+      const started = Date.now();
+      res.writeHead(200, { "content-type": "text/html" });
+      setTimeout(() => {
+        res.end("<html>slow body</html>");
+        intervals.push({ start: started, end: Date.now() });
+      }, 120);
+    });
+
+    await Promise.all([fetchDocument(`${serverA.origin}/slow1`), fetchDocument(`${serverA.origin}/slow2`)]);
+
+    expect(intervals).toHaveLength(2);
+    const [first, second] = [...intervals].sort((a, b) => a.start - b.start);
+    expect(second.start).toBeGreaterThanOrEqual(first.end);
   });
 
   it("re-enters the host gate for each redirect hop's destination host", async () => {
     const { withHostGate } = await import("./host-gate.js");
     vi.mocked(withHostGate).mockClear();
 
-    const redirect = cancellableResponse({
-      status: 301,
-      headers: { location: "https://93.184.215.35/b" },
+    serverA.route((_req, res) => {
+      res.writeHead(301, { location: `${serverB.origin}/b` });
+      res.end();
     });
-    const final = cancellableResponse({ status: 200, body: "<html>x</html>" });
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(redirect.response).mockResolvedValueOnce(final.response));
+    serverB.route((_req, res) => {
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end("<html>x</html>");
+    });
 
-    await fetchDocument("https://93.184.216.34/a");
+    await fetchDocument(`${serverA.origin}/a`);
 
     const gatedUrls = vi.mocked(withHostGate).mock.calls.map(([url]) => url as string);
-    expect(gatedUrls).toEqual(["https://93.184.216.34/a", "https://93.184.215.35/b"]);
+    expect(gatedUrls).toEqual([`${serverA.origin}/a`, `${serverB.origin}/b`]);
   });
 });

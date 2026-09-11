@@ -133,7 +133,7 @@ describe("processExtractArticle header wiring", () => {
     expect(vi.mocked(fetchDocument)).toHaveBeenCalledWith("http://9.9.9.9/article", undefined, undefined);
   });
 
-  it("keeps the feed's httpHeaders when the article URL is on the feed's registrable domain", async () => {
+  it("keeps the feed's httpHeaders when the article URL is the same origin", async () => {
     // ALLOW_PRIVATE_FEED_URLS skips the SSRF pre-check's DNS resolution so
     // the example.com hostnames stay offline-deterministic.
     process.env.ALLOW_PRIVATE_FEED_URLS = "true";
@@ -141,8 +141,8 @@ describe("processExtractArticle header wiring", () => {
       const { processExtractArticle } = await import("../worker.js");
       const { db } = fakeDb({
         id: "a4",
-        url: "https://www.example.com/article",
-        feedUrl: "https://feeds.example.com/feed.xml",
+        url: "https://example.com/article",
+        feedUrl: "https://example.com/feed.xml",
         contentExtracted: null,
         httpHeaders: { cookie: "subscriber=token123" },
       });
@@ -150,9 +150,30 @@ describe("processExtractArticle header wiring", () => {
 
       await processExtractArticle("a4");
 
-      expect(vi.mocked(fetchDocument)).toHaveBeenCalledWith("https://www.example.com/article", undefined, {
+      expect(vi.mocked(fetchDocument)).toHaveBeenCalledWith("https://example.com/article", undefined, {
         cookie: "subscriber=token123",
       });
+    } finally {
+      delete process.env.ALLOW_PRIVATE_FEED_URLS;
+    }
+  });
+
+  it("drops the feed's httpHeaders for a subdomain article URL (exact-origin gate)", async () => {
+    process.env.ALLOW_PRIVATE_FEED_URLS = "true";
+    try {
+      const { processExtractArticle } = await import("../worker.js");
+      const { db } = fakeDb({
+        id: "a6",
+        url: "https://www.example.com/article",
+        feedUrl: "https://feeds.example.com/feed.xml",
+        contentExtracted: null,
+        httpHeaders: { cookie: "subscriber=token123" },
+      });
+      vi.mocked(getDb).mockResolvedValue(db as never);
+
+      await processExtractArticle("a6");
+
+      expect(vi.mocked(fetchDocument)).toHaveBeenCalledWith("https://www.example.com/article", undefined, undefined);
     } finally {
       delete process.env.ALLOW_PRIVATE_FEED_URLS;
     }
@@ -160,40 +181,37 @@ describe("processExtractArticle header wiring", () => {
 });
 
 describe("sameSiteHost", () => {
-  it("matches identical hosts and ignores ports", () => {
-    expect(sameSiteHost("http://example.com/feed", "https://example.com:8443/article")).toBe(true);
-    expect(sameSiteHost("http://8.8.8.8/f", "http://8.8.8.8:9999/a")).toBe(true);
+  it("matches only the exact origin (scheme + host + port)", () => {
+    expect(sameSiteHost("http://example.com/feed", "http://example.com/article")).toBe(true);
+    expect(sameSiteHost("https://example.com/feed", "https://example.com/article")).toBe(true);
+    expect(sameSiteHost("http://8.8.8.8/f", "http://8.8.8.8/a")).toBe(true);
+    expect(sameSiteHost("http://[::1]/feed", "http://[::1]/item")).toBe(true);
   });
 
-  it("matches subdomains of the same registrable domain (last two labels)", () => {
-    expect(sameSiteHost("https://feeds.example.com/feed.xml", "https://www.example.com/article")).toBe(true);
+  it("rejects scheme changes and port changes", () => {
+    expect(sameSiteHost("https://example.com/feed", "http://example.com/article")).toBe(false);
+    expect(sameSiteHost("http://example.com/feed", "https://example.com:8443/article")).toBe(false);
+    expect(sameSiteHost("http://8.8.8.8:3000/feed", "http://8.8.8.8:9999/item")).toBe(false);
+  });
+
+  it("rejects subdomains and different hosts sharing a public suffix", () => {
+    expect(sameSiteHost("https://feeds.example.com/feed.xml", "https://www.example.com/article")).toBe(false);
     expect(sameSiteHost("https://example.com/feed.xml", "https://example.com/article")).toBe(true);
+    expect(sameSiteHost("https://a.example.co.uk/feed", "https://b.example.co.uk/article")).toBe(false);
+    expect(sameSiteHost("https://victim.co.uk/feed", "https://attacker.co.uk/article")).toBe(false);
   });
 
-  it("rejects different registrable domains", () => {
-    expect(sameSiteHost("https://good.com/feed.xml", "https://evil.com/article")).toBe(false);
-    expect(sameSiteHost("https://good.example.com/feed.xml", "https://evil.other.com/article")).toBe(false);
-  });
-
-  it("treats IP literals as exact-match only", () => {
-    expect(sameSiteHost("http://127.0.0.1:3000/feed", "http://127.0.0.1:9999/item")).toBe(true);
+  it("treats IP literals and single-label hosts as exact-match only", () => {
     expect(sameSiteHost("http://127.0.0.1/feed", "http://127.0.0.2/item")).toBe(false);
     expect(sameSiteHost("http://127.0.0.1/feed", "http://localhost/item")).toBe(false);
-    expect(sameSiteHost("http://[::1]/feed", "http://[::1]/item")).toBe(true);
     expect(sameSiteHost("http://[::1]/feed", "http://[::2]/item")).toBe(false);
-  });
-
-  it("treats single-label hosts as exact-match only", () => {
     expect(sameSiteHost("http://localhost/feed", "http://localhost/item")).toBe(true);
     expect(sameSiteHost("http://localhost/feed", "http://localhost.example.com/item")).toBe(false);
   });
 
-  it("documents the naive multi-label public-suffix edge (co.uk)", () => {
-    expect(sameSiteHost("https://a.example.co.uk/feed", "https://b.example.co.uk/article")).toBe(true);
-  });
-
-  it("returns false for unparseable URLs", () => {
+  it("returns false for unparseable or non-http(s) URLs", () => {
     expect(sameSiteHost("not-a-url", "https://example.com/a")).toBe(false);
     expect(sameSiteHost("https://example.com/a", "")).toBe(false);
+    expect(sameSiteHost("ftp://example.com/a", "ftp://example.com/b")).toBe(false);
   });
 });
