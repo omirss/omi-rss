@@ -86,7 +86,7 @@ describe("request refresh rotation", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
-  it("clears the session and notifies when refresh fails", async () => {
+  it("clears the session and notifies when refresh is definitively rejected (401)", async () => {
     const dispatched: string[] = [];
     class FakeCustomEvent {
       type: string;
@@ -115,6 +115,118 @@ describe("request refresh rotation", () => {
     expect(dispatched).toEqual([SESSION_EXPIRED_EVENT]);
   });
 
+  it("keeps credentials when the refresh endpoint fails transiently (503)", async () => {
+    const dispatched: string[] = [];
+    class FakeCustomEvent {
+      type: string;
+      constructor(type: string) {
+        this.type = type;
+      }
+    }
+    vi.stubGlobal("CustomEvent", FakeCustomEvent);
+    vi.stubGlobal("dispatchEvent", (event: FakeCustomEvent) => {
+      dispatched.push(event.type);
+      return true;
+    });
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/articles") return jsonResponse({ error: "Token expired" }, 401);
+      if (path === "/api/auth/refresh") return jsonResponse({ error: "Service unavailable" }, 503);
+      throw new Error(`unexpected fetch ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    tokenStore.setTokens({ token: "access-1", refreshToken: "refresh-1" });
+    // The original 401 surfaces (as an ApiError), but the stored tokens
+    // survive the outage and no session-expired event fires.
+    await expect(articlesApi.list()).rejects.toThrow(ApiError);
+
+    expect(tokenStore.getTokens()).toEqual({ token: "access-1", refreshToken: "refresh-1" });
+    expect(dispatched).toEqual([]);
+  });
+
+  it("keeps credentials when the refresh request itself fails at the network level", async () => {
+    const dispatched: string[] = [];
+    vi.stubGlobal("CustomEvent", class FakeCustomEvent {
+      type: string;
+      constructor(type: string) {
+        this.type = type;
+      }
+    });
+    vi.stubGlobal("dispatchEvent", (event: { type: string }) => {
+      dispatched.push(event.type);
+      return true;
+    });
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/articles") return jsonResponse({ error: "Token expired" }, 401);
+      if (path === "/api/auth/refresh") throw new TypeError("fetch failed");
+      throw new Error(`unexpected fetch ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    tokenStore.setTokens({ token: "access-1", refreshToken: "refresh-1" });
+    await expect(articlesApi.list()).rejects.toThrow(ApiError);
+
+    expect(tokenStore.getTokens()).toEqual({ token: "access-1", refreshToken: "refresh-1" });
+    expect(dispatched).toEqual([]);
+  });
+
+  it("does not resurrect cleared tokens when a refresh completes after logout", async () => {
+    let resolveRefresh: (response: Response) => void = () => undefined;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/articles") return jsonResponse({ error: "Token expired" }, 401);
+      if (path === "/api/auth/refresh") {
+        return new Promise<Response>((resolve) => {
+          resolveRefresh = resolve;
+        });
+      }
+      throw new Error(`unexpected fetch ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    tokenStore.setTokens({ token: "access-1", refreshToken: "refresh-1" });
+    const pending = articlesApi.list();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // Logout lands while the refresh is still in flight.
+    tokenStore.clear();
+    resolveRefresh(jsonResponse({ token: "access-2", refreshToken: "refresh-2" }));
+    await expect(pending).rejects.toThrow("Session changed during request");
+
+    expect(tokenStore.getTokens()).toBeNull();
+  });
+
+  it("does not swap a newly logged-in account's tokens with a stale refresh result", async () => {
+    let resolveRefresh: (response: Response) => void = () => undefined;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/articles") return jsonResponse({ error: "Token expired" }, 401);
+      if (path === "/api/auth/refresh") {
+        return new Promise<Response>((resolve) => {
+          resolveRefresh = resolve;
+        });
+      }
+      throw new Error(`unexpected fetch ${path}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    tokenStore.setTokens({ token: "account-a", refreshToken: "refresh-a" });
+    const pending = articlesApi.list();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // Account B logs in while A's refresh is in flight.
+    tokenStore.rotateSession();
+    tokenStore.setTokens({ token: "account-b", refreshToken: "refresh-b" });
+    resolveRefresh(jsonResponse({ token: "account-a-new", refreshToken: "refresh-a-new" }));
+    await expect(pending).rejects.toThrow("Session changed during request");
+
+    expect(tokenStore.getTokens()).toEqual({ token: "account-b", refreshToken: "refresh-b" });
+  });
+
   it("does not attempt refresh for auth endpoints", async () => {
     const fetchMock = vi.fn(async () => jsonResponse({ error: "Invalid credentials" }, 401));
     vi.stubGlobal("fetch", fetchMock);
@@ -123,6 +235,24 @@ describe("request refresh rotation", () => {
     await expect(authApi.login({ emailOrUsername: "a", password: "b" })).rejects.toThrow("Invalid credentials");
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(tokenStore.getTokens()).toEqual({ token: "access-1", refreshToken: "refresh-1" });
+  });
+
+  it("logout sends the stored bearer and never triggers a refresh", async () => {
+    const calls: Array<{ path: string; auth?: string }> = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      calls.push({ path, auth: (init?.headers as Record<string, string>)?.Authorization });
+      // Even a 401 must not start a refresh — the tokens are about to go.
+      return jsonResponse({ error: "Token expired" }, 401);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    tokenStore.setTokens({ token: "access-1", refreshToken: "refresh-1" });
+    await authApi.logout();
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toEqual({ path: "/api/auth/logout", auth: "Bearer access-1" });
     expect(tokenStore.getTokens()).toEqual({ token: "access-1", refreshToken: "refresh-1" });
   });
 });

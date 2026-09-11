@@ -66,6 +66,7 @@ export function SessionProvider({ children }: { children: preact.ComponentChildr
     user,
     async login(emailOrUsername, password) {
       const response = await authApi.login({ emailOrUsername, password });
+      tokenStore.rotateSession();
       tokenStore.setTokens({ token: response.token, refreshToken: response.refreshToken });
       tokenStore.setUser(response.user);
       setUser(response.user);
@@ -73,6 +74,7 @@ export function SessionProvider({ children }: { children: preact.ComponentChildr
     },
     async register(input) {
       const response = await authApi.register(input);
+      tokenStore.rotateSession();
       tokenStore.setTokens({ token: response.token, refreshToken: response.refreshToken });
       setStatus("authenticated");
       const { user: detail } = await usersApi.getMe();
@@ -81,10 +83,15 @@ export function SessionProvider({ children }: { children: preact.ComponentChildr
       setUser(profile);
     },
     async logout() {
-      tokenStore.clear();
-      setStatus("anonymous");
-      setUser(null);
-      void authApi.logout();
+      // Revoke server-side FIRST while the tokens are still stored; the
+      // local clear happens afterwards (and even on server failure).
+      try {
+        await authApi.logout();
+      } finally {
+        tokenStore.clear();
+        setStatus("anonymous");
+        setUser(null);
+      }
     },
     async refreshUser() {
       const { user: detail } = await usersApi.getMe();
