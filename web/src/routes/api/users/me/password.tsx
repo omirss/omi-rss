@@ -1,12 +1,11 @@
 import { z } from "zod";
 import bcrypt from "bcrypt";
-import { eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { users } from "../../../../data/db/schema.js";
 import { getDb } from "../../../../lib/api/db.js";
 import { AppError, handle, jsonResponse } from "../../../../lib/api/errors.js";
 import { readJsonBody } from "../../../../lib/api/body.js";
 import { requireAuth } from "../../../../lib/api/auth.js";
-import { bumpTokenVersion } from "../../../../lib/api/tokens.js";
 
 export const config = { mode: "app" };
 
@@ -40,17 +39,31 @@ export async function action({ request, context }: { request: Request; context: 
 
     const passwordHash = await bcrypt.hash(data.newPassword, parseInt(process.env.BCRYPT_ROUNDS || "10"));
 
-    await db
+    // One atomic statement conditioned on the verified hash: password
+    // write, pending-reset-token clear and token-version bump (revoking
+    // every outstanding access AND refresh token, same as logout and
+    // password reset) commit together. A concurrent password change
+    // invalidates this request's precondition and it must re-authenticate.
+    const updated = await db
       .update(users)
       .set({
         passwordHash,
+        passwordResetToken: null,
+        passwordResetExpires: null,
+        tokenVersion: sql`${users.tokenVersion} + 1`,
         updatedAt: new Date(),
       })
-      .where(eq(users.id, auth.id));
+      .where(
+        and(
+          eq(users.id, auth.id),
+          eq(users.passwordHash, user.passwordHash!),
+        ),
+      )
+      .returning({ id: users.id });
 
-    // Same revocation as logout and password reset: a password change
-    // invalidates every outstanding access AND refresh token.
-    await bumpTokenVersion(auth.id);
+    if (updated.length === 0) {
+      throw new AppError("Password was changed concurrently; sign in and try again", 409);
+    }
 
     return jsonResponse({ message: "Password updated successfully" });
   });

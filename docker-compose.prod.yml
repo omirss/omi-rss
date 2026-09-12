@@ -31,7 +31,10 @@ services:
     image: redis:7-alpine
     container_name: omirss_redis
     restart: always
-    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    # One shared instance serves cache, sessions AND the BullMQ queue —
+    # eviction could silently drop durable queue/job/scheduler and
+    # rate-limit keys, so it must fail loudly when full (monitor memory).
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy noeviction
     volumes:
       - redis_data:/data
     healthcheck:
@@ -61,6 +64,10 @@ services:
       # false closes registration once the first user exists — recommended
       # for production after you register your own account
       ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-true}
+      # Rate limiting / proxy trust (see web/.env.example)
+      TRUSTED_PROXY: ${TRUSTED_PROXY:-false}
+      RATE_LIMIT_WINDOW_MS: ${RATE_LIMIT_WINDOW_MS:-900000}
+      RATE_LIMIT_MAX_REQUESTS: ${RATE_LIMIT_MAX_REQUESTS:-100}
       # Origin for verification/reset email links (set when SMTP is enabled;
       # the worker env below carries the SMTP_* vars)
       FRONTEND_URL: ${FRONTEND_URL:-}
@@ -92,6 +99,9 @@ services:
       DATABASE_URL: postgres://omi_rss:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/omi_rss
       REDIS_URL: redis://redis:6379
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
+      # Article retention (days) for the nightly cleanup job; starred
+      # articles are always kept.
+      ARTICLE_RETENTION_DAYS: ${ARTICLE_RETENTION_DAYS:-90}
       # Email delivery (optional): the worker is the process that sends.
       # Empty SMTP_HOST keeps email disabled.
       SMTP_HOST: ${SMTP_HOST:-}

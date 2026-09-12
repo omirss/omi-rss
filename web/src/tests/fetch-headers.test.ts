@@ -1,158 +1,212 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
+import http from "node:http";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import { fetchFeedXml } from "../services/feed-fetch.js";
 import { fetchDocument } from "../services/extraction.js";
 
-// Worker header wiring at the fetch layer: a feed's bring-your-own-
-// subscription headers ride on every request to that feed's origin, and
-// survive redirects only while the hop stays on the original host.
-// Fixture-style: a fake global fetch captures init.headers per request.
-// Literal-IP URLs skip DNS (SSRF pre-check passes without mocking it).
+// Worker header wiring at the fetch layer, against real local HTTP servers
+// (the pinned transport is node:http, not global fetch): a feed's
+// bring-your-own-subscription headers ride on every request to that feed's
+// origin, and survive redirects only while the hop stays on the exact same
+// origin. ALLOW_PRIVATE_FEED_URLS lets the 127.0.0.1 listeners through.
 
 const XML = `<?xml version="1.0"?><rss version="2.0"><channel><title>t</title></channel></rss>`;
 const HTML = "<html><head><title>t</title></head><body><p>body text</p></body></html>";
 
+type Handler = (req: IncomingMessage, res: ServerResponse, path: string) => void;
+
 interface CapturedRequest {
   url: string;
-  headers: Record<string, string>;
+  headers: IncomingMessage["headers"];
 }
 
-function xmlResponse(): Response {
-  return new Response(XML, { status: 200, headers: { "content-type": "text/xml" } });
+interface TestServer {
+  origin: string;
+  requests: CapturedRequest[];
+  route(handler: Handler): void;
 }
 
-function htmlResponse(): Response {
-  return new Response(HTML, { status: 200, headers: { "content-type": "text/html" } });
-}
+const closers: Array<() => Promise<void>> = [];
 
-function redirectResponse(location: string): Response {
-  return new Response(null, { status: 302, headers: { location } });
-}
-
-function stubFetch(handler: (url: string) => Response): CapturedRequest[] {
-  const captured: CapturedRequest[] = [];
-  vi.stubGlobal("fetch", async (input: string | URL, init?: { headers?: Record<string, string> }) => {
-    const url = String(input);
-    captured.push({ url, headers: { ...(init?.headers ?? {}) } });
-    return handler(url);
+function startServer(): Promise<TestServer> {
+  const requests: CapturedRequest[] = [];
+  let handler: Handler = (_req, res) => {
+    res.writeHead(404);
+    res.end();
+  };
+  const server = http.createServer((req, res) => {
+    requests.push({ url: req.url ?? "/", headers: req.headers });
+    handler(req, res, req.url ?? "/");
   });
-  return captured;
+  return new Promise((resolve) => {
+    server.listen(0, "127.0.0.1", () => {
+      const { port } = server.address() as { address: string; port: number };
+      closers.push(() => new Promise<void>((done) => server.close(() => done())));
+      resolve({
+        origin: `http://127.0.0.1:${port}`,
+        requests,
+        route: (next) => {
+          handler = next;
+        },
+      });
+    });
+  });
 }
+
+let serverA: TestServer;
+let serverB: TestServer;
+
+beforeAll(async () => {
+  serverA = await startServer();
+  serverB = await startServer();
+  process.env.ALLOW_PRIVATE_FEED_URLS = "true";
+});
+
+afterAll(async () => {
+  delete process.env.ALLOW_PRIVATE_FEED_URLS;
+  await Promise.all(closers.map((close) => close()));
+});
 
 afterEach(() => {
-  vi.unstubAllGlobals();
+  serverA.requests.length = 0;
+  serverB.requests.length = 0;
 });
 
 const COOKIE = { Cookie: "subscriber=token123" };
 
+function serveXml(_req: IncomingMessage, res: ServerResponse) {
+  res.writeHead(200, { "content-type": "text/xml" });
+  res.end(XML);
+}
+
+function serveHtml(_req: IncomingMessage, res: ServerResponse) {
+  res.writeHead(200, { "content-type": "text/html" });
+  res.end(HTML);
+}
+
 describe("fetchFeedXml custom headers", () => {
   it("sends the feed's headers with the request", async () => {
-    const captured = stubFetch(() => xmlResponse());
+    serverA.route(serveXml);
 
-    const body = await fetchFeedXml("http://8.8.8.8/feed.xml", COOKIE);
+    const body = await fetchFeedXml(`${serverA.origin}/feed.xml`, COOKIE);
 
     expect(body).toBe(XML);
-    expect(captured).toHaveLength(1);
-    expect(captured[0].headers.Cookie).toBe("subscriber=token123");
-    expect(captured[0].headers["User-Agent"]).toContain("omi-rss");
+    expect(serverA.requests).toHaveLength(1);
+    expect(serverA.requests[0].headers.cookie).toBe("subscriber=token123");
+    expect(serverA.requests[0].headers["user-agent"]).toContain("omi-rss");
   });
 
-  it("preserves custom headers across same-host redirect hops", async () => {
-    const captured = stubFetch((url) =>
-      url === "http://8.8.8.8/feed.xml"
-        ? redirectResponse("http://8.8.8.8/feed-real.xml")
-        : xmlResponse(),
-    );
-
-    await fetchFeedXml("http://8.8.8.8/feed.xml", COOKIE);
-
-    expect(captured).toHaveLength(2);
-    expect(captured[0].headers.Cookie).toBe("subscriber=token123");
-    expect(captured[1].url).toBe("http://8.8.8.8/feed-real.xml");
-    expect(captured[1].headers.Cookie).toBe("subscriber=token123");
-  });
-
-  it("drops custom headers on cross-host redirect hops", async () => {
-    const captured = stubFetch((url) =>
-      url === "http://8.8.8.8/feed.xml"
-        ? redirectResponse("http://9.9.9.9/feed-real.xml")
-        : xmlResponse(),
-    );
-
-    await fetchFeedXml("http://8.8.8.8/feed.xml", COOKIE);
-
-    expect(captured).toHaveLength(2);
-    expect(captured[0].headers.Cookie).toBe("subscriber=token123");
-    expect(captured[1].url).toBe("http://9.9.9.9/feed-real.xml");
-    expect(captured[1].headers.Cookie).toBeUndefined();
-  });
-
-  it("does not re-send dropped headers after returning from a cross-host hop", async () => {
-    const captured = stubFetch((url) => {
-      if (url === "http://8.8.8.8/a.xml") return redirectResponse("http://9.9.9.9/b.xml");
-      if (url === "http://9.9.9.9/b.xml") return redirectResponse("http://8.8.8.8/c.xml");
-      return xmlResponse();
+  it("preserves custom headers across same-origin redirect hops", async () => {
+    serverA.route((_req, res, path) => {
+      if (path === "/feed.xml") {
+        res.writeHead(302, { location: `${serverA.origin}/feed-real.xml` });
+        res.end("redirect body that must not be read");
+        return;
+      }
+      serveXml(_req, res);
     });
 
-    await fetchFeedXml("http://8.8.8.8/a.xml", COOKIE);
+    await fetchFeedXml(`${serverA.origin}/feed.xml`, COOKIE);
 
-    expect(captured.map((c) => c.url)).toEqual([
-      "http://8.8.8.8/a.xml",
-      "http://9.9.9.9/b.xml",
-      "http://8.8.8.8/c.xml",
-    ]);
-    expect(captured[2].headers.Cookie).toBeUndefined();
+    expect(serverA.requests.map((r) => r.url)).toEqual(["/feed.xml", "/feed-real.xml"]);
+    expect(serverA.requests[0].headers.cookie).toBe("subscriber=token123");
+    expect(serverA.requests[1].headers.cookie).toBe("subscriber=token123");
+  });
+
+  it("drops custom headers on cross-origin redirect hops", async () => {
+    serverA.route((_req, res) => {
+      res.writeHead(302, { location: `${serverB.origin}/feed-real.xml` });
+      res.end();
+    });
+    serverB.route(serveXml);
+
+    await fetchFeedXml(`${serverA.origin}/feed.xml`, COOKIE);
+
+    expect(serverA.requests[0].headers.cookie).toBe("subscriber=token123");
+    expect(serverB.requests[0].url).toBe("/feed-real.xml");
+    expect(serverB.requests[0].headers.cookie).toBeUndefined();
+  });
+
+  it("does not re-send dropped headers after returning from a cross-origin hop", async () => {
+    serverA.route((_req, res, path) => {
+      if (path === "/a.xml") {
+        res.writeHead(302, { location: `${serverB.origin}/b.xml` });
+        res.end();
+        return;
+      }
+      serveXml(_req, res);
+    });
+    serverB.route((_req, res) => {
+      res.writeHead(302, { location: `${serverA.origin}/c.xml` });
+      res.end();
+    });
+
+    await fetchFeedXml(`${serverA.origin}/a.xml`, COOKIE);
+
+    expect(serverA.requests.map((r) => r.url)).toEqual(["/a.xml", "/c.xml"]);
+    expect(serverB.requests.map((r) => r.url)).toEqual(["/b.xml"]);
+    expect(serverA.requests[1].headers.cookie).toBeUndefined();
   });
 
   it("sends no custom headers when none are stored", async () => {
-    const captured = stubFetch(() => xmlResponse());
+    serverA.route(serveXml);
 
-    await fetchFeedXml("http://8.8.8.8/feed.xml", undefined);
+    await fetchFeedXml(`${serverA.origin}/feed.xml`, undefined);
 
-    expect(captured[0].headers.Cookie).toBeUndefined();
+    expect(serverA.requests[0].headers.cookie).toBeUndefined();
   });
 });
 
 describe("fetchDocument custom headers", () => {
   it("sends the feed's headers with the article fetch", async () => {
-    const captured = stubFetch(() => htmlResponse());
+    serverA.route(serveHtml);
 
-    const doc = await fetchDocument("http://8.8.8.8/article", undefined, COOKIE);
+    const doc = await fetchDocument(`${serverA.origin}/article`, undefined, COOKIE);
 
     expect(doc.status).toBe(200);
-    expect(captured).toHaveLength(1);
-    expect(captured[0].headers.Cookie).toBe("subscriber=token123");
-    expect(captured[0].headers["User-Agent"]).toContain("omi-rss");
+    expect(serverA.requests).toHaveLength(1);
+    expect(serverA.requests[0].headers.cookie).toBe("subscriber=token123");
+    expect(serverA.requests[0].headers["user-agent"]).toContain("omi-rss");
   });
 
   it("custom headers override the defaults (user-supplied User-Agent wins)", async () => {
-    const captured = stubFetch(() => htmlResponse());
+    serverA.route(serveHtml);
 
-    await fetchDocument("http://8.8.8.8/article", undefined, { "User-Agent": "Custom/1.0" });
+    await fetchDocument(`${serverA.origin}/article`, undefined, { "User-Agent": "Custom/1.0" });
 
-    expect(captured[0].headers["User-Agent"]).toBe("Custom/1.0");
+    expect(serverA.requests[0].headers["user-agent"]).toBe("Custom/1.0");
   });
 
-  it("preserves custom headers across same-host redirects, drops them cross-host", async () => {
-    const captured = stubFetch((url) => {
-      if (url === "http://8.8.8.8/article") return redirectResponse("http://8.8.8.8/article-real");
-      if (url === "http://8.8.8.8/article2") return redirectResponse("http://9.9.9.9/article-real");
-      return htmlResponse();
+  it("preserves custom headers across same-origin redirects, drops them cross-origin", async () => {
+    serverA.route((_req, res, path) => {
+      if (path === "/article") {
+        res.writeHead(301, { location: `${serverA.origin}/article-real` });
+        res.end();
+        return;
+      }
+      if (path === "/article2") {
+        res.writeHead(301, { location: `${serverB.origin}/article-real` });
+        res.end();
+        return;
+      }
+      serveHtml(_req, res);
     });
+    serverB.route(serveHtml);
 
-    await fetchDocument("http://8.8.8.8/article", undefined, COOKIE);
-    await fetchDocument("http://8.8.8.8/article2", undefined, COOKIE);
+    await fetchDocument(`${serverA.origin}/article`, undefined, COOKIE);
+    await fetchDocument(`${serverA.origin}/article2`, undefined, COOKIE);
 
-    expect(captured).toHaveLength(4);
-    expect(captured[1].headers.Cookie).toBe("subscriber=token123");
-    expect(captured[3].headers.Cookie).toBeUndefined();
+    expect(serverA.requests).toHaveLength(3);
+    expect(serverA.requests[1].headers.cookie).toBe("subscriber=token123");
+    expect(serverB.requests[0].headers.cookie).toBeUndefined();
   });
 
   it("keeps conditional GET headers alongside custom headers", async () => {
-    const captured = stubFetch(() => htmlResponse());
+    serverA.route(serveHtml);
 
-    await fetchDocument("http://8.8.8.8/article", { etag: '"v1"' }, COOKIE);
+    await fetchDocument(`${serverA.origin}/article`, { etag: '"v1"' }, COOKIE);
 
-    expect(captured[0].headers["If-None-Match"]).toBe('"v1"');
-    expect(captured[0].headers.Cookie).toBe("subscriber=token123");
+    expect(serverA.requests[0].headers["if-none-match"]).toBe('"v1"');
+    expect(serverA.requests[0].headers.cookie).toBe("subscriber=token123");
   });
 });

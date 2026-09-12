@@ -58,17 +58,30 @@ export type EditTag =
   | { kind: "starred" }
   | { kind: "noop" };
 
+const EDIT_NOOP_STATES = new Set(["kept-unread", "broadcast", "like", "tracking-kept-unread"]);
+
+// Mirrors parseStreamId's grammar: ANY user-id segment is accepted
+// (`user/12345/...` — NetNewsWire sends the numeric form), so mutations and
+// queries agree on read/starred tags.
 export function parseEditTag(tag: string): EditTag | null {
-  if (tag === stateStreamId(STATE_READ)) {
-    return { kind: "read" };
+  const state = tag.match(/^user\/[^/]+\/state\/com\.google\/([a-z-]+)$/);
+  if (state) {
+    if (state[1] === STATE_READ) {
+      return { kind: "read" };
+    }
+    if (state[1] === STATE_STARRED) {
+      return { kind: "starred" };
+    }
+    // kept-unread, broadcast, like, tracking-kept-unread: accepted, no-op
+    // (SPEC 2.12).
+    if (EDIT_NOOP_STATES.has(state[1])) {
+      return { kind: "noop" };
+    }
+    return null;
   }
-  if (tag === stateStreamId(STATE_STARRED)) {
-    return { kind: "starred" };
-  }
-  // kept-unread, broadcast, like, tracking-kept-unread: accepted, no-op
-  // (SPEC 2.12). Item labels (user/-/label/...) are also no-ops: omi-rss has
-  // no per-item label table.
-  if (/^user\/[^/]+\/(state\/com\.google\/(kept-unread|broadcast|like|tracking-kept-unread)|label\/.+)$/.test(tag)) {
+  // Item labels (user/-/label/...) are no-ops: omi-rss has no per-item
+  // label table.
+  if (/^user\/[^/]+\/label\/.+$/.test(tag)) {
     return { kind: "noop" };
   }
   return null;

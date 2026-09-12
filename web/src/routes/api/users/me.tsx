@@ -127,11 +127,15 @@ export async function action({ request, context }: { request: Request; context: 
     // Setting an email resets verification and queues the same
     // verification email register sends, so accounts created without an
     // email can gain (and verify) one later — required for password resets.
+    // Any pending password-reset link was issued to the OLD mailbox and
+    // must not stay valid against the account after the change.
     const emailPatch = emailChanged
       ? {
           email: data.email,
           emailVerified: false,
           emailVerificationToken: crypto.randomBytes(32).toString("hex"),
+          passwordResetToken: null,
+          passwordResetExpires: null,
         }
       : {};
 

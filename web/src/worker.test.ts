@@ -23,6 +23,39 @@ vi.mock("./lib/api/db.js", () => ({
   getDb: vi.fn(),
 }));
 
+const queueAddMock = vi.hoisted(() => vi.fn(async () => ({ id: "job-1" })));
+
+vi.mock("@neutron-build/data", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@neutron-build/data")>();
+  return {
+    ...actual,
+    createBullMqQueueDriver: vi.fn(async () => ({
+      add: queueAddMock,
+      process: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined),
+    })),
+  };
+});
+
+vi.mock("./services/extraction.js", () => ({
+  fetchDocument: vi.fn(async () => ({
+    status: 200,
+    body: new TextEncoder().encode(
+      "<html><head><title>t</title></head><body><p>enough text to pass readability thresholds and more words here to be safe about it</p></body></html>",
+    ),
+    contentType: "text/html; charset=utf-8",
+    etag: null,
+    lastModified: null,
+    finalUrl: "http://8.8.8.8/article",
+  })),
+  decodeBody: vi.fn((bytes: Uint8Array) => new TextDecoder().decode(bytes)),
+  extractArticle: vi.fn(() => ({
+    title: "t",
+    contentHtml: "<p>extracted</p>",
+    method: "readability" as const,
+  })),
+}));
+
 // Unit tests for the update-all due-feed filter, extracted from the Express
 // SQL: active AND (never fetched OR fetched strictly longer than
 // updateInterval minutes ago). NULL interval arithmetic never becomes due
@@ -179,6 +212,177 @@ describe("DNS-transient vs terminal classification in processExtractArticle", ()
     expect(result.status).toBe("skip-unsafe-url");
     expect(updates).toHaveLength(1);
     expect(updates[0].contentExtracted).toBe("");
+  });
+
+  it("defers transient HTTP statuses (503) instead of storing terminal ''", async () => {
+    const { db, updates } = fakeDb({ id: "a3", url: "http://8.8.8.8/x", contentExtracted: null });
+    vi.mocked(getDb).mockResolvedValue(db as unknown as never);
+
+    const extraction = await import("./services/extraction.js");
+    vi.mocked(extraction.fetchDocument).mockResolvedValue({
+      status: 503,
+      body: null,
+      contentType: null,
+      etag: null,
+      lastModified: null,
+      finalUrl: "http://8.8.8.8/x",
+    });
+
+    const { processExtractArticle } = await import("./worker.js");
+    const result = await processExtractArticle("a3");
+
+    expect(result.status).toBe("deferred-http-503");
+    expect(updates).toHaveLength(0);
+  });
+
+  it("stores '' for terminal HTTP statuses (404)", async () => {
+    const { db, updates } = fakeDb({ id: "a4", url: "http://8.8.8.8/x", contentExtracted: null });
+    vi.mocked(getDb).mockResolvedValue(db as unknown as never);
+
+    const extraction = await import("./services/extraction.js");
+    vi.mocked(extraction.fetchDocument).mockResolvedValue({
+      status: 404,
+      body: null,
+      contentType: null,
+      etag: null,
+      lastModified: null,
+      finalUrl: "http://8.8.8.8/x",
+    });
+
+    const { processExtractArticle } = await import("./worker.js");
+    const result = await processExtractArticle("a4");
+
+    expect(result.status).toBe("http-404");
+    expect(updates).toHaveLength(1);
+    expect(updates[0].contentExtracted).toBe("");
+  });
+
+  it("defers network errors (timeouts) instead of storing terminal ''", async () => {
+    const { db, updates } = fakeDb({ id: "a5", url: "http://8.8.8.8/x", contentExtracted: null });
+    vi.mocked(getDb).mockResolvedValue(db as unknown as never);
+
+    const extraction = await import("./services/extraction.js");
+    vi.mocked(extraction.fetchDocument).mockRejectedValue(new Error("Pinned fetch timed out after 10000ms"));
+
+    const { processExtractArticle } = await import("./worker.js");
+    const result = await processExtractArticle("a5");
+
+    expect(result.status).toBe("deferred-transient");
+    expect(updates).toHaveLength(0);
+  });
+});
+
+describe("processCleanup", () => {
+  function captureDeleteDb(returned: Array<{ id: string }> = []) {
+    const deletes: unknown[] = [];
+    const selectQuery = (rows: unknown[]) => {
+      const q: Record<string, unknown> = {
+        then: (onFulfilled: (value: unknown) => unknown, onRejected: (reason: unknown) => unknown) =>
+          Promise.resolve(rows).then(onFulfilled, onRejected),
+      };
+      for (const method of ["from", "where", "limit"]) {
+        q[method] = () => q;
+      }
+      return q as never;
+    };
+    return {
+      deletes,
+      db: {
+        select: () => selectQuery([]),
+        delete: () => ({
+          where: (condition: unknown) => {
+            deletes.push(condition);
+            return {
+              returning: async () => returned,
+            };
+          },
+        }),
+      },
+    };
+  }
+
+  beforeEach(() => {
+    delete process.env.ARTICLE_RETENTION_DAYS;
+  });
+
+  it("retention delete excludes starred articles and never deletes inactive feeds' libraries", async () => {
+    const { db, deletes } = captureDeleteDb([{ id: "old-1" }]);
+    vi.mocked(getDb).mockResolvedValue(db as unknown as never);
+
+    const { processCleanup } = await import("./worker.js");
+    const result = await processCleanup();
+
+    // Exactly ONE delete (retention): the inactive-feed wipe is gone, and
+    // the retention condition includes the NOT EXISTS starred guard.
+    expect(deletes).toHaveLength(1);
+    expect(result).toEqual({ expired: 1 });
+  });
+
+  it("rejects garbage ARTICLE_RETENTION_DAYS instead of computing a destructive cutoff", async () => {
+    const { db, deletes } = captureDeleteDb();
+    vi.mocked(getDb).mockResolvedValue(db as unknown as never);
+    process.env.ARTICLE_RETENTION_DAYS = "soon";
+
+    const { processCleanup } = await import("./worker.js");
+    await expect(processCleanup()).rejects.toThrow(/Invalid ARTICLE_RETENTION_DAYS/);
+    expect(deletes).toHaveLength(0);
+  });
+
+  it("articleRetentionCutoff validates range and computes the cutoff", async () => {
+    const { articleRetentionCutoff } = await import("./worker.js");
+    const now = new Date("2026-01-01T00:00:00Z");
+    expect(articleRetentionCutoff("90", now).toISOString()).toBe("2025-10-03T00:00:00.000Z");
+    expect(articleRetentionCutoff(undefined, now).toISOString()).toBe("2025-10-03T00:00:00.000Z");
+    expect(articleRetentionCutoff("1", now).toISOString()).toBe("2025-12-31T00:00:00.000Z");
+    for (const bad of ["soon", "0", "-5", "40000", "1.5"]) {
+      expect(() => articleRetentionCutoff(bad, now)).toThrow(/Invalid ARTICLE_RETENTION_DAYS/);
+    }
+    expect(articleRetentionCutoff("", now).toISOString()).toBe("2025-10-03T00:00:00.000Z");
+  });
+});
+
+describe("publisher data clamping", () => {
+  it("clamps oversized author text codepoint-safely", async () => {
+    const { publisherText } = await import("./worker.js");
+    expect(publisherText("a".repeat(300), 255)).toHaveLength(255);
+    expect(publisherText("short", 255)).toBe("short");
+    expect(publisherText(undefined, 255)).toBeUndefined();
+    expect(publisherText(42, 255)).toBeUndefined();
+    const emoji = "👍".repeat(300);
+    const clamped = publisherText(emoji, 255)!;
+    expect(Array.from(clamped)).toHaveLength(255);
+    expect(Array.from(clamped).every((c) => c === "👍")).toBe(true);
+  });
+
+  it("falls back to arrival time for unparseable dates", async () => {
+    const { publisherDate } = await import("./worker.js");
+    expect(publisherDate("not a date").toString()).toBe(new Date().toString());
+    expect(publisherDate(undefined).toString()).toBe(new Date().toString());
+    expect(publisherDate("2026-01-02T03:04:05Z").getTime()).toBe(new Date("2026-01-02T03:04:05Z").getTime());
+  });
+});
+
+describe("enqueuePendingExtractions", () => {
+  it("enqueues regardless of time spent fetching/inserting before the call (budget clock is internal)", async () => {
+    const candidates = [{ id: "c1" }, { id: "c2" }];
+    const selectQuery = () => {
+      const q: Record<string, unknown> = {
+        then: (onFulfilled: (value: unknown) => unknown, onRejected: (reason: unknown) => unknown) =>
+          Promise.resolve(candidates).then(onFulfilled, onRejected),
+      };
+      for (const method of ["from", "where", "orderBy", "limit"]) {
+        q[method] = () => q;
+      }
+      return q as never;
+    };
+    const db = { select: () => selectQuery() };
+    queueAddMock.mockClear();
+
+    const { enqueuePendingExtractions } = await import("./worker.js");
+    const enqueued = await enqueuePendingExtractions(db as never, { id: "feed-1" } as never);
+
+    expect(enqueued).toBe(2);
+    expect(queueAddMock).toHaveBeenCalledTimes(2);
   });
 });
 

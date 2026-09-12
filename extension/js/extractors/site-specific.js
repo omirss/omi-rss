@@ -74,9 +74,13 @@ const siteExtractors = {
     content: '[data-component="text-block"]',
     remove: ['.ssrcss-1r97t5e-InjectedAdvertContainer'],
     publishDate: 'time',
-    processContent: (element) => {
+    // sourceElement is the ORIGINAL (still-attached) element — the clone
+    // is detached, so its parentElement is null and this used to throw.
+    processContent: (element, sourceElement) => {
       // Combine all text blocks
-      const blocks = element.parentElement.querySelectorAll('[data-component="text-block"]');
+      const blocks = (sourceElement && sourceElement.parentElement
+        ? sourceElement.parentElement.querySelectorAll('[data-component="text-block"]')
+        : [element]);
       const combined = document.createElement('div');
       blocks.forEach(block => combined.appendChild(block.cloneNode(true)));
       return combined;
@@ -297,6 +301,9 @@ function extractWithSiteRules(hostname) {
   }
 
   if (contentElement) {
+    // Keep the original (still-attached) element for processors: the clone
+    // is detached, so parentElement lookups on it return null.
+    const sourceElement = contentElement;
     contentElement = contentElement.cloneNode(true);
 
     // Remove unwanted elements
@@ -308,7 +315,7 @@ function extractWithSiteRules(hostname) {
 
     // Process content if custom processor exists
     if (extractor.processContent) {
-      contentElement = extractor.processContent(contentElement);
+      contentElement = extractor.processContent(contentElement, sourceElement);
     }
 
     result.content = contentElement.innerHTML;

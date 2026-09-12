@@ -15,21 +15,30 @@ function hostKey(url: string): string {
 
 // Serializes fn against every other withHostGate call for the same hostname;
 // different hostnames run in parallel. The chain tail never rejects so one
-// failing fetch cannot poison the host's queue.
+// failing fetch cannot poison the host's queue. Completed tails are removed
+// from the map (only when no newer request chained onto them), so the gate
+// map does not grow monotonically with every hostname ever seen.
 export function withHostGate<T>(url: string, fn: () => Promise<T>): Promise<T> {
   const key = hostKey(url);
   const tail = gates.get(key) ?? Promise.resolve();
   const result = tail.then(fn, fn);
-  gates.set(
-    key,
-    result.then(
-      () => undefined,
-      () => undefined,
-    ),
+  const next = result.then(
+    () => undefined,
+    () => undefined,
   );
+  gates.set(key, next);
+  void next.then(() => {
+    if (gates.get(key) === next) {
+      gates.delete(key);
+    }
+  });
   return result;
 }
 
 export function resetHostGates(): void {
   gates.clear();
+}
+
+export function hostGateCount(): number {
+  return gates.size;
 }

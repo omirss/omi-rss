@@ -5,6 +5,7 @@ import { getDb } from "../../../lib/api/db.js";
 import { AppError, handle, handleLoader, jsonResponse, noContent } from "../../../lib/api/errors.js";
 import { readJsonBody } from "../../../lib/api/body.js";
 import { requireAuth } from "../../../lib/api/auth.js";
+import { assertFolderOwned } from "../../../lib/api/folders.js";
 import { validateHttpHeaders } from "../../../lib/feed-headers.js";
 
 export const config = { mode: "app" };
@@ -131,6 +132,11 @@ export async function action({ request, params, context }: { request: Request; p
     }
 
     const data = updateFeedSchema.parse(await readJsonBody(request));
+
+    // The feed is ownership-checked above; the TARGET folder must be too.
+    if (data.folderId) {
+      await assertFolderOwned(db, data.folderId, auth.id);
+    }
 
     // Page feeds extract their content by construction — full-text is an
     // RSS-feed-only toggle.

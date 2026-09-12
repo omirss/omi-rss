@@ -3,9 +3,11 @@ import { eq, and, sql } from "drizzle-orm";
 import Parser from "rss-parser";
 import { feeds, articles, userArticleStates } from "../../../data/db/schema.js";
 import { getDb } from "../../../lib/api/db.js";
+import { isUniqueViolation } from "../../../lib/api/pg-errors.js";
 import { AppError, handle, handleLoader, jsonResponse } from "../../../lib/api/errors.js";
 import { readJsonBody } from "../../../lib/api/body.js";
 import { requireAuth } from "../../../lib/api/auth.js";
+import { assertFolderOwned } from "../../../lib/api/folders.js";
 import { getDataRuntime } from "../../../data/runtime.js";
 import { fetchFeedXml } from "../../../services/feed-fetch.js";
 import { faviconUrlFor } from "../../../lib/favicon.js";
@@ -98,6 +100,10 @@ export async function action({ request, context }: { request: Request; context: 
       throw new AppError("Already subscribed to this feed", 409);
     }
 
+    if (data.folderId) {
+      await assertFolderOwned(db, data.folderId, auth.id);
+    }
+
     let feedData;
     try {
       feedData = await parser.parseString(await fetchFeedXml(data.url));
@@ -106,22 +112,32 @@ export async function action({ request, context }: { request: Request; context: 
     }
 
     const feedImage = feedData.image as string | { url?: string } | undefined;
-    const [newFeed] = await db
-      .insert(feeds)
-      .values({
-        userId: auth.id,
-        url: data.url,
-        title: feedData.title || "Untitled Feed",
-        description: feedData.description,
-        siteUrl: feedData.link,
-        imageUrl: typeof feedImage === "string" ? feedImage : feedImage?.url,
-        customTitle: data.customTitle,
-        folderId: data.folderId,
-        updateInterval: data.updateInterval || 30,
-        fullTextEnabled: data.fullTextEnabled ?? false,
-        favicon: faviconUrlFor(feedData.link),
-      })
-      .returning();
+    let newFeed: typeof feeds.$inferSelect | undefined;
+    try {
+      [newFeed] = await db
+        .insert(feeds)
+        .values({
+          userId: auth.id,
+          url: data.url,
+          title: feedData.title || "Untitled Feed",
+          description: feedData.description,
+          siteUrl: feedData.link,
+          imageUrl: typeof feedImage === "string" ? feedImage : feedImage?.url,
+          customTitle: data.customTitle,
+          folderId: data.folderId,
+          updateInterval: data.updateInterval || 30,
+          fullTextEnabled: data.fullTextEnabled ?? false,
+          favicon: faviconUrlFor(feedData.link),
+        })
+        .returning();
+    } catch (error) {
+      // The (user_id, url) unique index is the real dup-check: a concurrent
+      // subscribe that raced past the pre-check lands here.
+      if (isUniqueViolation(error)) {
+        throw new AppError("Already subscribed to this feed", 409);
+      }
+      throw error;
+    }
 
     const runtime = await getDataRuntime();
     await runtime.queue.add("feed.update-single", {

@@ -94,6 +94,9 @@ export const feeds = pgTable("feeds", {
   index("feeds_user_idx").on(table.userId),
   index("feeds_folder_idx").on(table.folderId),
   index("feeds_url_idx").on(table.url),
+  // Backs the subscribe dup-check at the DB level: concurrent subscribes
+  // (route, OPML import, greader quick-add) cannot create duplicate feeds.
+  uniqueIndex("feeds_owner_url_unique").on(table.userId, table.url),
 ]);
 
 export const articles = pgTable("articles", {

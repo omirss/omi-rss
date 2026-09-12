@@ -72,8 +72,16 @@ const KEYS = {
   token: "omi.auth.token",
   refreshToken: "omi.auth.refreshToken",
   user: "omi.auth.user",
+  session: "omi.auth.session",
   addFeedFullText: "omi.addfeed.fulltext",
 } as const;
+
+function randomSession(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random()}`;
+}
 
 export const tokenStore = {
   getTokens(): TokenPair | null {
@@ -85,6 +93,20 @@ export const tokenStore = {
   setTokens(tokens: TokenPair): void {
     storage.setItem(KEYS.token, tokens.token);
     storage.setItem(KEYS.refreshToken, tokens.refreshToken);
+  },
+  // Session generation: rotated on login/logout/clear so late-arriving
+  // token writes from an in-flight refresh can never resurrect a logged-out
+  // session or swap one account's tokens over another's.
+  getSession(): string | null {
+    return storage.getItem(KEYS.session);
+  },
+  rotateSession(): string {
+    const session = randomSession();
+    storage.setItem(KEYS.session, session);
+    return session;
+  },
+  ensureSession(): string {
+    return storage.getItem(KEYS.session) ?? tokenStore.rotateSession();
   },
   getUser(): UserProfile | null {
     const raw = storage.getItem(KEYS.user);
@@ -102,6 +124,7 @@ export const tokenStore = {
     storage.removeItem(KEYS.token);
     storage.removeItem(KEYS.refreshToken);
     storage.removeItem(KEYS.user);
+    tokenStore.rotateSession();
   },
 };
 
@@ -173,29 +196,49 @@ async function rawRequest(path: string, config: RequestConfig): Promise<Response
   });
 }
 
-let refreshInFlight: Promise<boolean> | null = null;
+type RefreshOutcome = "ok" | "rejected" | "transient";
 
-async function performRefresh(): Promise<boolean> {
-  const tokens = tokenStore.getTokens();
-  if (!tokens?.refreshToken) return false;
+let refreshInFlight: Promise<RefreshOutcome> | null = null;
+
+// A refresh only installs its tokens when the session generation AND the
+// refresh token it started with are still current — a refresh racing a
+// logout (tokens cleared) or a login (another account's tokens stored)
+// must never resurrect or overwrite credentials.
+async function performRefresh(session: string, previousTokens: TokenPair): Promise<RefreshOutcome> {
+  let response: Response;
   try {
-    const response = await fetch("/api/auth/refresh", {
+    response = await fetch("/api/auth/refresh", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refreshToken: tokens.refreshToken }),
+      body: JSON.stringify({ refreshToken: previousTokens.refreshToken }),
     });
-    if (!response.ok) return false;
-    const data = (await response.json()) as TokenPair;
-    tokenStore.setTokens(data);
-    return true;
   } catch {
-    return false;
+    // Network-level failure: credentials stay intact (a 503 outage must
+    // not log the user out); the original 401 response is surfaced.
+    return "transient";
   }
+  if (response.status === 401 || response.status === 403) {
+    return "rejected";
+  }
+  if (!response.ok) {
+    return "transient";
+  }
+  const data = (await response.json()) as TokenPair;
+  if (
+    tokenStore.getSession() !== session ||
+    tokenStore.getTokens()?.refreshToken !== previousTokens.refreshToken
+  ) {
+    // Something replaced or removed the credentials mid-flight (logout,
+    // login, or another refresh that already rotated them). Do not write.
+    return "ok";
+  }
+  tokenStore.setTokens(data);
+  return "ok";
 }
 
-function refreshTokens(): Promise<boolean> {
+function refreshTokens(session: string, previousTokens: TokenPair): Promise<RefreshOutcome> {
   if (!refreshInFlight) {
-    refreshInFlight = performRefresh().finally(() => {
+    refreshInFlight = performRefresh(session, previousTokens).finally(() => {
       refreshInFlight = null;
     });
   }
@@ -209,13 +252,24 @@ function notifySessionExpired(): void {
 }
 
 async function request(path: string, config: RequestConfig = {}): Promise<Response> {
+  const session = tokenStore.ensureSession();
   let response = await rawRequest(path, config);
   if (response.status === 401 && !config.skipAuthRefresh) {
-    if (tokenStore.getTokens()?.refreshToken) {
-      const refreshed = await refreshTokens();
-      if (refreshed) {
+    const tokens = tokenStore.getTokens();
+    if (tokens?.refreshToken) {
+      const outcome = await refreshTokens(session, tokens);
+      if (tokenStore.getSession() !== session) {
+        // A logout or login changed the session mid-flight: retrying the
+        // body under whatever credentials are stored now could send it to
+        // the wrong account — abandon the request instead.
+        throw new ApiError(401, "Session changed during request", null);
+      }
+      if (outcome === "ok") {
         response = await rawRequest(path, config);
-      } else {
+      } else if (outcome === "rejected") {
+        // Definitive rejection from the refresh endpoint: the session is
+        // dead. Transient failures leave credentials intact and surface
+        // the original 401.
         tokenStore.clear();
         notifySessionExpired();
       }
@@ -288,7 +342,10 @@ export const authApi = {
     });
   },
   async logout(): Promise<void> {
-    await requestJson<{ message: string }>("/api/auth/logout", { method: "POST" }).catch(() => undefined);
+    await requestJson<{ message: string }>("/api/auth/logout", {
+      method: "POST",
+      skipAuthRefresh: true,
+    }).catch(() => undefined);
   },
   async forgotPassword(email: string): Promise<{ message: string }> {
     return requestJson<{ message: string }>("/api/auth/forgot-password", {

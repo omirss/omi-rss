@@ -1,41 +1,30 @@
 // Host-affinity rule for bring-your-own-subscription headers: stored
-// credentials (Cookie, Authorization) may only ride requests whose host is
-// the same site as the URL they were configured for. Shared by the
+// credentials (Cookie, Authorization) may only ride requests whose origin
+// is EXACTLY the origin they were configured for. Shared by the
 // article-extraction header gate (worker) and both redirect-drop gates
 // (feed fetch, document fetch).
 //
-// "Same site" is a naive registrable-domain match: the last two DNS labels
-// must be equal (feeds.example.com ~ www.example.com ~ example.com).
-// Multi-label public suffixes like co.uk are NOT recognized
-// (a.example.co.uk ~ b.example.co.uk counts as same-site) — documented,
-// accepted edge. IP literals and single-label hosts (localhost) have no
-// registrable domain and must match exactly. Ports are ignored
-// (URL.hostname excludes them), so 127.0.0.1:3000 ~ 127.0.0.1:9999 is
-// same-host — and 127.0.0.1 vs localhost is not.
+// Exact origin (scheme + host + port) is the only safe default without
+// shipping a public-suffix list: last-two-label "site" matching lets
+// unrelated tenants share a suffix (victim.co.uk ~ attacker.co.uk), and
+// ignoring ports/scheme would forward credentials across hosts that
+// merely resolve to the same name or downgrade https → http. Subdomain
+// redirects therefore drop credentials — the redirect target is chosen
+// by the feed host, not the subscriber.
 
-const IPV4_RE = /^\d{1,3}(\.\d{1,3}){3}$/;
-
-function hostnameOf(url: string): string | null {
+function httpOriginOf(url: string): string | null {
   try {
-    return new URL(url).hostname.toLowerCase();
+    const parsed = new URL(url);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+    if (parsed.username || parsed.password) return null;
+    return parsed.origin;
   } catch {
     return null;
   }
 }
 
-function registrableDomain(hostname: string): string | null {
-  if (IPV4_RE.test(hostname) || hostname.includes(":")) return null;
-  const labels = hostname.split(".");
-  if (labels.length < 2) return null;
-  return labels.slice(-2).join(".");
-}
-
 export function sameSiteHost(aUrl: string, bUrl: string): boolean {
-  const a = hostnameOf(aUrl);
-  const b = hostnameOf(bUrl);
-  if (!a || !b) return false;
-  if (a === b) return true;
-  const domainA = registrableDomain(a);
-  const domainB = registrableDomain(b);
-  return domainA !== null && domainA === domainB;
+  const a = httpOriginOf(aUrl);
+  const b = httpOriginOf(bUrl);
+  return a !== null && a === b;
 }

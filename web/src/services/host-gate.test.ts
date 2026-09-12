@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { withHostGate, resetHostGates } from "./host-gate.js";
+import { withHostGate, resetHostGates, hostGateCount } from "./host-gate.js";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -59,5 +59,41 @@ describe("withHostGate", () => {
     await expect(failing).rejects.toThrow("boom");
     await t.work("err.example", 10);
     expect(t.events).toEqual(["start:err.example", "start:err.example", "end:err.example"]);
+  });
+
+  it("removes completed entries so the map does not grow forever", async () => {
+    for (let i = 0; i < 5; i++) {
+      await withHostGate(`https://host-${i}.example/x`, async () => "done");
+    }
+    await withHostGate("https://same.example/x", async () => {
+      await withHostGateDeferred();
+    });
+
+    async function withHostGateDeferred() {
+      await sleep(10);
+    }
+
+    // Sequential runs settle before the next starts, so nothing is
+    // in-flight: the map must be empty.
+    await sleep(20);
+    expect(hostGateCount()).toBe(0);
+  });
+
+  it("does not break serialization when a completed tail is cleaned up", async () => {
+    const t = timeline();
+    const first = t.work("chain.example", 40);
+    const second = t.work("chain.example", 10);
+    await first;
+    // first completed — its tail entry is eligible for cleanup — but the
+    // second chained onto it BEFORE completion and must still run after it.
+    await second;
+    expect(t.events).toEqual([
+      "start:chain.example",
+      "end:chain.example",
+      "start:chain.example",
+      "end:chain.example",
+    ]);
+    await sleep(5);
+    expect(hostGateCount()).toBe(0);
   });
 });

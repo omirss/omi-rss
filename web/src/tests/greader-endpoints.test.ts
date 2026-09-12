@@ -45,7 +45,7 @@ function makeDb(selectResults: unknown[][]) {
         Promise.resolve(limit === Infinity ? rows : rows.slice(0, limit)).then(res, rej),
       __label: label,
     };
-    for (const method of ["from", "innerJoin", "leftJoin", "where", "orderBy", "groupBy", "offset"]) {
+    for (const method of ["from", "innerJoin", "leftJoin", "where", "orderBy", "groupBy", "offset", "for"]) {
       q[method] = () => q;
     }
     q.limit = (n: number) => {
@@ -93,6 +93,14 @@ function makeDb(selectResults: unknown[][]) {
         return Promise.resolve();
       },
     }),
+    transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(txDb),
+  };
+  const txDb = {
+    execute: async () => undefined,
+    select: db.select,
+    insert: db.insert,
+    update: db.update,
+    delete: db.delete,
   };
   return { db, inserts, updates, deletes };
 }
@@ -568,6 +576,32 @@ describe("edit-tag", () => {
     expect(missing.inserts).toHaveLength(0);
   });
 
+  it("accepts numeric user-id segments for read/starred tags like the query grammar (SPEC 3.2)", async () => {
+    const { db, inserts } = makeDb([[{ id: "a-uuid-1" }]]);
+    vi.mocked(getDb).mockResolvedValue(db as never);
+    const read = await action(
+      post("reader/api/0/edit-tag", `T=${encodeURIComponent(validT())}&i=-355401917359550817&a=user/12345/state/com.google/read`) as never
+    );
+    expect(await read.text()).toBe("OK");
+    expect(inserts).toHaveLength(1);
+
+    const starred = makeDb([[{ id: "a-uuid-1" }]]);
+    vi.mocked(getDb).mockResolvedValue(starred.db as never);
+    const star = await action(
+      post("reader/api/0/edit-tag", `T=${encodeURIComponent(validT())}&i=-355401917359550817&a=user/12345/state/com.google/starred`) as never
+    );
+    expect(await star.text()).toBe("OK");
+    expect(starred.inserts).toHaveLength(1);
+
+    const bogus = makeDb([[{ id: "a-uuid-1" }]]);
+    vi.mocked(getDb).mockResolvedValue(bogus.db as never);
+    const invalid = await action(
+      post("reader/api/0/edit-tag", `T=${encodeURIComponent(validT())}&i=-355401917359550817&a=user/123/state/com.google/bogus`) as never
+    );
+    expect(invalid.status).toBe(400);
+    expect(bogus.inserts).toHaveLength(0);
+  });
+
   it("400s on missing i, malformed i and invalid tags", async () => {
     const noIds = await action(post("reader/api/0/edit-tag", `T=${encodeURIComponent(validT())}`) as never);
     expect(noIds.status).toBe(400);
@@ -660,6 +694,24 @@ describe("mark-all-as-read", () => {
     );
     expect(await response.text()).toBe("OK");
     expect(inserts).toHaveLength(1);
+  });
+
+  it("the read stream is a no-op and the starred stream only touches starred items", async () => {
+    const readStream = makeDb([[]]);
+    vi.mocked(getDb).mockResolvedValue(readStream.db as never);
+    const read = await action(
+      post("reader/api/0/mark-all-as-read", `T=${encodeURIComponent(validT())}&s=user/-/state/com.google/read`) as never
+    );
+    expect(await read.text()).toBe("OK");
+    expect(readStream.inserts).toHaveLength(0);
+
+    const starredStream = makeDb([[]]);
+    vi.mocked(getDb).mockResolvedValue(starredStream.db as never);
+    const starred = await action(
+      post("reader/api/0/mark-all-as-read", `T=${encodeURIComponent(validT())}&s=user/-/state/com.google/starred`) as never
+    );
+    expect(await starred.text()).toBe("OK");
+    expect(starredStream.inserts).toHaveLength(1);
   });
 });
 
@@ -809,14 +861,17 @@ describe("rename-tag / disable-tag", () => {
     expect(conflicting.status).toBe(400);
   });
 
-  it("disable-tag detaches feeds to root then deletes the folder; idempotent when missing", async () => {
-    const { db, updates, deletes } = makeDb([[{ id: "F1" }]]);
+  it("disable-tag re-parents children, detaches feeds, then deletes the folder; idempotent when missing", async () => {
+    const { db, updates, deletes } = makeDb([[{ id: "F1", parentId: null }]]);
     vi.mocked(getDb).mockResolvedValue(db as never);
     const response = await action(
       post("reader/api/0/disable-tag", `T=${encodeURIComponent(validT())}&s=user/-/label/Tech`) as never
     );
     expect(await response.text()).toBe("OK");
-    expect(updates[0]).toMatchObject({ folderId: null });
+    // children re-parented first (cascade would delete the subtree), then
+    // feeds detached to root, then the folder deleted.
+    expect(updates[0]).toMatchObject({ parentId: null });
+    expect(updates[1]).toMatchObject({ folderId: null });
     expect(deletes).toHaveLength(1);
 
     const missing = makeDb([[]]);
@@ -826,6 +881,54 @@ describe("rename-tag / disable-tag", () => {
     );
     expect(await idempotent.text()).toBe("OK");
     expect(missing.deletes).toHaveLength(0);
+  });
+
+  it("disable-tag refuses ambiguous duplicate label names with 409", async () => {
+    const { db, deletes } = makeDb([[{ id: "F1", parentId: null }, { id: "F2", parentId: null }]]);
+    vi.mocked(getDb).mockResolvedValue(db as never);
+    const response = await action(
+      post("reader/api/0/disable-tag", `T=${encodeURIComponent(validT())}&s=user/-/label/Tech`) as never
+    );
+    expect(response.status).toBe(409);
+    expect(deletes).toHaveLength(0);
+  });
+});
+
+describe("markAllReadConditions (state streams)", () => {
+  function conditionText(conditions: unknown): string {
+    const chunks = (conditions as unknown[]).flatMap((fragment) => {
+      const c = fragment as { queryChunks?: unknown[] };
+      return c.queryChunks ?? [fragment];
+    });
+    return chunks
+      .map((chunk) => {
+        const value = (chunk as { value?: unknown }).value;
+        if (Array.isArray(value)) return value.join("");
+        if (typeof chunk === "string") return chunk;
+        if (typeof value === "string") return value;
+        const name = (chunk as { name?: unknown }).name;
+        if (typeof name === "string") return name;
+        return "";
+      })
+      .join("");
+  }
+
+  it("the read stream is a no-op (no unread members by definition)", async () => {
+    const { markAllReadConditions } = await import("../lib/greader/router.server.js");
+    expect(markAllReadConditions("u1", { kind: "read" }, null)).toBeNull();
+  });
+
+  it("the starred stream carries the isStarred condition", async () => {
+    const { markAllReadConditions } = await import("../lib/greader/router.server.js");
+    const conditions = markAllReadConditions("u1", { kind: "starred" }, null);
+    expect(conditions).not.toBeNull();
+    expect(conditionText(conditions)).toContain("is_starred");
+  });
+
+  it("feed and folder streams scope to their ids", async () => {
+    const { markAllReadConditions } = await import("../lib/greader/router.server.js");
+    expect(conditionText(markAllReadConditions("u1", { kind: "feed", feedId: "f", url: "https://x" }, null))).toContain("feed_id");
+    expect(conditionText(markAllReadConditions("u1", { kind: "folder", folderId: "fd", name: "N" }, null))).toContain("folder_id");
   });
 });
 

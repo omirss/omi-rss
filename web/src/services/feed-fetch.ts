@@ -1,4 +1,10 @@
 import { lookup } from "node:dns/promises";
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
+import type { RequestOptions } from "node:https";
+import { checkServerIdentity } from "node:tls";
+import type { IncomingHttpHeaders } from "node:http";
+import type { PeerCertificate } from "node:tls";
 import { AppError } from "../lib/api/errors.js";
 import { ipVersion, isBlockedOutboundAddress, normalizeIp } from "../lib/api/ip.js";
 import { sameSiteHost } from "./site-host.js";
@@ -15,12 +21,20 @@ import { sameSiteHost } from "./site-host.js";
 // all checks — dev convenience only. DNS resolution failures throw AppErrors
 // tagged TRANSIENT_FEED_URL_CODE (retryable); scheme and blocked-range
 // failures are untagged (terminal validation failures).
+//
+// The validation is pinned to the actual connection (fetchPinned): DNS is
+// resolved and range-checked, then the request connects to the validated
+// numeric address while keeping the original hostname for TLS SNI, cert
+// identity and the Host header — closing the resolve-public/connect-private
+// (DNS rebinding) gap. Every response body is either fully read under a
+// byte cap or the connection is destroyed.
 
 const FEED_USER_AGENT = "omi-rss/0.6.0 (+https://omirss.com)";
 const FEED_TIMEOUT_MS = 15000;
 const FEED_RETRY_DELAYS_MS = [1000, 3000];
 const FEED_RATE_LIMIT_RETRY_DELAY_MS = 10000;
 const FEED_MAX_REDIRECT_HOPS = 3;
+const FEED_MAX_BODY_BYTES = 5 * 1024 * 1024;
 
 // Error classification: DNS resolution failures are transient (a later
 // retry may resolve them — callers leave retryable state in place);
@@ -92,17 +106,163 @@ export async function assertSafeFeedUrl(url: string): Promise<void> {
   }
 }
 
+export function headerValue(value: string | string[] | undefined): string | null {
+  if (Array.isArray(value)) return value[0] ?? null;
+  return value ?? null;
+}
+
+export interface PinnedFetchOptions {
+  headers?: Record<string, string>;
+  timeoutMs: number;
+  maxBytes: number;
+  // Oversize bodies either truncate at maxBytes (extraction semantics) or
+  // fail the request (feed XML must stay parseable).
+  truncateOnOversize?: boolean;
+  // Bodies on excluded statuses are destroyed instead of read (redirect
+  // hops, non-OK statuses) so sockets release immediately.
+  readBody?: (status: number) => boolean;
+}
+
+export interface PinnedFetchResponse {
+  status: number;
+  headers: IncomingHttpHeaders;
+  body: Buffer | null;
+}
+
+// SSRF-safe outbound GET: resolve + range-check the hostname, then connect
+// to the validated numeric address (never re-resolving at connect time)
+// while the original hostname stays in TLS SNI, the certificate identity
+// check and the Host header. One deadline covers connect + headers + body,
+// and the body is capped at maxBytes.
+export async function fetchPinned(url: string, options: PinnedFetchOptions): Promise<PinnedFetchResponse> {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw unsafeFeedUrl(url, "not a valid URL");
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw unsafeFeedUrl(url, `scheme ${parsed.protocol} is not http(s)`);
+  }
+  if ((parsed.username || parsed.password) && !privateFeedUrlsAllowed()) {
+    throw unsafeFeedUrl(url, "embedded credentials are not allowed");
+  }
+
+  const hostname = parsed.hostname.replace(/^\[|\]$/g, "");
+  let connectHost = hostname;
+  let tlsHostname: string | null = null;
+
+  if (!privateFeedUrlsAllowed()) {
+    const literal = normalizeIp(hostname);
+    if (ipVersion(literal) !== null) {
+      await assertAddressAllowed(literal, url);
+    } else {
+      let resolved: { address: string; family: number }[];
+      try {
+        resolved = await lookup(hostname, { all: true });
+      } catch {
+        throw unsafeFeedUrl(url, `DNS resolution failed for ${hostname}`, TRANSIENT_FEED_URL_CODE);
+      }
+      if (resolved.length === 0) {
+        throw unsafeFeedUrl(url, `DNS resolution returned no addresses for ${hostname}`, TRANSIENT_FEED_URL_CODE);
+      }
+      for (const entry of resolved) {
+        await assertAddressAllowed(entry.address, url);
+      }
+      const preferred = resolved.find((entry) => entry.family === 4) ?? resolved[0];
+      connectHost = preferred.address;
+      tlsHostname = hostname;
+    }
+  }
+
+  return pinnedRequest(parsed, connectHost, tlsHostname, options);
+}
+
+function pinnedRequest(
+  url: URL,
+  connectHost: string,
+  tlsHostname: string | null,
+  options: PinnedFetchOptions,
+): Promise<PinnedFetchResponse> {
+  const isHttps = url.protocol === "https:";
+  const transport = isHttps ? httpsRequest : httpRequest;
+  const requestOptions: RequestOptions = {
+    host: connectHost,
+    port: url.port ? Number(url.port) : isHttps ? 443 : 80,
+    path: `${url.pathname}${url.search}`,
+    method: "GET",
+    headers: { ...options.headers, Host: url.host },
+  };
+  if (isHttps && tlsHostname !== null) {
+    requestOptions.servername = tlsHostname;
+    requestOptions.checkServerIdentity = (host: string, cert: PeerCertificate) =>
+      checkServerIdentity(tlsHostname, cert);
+  }
+
+  return new Promise<PinnedFetchResponse>((resolve, reject) => {
+    let settled = false;
+    let truncated = false;
+    const chunks: Buffer[] = [];
+    let total = 0;
+    const settle = (finish: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      finish();
+    };
+
+    const req = transport(requestOptions, (res) => {
+      const status = res.statusCode ?? 0;
+      const shouldRead = options.readBody ? options.readBody(status) : true;
+      if (!shouldRead) {
+        res.destroy();
+        settle(() => resolve({ status, headers: res.headers, body: null }));
+        return;
+      }
+      res.on("data", (chunk: Buffer) => {
+        if (truncated) return;
+        if (total + chunk.length > options.maxBytes) {
+          if (options.truncateOnOversize) {
+            chunks.push(chunk.subarray(0, options.maxBytes - total));
+            total = options.maxBytes;
+            truncated = true;
+            res.destroy();
+          } else {
+            res.destroy(new Error(`Response body exceeded ${options.maxBytes} bytes: ${url}`));
+          }
+          return;
+        }
+        chunks.push(chunk);
+        total += chunk.length;
+      });
+      res.on("end", () => settle(() => resolve({ status, headers: res.headers, body: Buffer.concat(chunks, total) })));
+      res.on("error", (error) => settle(() => reject(error)));
+      res.on("close", () => {
+        if (truncated) {
+          settle(() => resolve({ status, headers: res.headers, body: Buffer.concat(chunks, total) }));
+        } else if (!settled) {
+          settle(() => reject(new Error(`Response closed before completion: ${url}`)));
+        }
+      });
+    });
+    const timer = setTimeout(() => {
+      req.destroy(new Error(`Pinned fetch timed out after ${options.timeoutMs}ms: ${url}`));
+    }, options.timeoutMs);
+    req.on("error", (error) => settle(() => reject(error)));
+    req.end();
+  });
+}
+
 interface FeedHttpResponse {
   status: number;
   body: string | null;
 }
 
 // Custom headers (bring-your-own-subscription) survive a redirect hop only
-// while the destination stays on the original request's site
-// (sameSiteHost: naive registrable-domain match, exact for IP literals):
-// cookies and authorization are site-scoped, so a cross-site hop drops
-// them instead of leaking the owner's credentials to whoever the feed
-// redirects to.
+// while the destination stays on the original request's origin
+// (sameSiteHost: exact scheme+host+port match): cookies and authorization
+// are origin-scoped, so any other hop drops them instead of leaking the
+// owner's credentials to whoever the feed redirects to.
 
 // Resolves a redirect hop to an absolute URL and re-validates it through the
 // same assert — exported for unit tests.
@@ -120,51 +280,40 @@ export async function assertRedirectLocation(currentUrl: string, location: strin
 async function fetchFeedOnce(url: string, customHeaders?: Record<string, string>): Promise<FeedHttpResponse> {
   let currentUrl = url;
   let currentCustomHeaders = customHeaders;
-  const controller = new AbortController();
 
   for (let hop = 0; hop <= FEED_MAX_REDIRECT_HOPS; hop++) {
-    const timeout = setTimeout(() => controller.abort(), FEED_TIMEOUT_MS);
+    const response = await fetchPinned(currentUrl, {
+      headers: {
+        "User-Agent": FEED_USER_AGENT,
+        Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
+        ...(currentCustomHeaders ?? {}),
+      },
+      timeoutMs: FEED_TIMEOUT_MS,
+      maxBytes: FEED_MAX_BODY_BYTES,
+      readBody: (status) => status >= 200 && status < 300,
+    });
 
-    try {
-      const response = await fetch(currentUrl, {
-        headers: {
-          "User-Agent": FEED_USER_AGENT,
-          Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
-          ...(currentCustomHeaders ?? {}),
-        },
-        redirect: "manual",
-        signal: controller.signal,
-      });
-
-      if (response.status >= 300 && response.status < 400) {
-        const location = response.headers.get("location");
-        if (!location) {
-          return { status: response.status, body: null };
-        }
-        if (hop === FEED_MAX_REDIRECT_HOPS) {
-          throw unsafeFeedUrl(url, `exceeded ${FEED_MAX_REDIRECT_HOPS} redirect hops`);
-        }
-        const nextUrl = await assertRedirectLocation(currentUrl, location);
-        if (currentCustomHeaders && !sameSiteHost(url, nextUrl)) {
-          currentCustomHeaders = undefined;
-        }
-        currentUrl = nextUrl;
-        continue;
+    if (response.status >= 300 && response.status < 400) {
+      const location = headerValue(response.headers.location);
+      if (!location) {
+        return { status: response.status, body: null };
       }
-
-      const body = response.ok ? await response.text() : null;
-      return { status: response.status, body };
-    } catch (error) {
-      if (error instanceof AppError) {
-        throw error;
+      if (hop === FEED_MAX_REDIRECT_HOPS) {
+        throw unsafeFeedUrl(url, `exceeded ${FEED_MAX_REDIRECT_HOPS} redirect hops`);
       }
-      if (error instanceof Error && error.name === "AbortError") {
-        throw new Error(`Feed fetch timed out after ${FEED_TIMEOUT_MS}ms: ${url}`);
+      const nextUrl = await assertRedirectLocation(currentUrl, location);
+      if (currentCustomHeaders && !sameSiteHost(url, nextUrl)) {
+        currentCustomHeaders = undefined;
       }
-      throw error;
-    } finally {
-      clearTimeout(timeout);
+      currentUrl = nextUrl;
+      continue;
     }
+
+    const body =
+      response.body !== null && response.status >= 200 && response.status < 300
+        ? response.body.toString("utf8")
+        : null;
+    return { status: response.status, body };
   }
 
   throw unsafeFeedUrl(url, `exceeded ${FEED_MAX_REDIRECT_HOPS} redirect hops`);

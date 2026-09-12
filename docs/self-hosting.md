@@ -62,11 +62,14 @@ JWT_SECRET=$(openssl rand -hex 32) POSTGRES_PASSWORD=$(openssl rand -hex 16) \
   docker compose -f docker-compose.prod.yml up -d
 ```
 
-For a localhost stack with dev-friendly defaults (including a default
-`JWT_SECRET`), use `docker-compose.yml` instead — same four services. For
-databases only while developing on `web/`, use `compose.dev.yml`
+For a localhost stack, use `docker-compose.yml` instead — same four
+services; set `JWT_SECRET` the same way (it is required, there is no
+default) and note the web port binds loopback only (override with
+`WEB_BIND` when an edge proxy needs to reach it). For databases only
+while developing on `web/`, use `compose.dev.yml`
 (`podman compose -f compose.dev.yml up -d`): PostgreSQL 16 published on
-host `5433` and Redis 7 on `6380`, matching `web/.env.example`.
+host `5433` and Redis 7 on `6380` (loopback only), matching
+`web/.env.example`.
 
 The default Compose JWT secret is intentionally public and for local use only.
 Use the production variant with your own secret (at least 32 characters) and

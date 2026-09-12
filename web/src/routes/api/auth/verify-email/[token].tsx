@@ -11,25 +11,25 @@ export async function loader({ params }: { params: Record<string, string> }) {
 
     const db = await getDb();
 
-    const [user] = await db
-      .select()
-      .from(users)
-      .where(eq(users.emailVerificationToken, token))
-      .limit(1);
-
-    if (!user) {
-      throw new AppError("Invalid verification token", 400);
-    }
-
-    await db
+    // Single conditional UPDATE keyed on the token: a verification request
+    // in flight while the profile installs a new email + new token can
+    // never mark the NEW address verified or destroy its pending token.
+    // Replays see zero rows.
+    const updated = await db
       .update(users)
       .set({
         emailVerified: true,
         emailVerificationToken: null,
+        updatedAt: new Date(),
       })
-      .where(eq(users.id, user.id));
+      .where(eq(users.emailVerificationToken, token))
+      .returning({ id: users.id });
 
-    console.info(`Email verified for user: ${user.id}`);
+    if (updated.length === 0) {
+      throw new AppError("Invalid verification token", 400);
+    }
+
+    console.info(`Email verified for user: ${updated[0].id}`);
 
     return jsonResponse({ message: "Email verified successfully" });
   });

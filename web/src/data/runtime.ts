@@ -42,44 +42,69 @@ export function getDataRuntime(): Promise<DataRuntime> {
 }
 
 async function createRuntime(): Promise<DataRuntime> {
-  const database = await createDrizzleDatabase({ schema });
-  const redisUrl = process.env.REDIS_URL || "redis://localhost:6380";
-
-  const cache = await createRedisCacheClient({
-    url: redisUrl,
-    keyPrefix: "omiweb:cache:",
-  });
-
-  const sessions = await createRedisSessionStore({
-    url: redisUrl,
-    keyPrefix: "omiweb:",
-    sessionPrefix: "session:",
-    sessionTtlSec: 60 * 60 * 24 * 7,
-  });
-
-  const queue = await createBullMqQueueDriver({
-    url: redisUrl,
-    queueName: QUEUE_NAME,
-    prefix: QUEUE_PREFIX,
-    concurrency: 4,
-  });
-
-  return {
-    drivers: {
-      database: `drizzle:${database.profile.provider}`,
-      cache: "redis-compatible",
-      session: "redis-compatible",
-      queue: "bullmq",
-    },
-    database,
-    cache,
-    sessions,
-    queue,
-    close: async () => {
-      await queue.close();
-      await sessions.close();
-      await cache.close();
-      await database.close();
-    },
+  // Every successfully allocated driver registers its closer; a later
+  // allocation failure (or shutdown) runs ALL of them in reverse creation
+  // order, isolated — one rejecting close never skips the rest.
+  const closers: Array<() => Promise<void> | void> = [];
+  const closeAll = async (): Promise<void> => {
+    const errors: unknown[] = [];
+    for (const close of [...closers].reverse()) {
+      try {
+        await close();
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+    if (errors.length > 0) {
+      throw errors[0];
+    }
   };
+
+  try {
+    const database = await createDrizzleDatabase({ schema });
+    closers.push(() => database.close());
+
+    const redisUrl = process.env.REDIS_URL || "redis://localhost:6380";
+
+    const cache = await createRedisCacheClient({
+      url: redisUrl,
+      keyPrefix: "omiweb:cache:",
+    });
+    closers.push(() => cache.close());
+
+    const sessions = await createRedisSessionStore({
+      url: redisUrl,
+      keyPrefix: "omiweb:",
+      sessionPrefix: "session:",
+      sessionTtlSec: 60 * 60 * 24 * 7,
+    });
+    closers.push(() => sessions.close());
+
+    const queue = await createBullMqQueueDriver({
+      url: redisUrl,
+      queueName: QUEUE_NAME,
+      prefix: QUEUE_PREFIX,
+      concurrency: 4,
+    });
+    closers.push(() => queue.close());
+
+    return {
+      drivers: {
+        database: `drizzle:${database.profile.provider}`,
+        cache: "redis-compatible",
+        session: "redis-compatible",
+        queue: "bullmq",
+      },
+      database,
+      cache,
+      sessions,
+      queue,
+      close: closeAll,
+    };
+  } catch (error) {
+    await closeAll().catch((closeError) => {
+      console.error("Runtime cleanup after failed initialization failed:", closeError);
+    });
+    throw error;
+  }
 }

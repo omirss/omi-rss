@@ -206,16 +206,14 @@ async function handleLogin(e) {
   
   try {
     // Persist the server URL only when the user actually typed a value that
-    // differs from the current setting - never silently on submit.
+    // differs from the current setting - never silently on submit. Going
+    // through setServerConnection drops the previous server's tokens and
+    // cached data when the URL actually changes.
     const serverUrlRaw = serverUrl.trim();
     if (serverUrlRaw) {
-      const { settings: currentSettings = {} } = await chrome.storage.local.get('settings');
-      const current = normalizeServerUrl(currentSettings.apiUrl) || DEFAULT_SERVER_URL;
-      const next = normalizeServerUrl(serverUrlRaw) || DEFAULT_SERVER_URL;
-      if (next !== current) {
-        await chrome.storage.local.set({
-          settings: { ...currentSettings, apiUrl: next }
-        });
+      const result = await setServerConnection(serverUrlRaw);
+      if (result.changed) {
+        showNotification('Server changed - sign in to the new server', 'info');
       }
     }
     
@@ -420,23 +418,22 @@ async function handleWebVersion() {
 
 // Handle sidebar
 async function handleSidebar() {
+  // Call chrome.sidePanel.open DIRECTLY from the click handler: the popup
+  // has no sender.tab for a message round-trip, and the open() call needs
+  // the user gesture this handler is still inside.
   try {
-    // Check if sidePanel API is available (Chrome 114+)
     if (chrome.sidePanel) {
-      await chrome.runtime.sendMessage({ action: 'open-sidepanel' });
-      window.close();
+      const current = await chrome.windows.getCurrent();
+      await chrome.sidePanel.open({ windowId: current.id });
     } else {
       // Fallback for Firefox and older Chrome versions
-      // Open the sidepanel in a new tab
       chrome.tabs.create({ url: chrome.runtime.getURL('sidepanel.html') });
-      window.close();
     }
   } catch (error) {
     console.error('Failed to open sidebar:', error);
-    // Final fallback - open in new tab
     chrome.tabs.create({ url: chrome.runtime.getURL('sidepanel.html') });
-    window.close();
   }
+  window.close();
 }
 
 // Handle open app (legacy function - keeping for compatibility)
@@ -451,8 +448,13 @@ async function handleOpenSidePanel() {
 
 // Handle add feed
 async function handleAddFeed() {
-  chrome.tabs.create({ url: `${await getServerUrl()}/feeds/add` });
-  window.close();
+  // There is no /feeds/add page on the server — open the subscription
+  // modal that already exists (same flow as feed detection).
+  try {
+    await showFeedModal([]);
+  } catch (error) {
+    showError(error.message);
+  }
 }
 
 // Switch tab
@@ -675,36 +677,20 @@ function loadMoreArticles() {
 // Save article locally
 async function saveArticleLocally(article) {
   try {
-    // Get current saved articles
-    const { savedArticles = [] } = await chrome.storage.local.get('savedArticles');
-    
-    // Check if already saved
-    const existingIndex = savedArticles.findIndex(a => a.id === article.id || a.url === article.url);
-    
-    if (existingIndex === -1) {
-      // Add to saved articles
-      savedArticles.push({
-        ...article,
-        savedAt: new Date().toISOString()
-      });
-      
-      // Save to storage
-      await chrome.storage.local.set({ savedArticles });
-      
-      // Update local state
-      savedItems = savedArticles;
-      
-      // If viewing saved items, re-render
-      if (currentTab === 'saved') {
-        renderSavedItems();
-      }
-      
-      showNotification('Article saved locally');
-      return true;
-    } else {
-      showNotification('Article already saved', 'info');
-      return false;
+    // Single locked mutation shared with the background worker: dedupes
+    // by URL and returns the authoritative list.
+    const { list, alreadySaved, item } = await savedArticlesAdd(article);
+
+    // Update local state
+    savedItems = list;
+
+    // If viewing saved items, re-render
+    if (currentTab === 'saved') {
+      renderSavedItems();
     }
+
+    showNotification(alreadySaved ? 'Article already saved' : 'Article saved locally', 'info');
+    return !alreadySaved && !!item;
   } catch (error) {
     console.error('Failed to save article locally:', error);
     showError('Failed to save article');
@@ -715,23 +701,17 @@ async function saveArticleLocally(article) {
 // Remove saved article
 async function removeSavedArticle(articleId) {
   try {
-    // Get current saved articles
-    const { savedArticles = [] } = await chrome.storage.local.get('savedArticles');
-    
-    // Remove article
-    const filteredArticles = savedArticles.filter(a => a.id !== articleId);
-    
-    // Save to storage
-    await chrome.storage.local.set({ savedArticles: filteredArticles });
-    
+    // Single locked mutation shared with the background worker.
+    const { list } = await savedArticlesRemove(articleId);
+
     // Update local state
-    savedItems = filteredArticles;
-    
+    savedItems = list;
+
     // If viewing saved items, re-render
     if (currentTab === 'saved') {
       renderSavedItems();
     }
-    
+
     showNotification('Article removed from saved');
     return true;
   } catch (error) {
@@ -1001,13 +981,16 @@ async function updateSetting(key, value) {
 
 // Handle server URL change
 async function handleServerUrlChange(e) {
-  const url = normalizeServerUrl(e.target.value) || DEFAULT_SERVER_URL;
-  const { settings: currentSettings = {} } = await chrome.storage.local.get('settings');
-  await chrome.storage.local.set({
-    settings: { ...currentSettings, apiUrl: url }
-  });
-  e.target.value = url;
-  showNotification('Server URL updated');
+  try {
+    // setServerConnection invalidates the previous server's tokens and
+    // cached offline data when the URL actually changes - the extension
+    // must never send one server's credentials to another.
+    const result = await setServerConnection(e.target.value);
+    e.target.value = result.apiUrl;
+    showNotification(result.changed ? 'Server updated - sign in to the new server' : 'Server URL unchanged', 'info');
+  } catch (error) {
+    showError(error.message);
+  }
 }
 
 // Show feed modal

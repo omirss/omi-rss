@@ -40,10 +40,26 @@ class ApiService {
         : (isFormData ? options.body : JSON.stringify(options.body))
     });
 
+    const sessionAtStart = await getAuthSession();
     let response = await fetch(url, buildInit());
 
-    if (response.status === 401 && refreshToken && !isAuthFree) {
-      const refreshed = await this.refreshAccessToken();
+    if (response.status === 401 && refreshToken && !isAuthFree && !options.skipRefresh) {
+      // Transient refresh failures (network, 5xx) throw with credentials
+      // left intact; only a definitive 401/403 clears them (inside
+      // refreshAccessToken). The retry is abandoned when a login/logout
+      // rotated the session mid-flight — replaying the body under
+      // whichever credentials are stored now could hit the wrong account.
+      let refreshed = false;
+      try {
+        refreshed = await this.refreshAccessToken();
+      } catch (refreshError) {
+        throw refreshError;
+      }
+      if (await getAuthSession() !== sessionAtStart) {
+        const error = new Error('Session changed during request');
+        error.status = 401;
+        throw error;
+      }
       if (refreshed) {
         const { token: newToken } = await this.getAuthTokens();
         if (newToken) {
@@ -70,43 +86,82 @@ class ApiService {
       throw error;
     }
 
+    // 204/205 and empty bodies decode to null instead of throwing a JSON
+    // parse error on a successful response.
+    if (response.status === 204 || response.status === 205) {
+      return null;
+    }
+
     if (options.textResponse) {
       return response.text();
     }
 
-    return response.json();
+    const text = await response.text();
+    return text.trim() ? JSON.parse(text) : null;
   }
 
+  // Refresh binds to the {session, refreshToken, baseUrl} it started with
+  // and only writes when all three are still current — a refresh racing a
+  // logout (tokens cleared) or a login (another account stored) can never
+  // resurrect or overwrite credentials. Only a definitive 401/403 clears
+  // tokens; any other failure propagates with credentials intact.
   async refreshAccessToken() {
     const { refreshToken } = await this.getAuthTokens();
     if (!refreshToken) {
       return false;
     }
 
+    const baseUrl = await this.getBaseUrl();
+    const session = await getAuthSession();
+
+    let response;
     try {
-      const response = await fetch(`${await this.getBaseUrl()}/auth/refresh`, {
+      response = await fetch(`${baseUrl}/auth/refresh`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refreshToken })
       });
-
-      if (response.ok) {
-        const data = await response.json();
-        const token = data.accessToken || data.token || null;
-        if (token) {
-          await chrome.storage.local.set({
-            access_token: token,
-            refresh_token: data.refreshToken || refreshToken
-          });
-          return true;
-        }
-      }
     } catch (error) {
-      console.error('Token refresh failed:', error);
+      if (error && error.name === 'AbortError') {
+        throw error;
+      }
+      const wrapped = new Error('Token refresh failed: network error');
+      wrapped.status = 0;
+      throw wrapped;
     }
 
-    await chrome.storage.local.remove(['access_token', 'refresh_token']);
-    return false;
+    if (response.status === 401 || response.status === 403) {
+      await withAuthLock(async () => {
+        if (await getAuthSession() !== session) return;
+        const tokens = await this.getAuthTokens();
+        if (tokens.refreshToken !== refreshToken) return;
+        await chrome.storage.local.remove(['access_token', 'refresh_token']);
+      });
+      return false;
+    }
+
+    if (!response.ok) {
+      const error = new Error(`Token refresh failed: HTTP ${response.status}`);
+      error.status = response.status;
+      throw error;
+    }
+
+    const data = await response.json();
+    const token = data.accessToken || data.token || null;
+    if (!token) {
+      return false;
+    }
+
+    await withAuthLock(async () => {
+      if (await getAuthSession() !== session) return;
+      const tokens = await this.getAuthTokens();
+      if (tokens.refreshToken !== refreshToken) return;
+      await chrome.storage.local.set({
+        access_token: token,
+        refresh_token: data.refreshToken || refreshToken
+      });
+    });
+    return true;
   }
 
   // Auth methods
@@ -116,10 +171,15 @@ class ApiService {
       body: { emailOrUsername: email, password }
     });
 
-    await chrome.storage.local.set({
-      access_token: response.accessToken || response.token || null,
-      refresh_token: response.refreshToken || null,
-      user: response.user || null
+    // Rotate the session AFTER the new tokens land so any in-flight
+    // refresh from the previous session cannot overwrite them.
+    await withAuthLock(async () => {
+      await chrome.storage.local.set({
+        access_token: response.accessToken || response.token || null,
+        refresh_token: response.refreshToken || null,
+        user: response.user || null
+      });
+      await rotateAuthSession();
     });
 
     return response;
@@ -127,12 +187,17 @@ class ApiService {
 
   async logout() {
     try {
-      await this.request('/auth/logout', { method: 'POST' });
+      // No refresh attempt: the tokens are about to be removed, and a 401
+      // here must not resurrect them or race the removal.
+      await this.request('/auth/logout', { method: 'POST', skipRefresh: true });
     } catch (e) {
       // Ignore logout errors
     }
 
-    await chrome.storage.local.remove(['access_token', 'refresh_token', 'user', 'auth']);
+    await withAuthLock(async () => {
+      await chrome.storage.local.remove(['access_token', 'refresh_token', 'user', 'auth']);
+      await rotateAuthSession();
+    });
   }
 
   async getCurrentUser() {
@@ -256,3 +321,9 @@ class ApiService {
 
 // Create global instance (service workers have no window)
 globalThis.apiService = new ApiService();
+
+// Exported for the node test runner only; extension contexts load this
+// file as a classic script where apiService is a plain global.
+if (typeof module !== 'undefined') {
+  module.exports = { ApiService, apiService };
+}

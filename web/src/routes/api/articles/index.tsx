@@ -56,7 +56,12 @@ export async function loader({ request, context }: { request: Request; context: 
     }
 
     if (filters.isStarred !== undefined) {
-      conditions.push(eq(userArticleStates.isStarred, filters.isStarred));
+      // The LEFT JOIN yields NULL for articles with no state row — the
+      // response renders those as unstarred, so isStarred=false must
+      // include them (plain `= false` would reject NULL).
+      conditions.push(
+        sql`COALESCE(${userArticleStates.isStarred}, false) = ${filters.isStarred}`,
+      );
     }
 
     if (filters.search) {
@@ -105,7 +110,13 @@ export async function loader({ request, context }: { request: Request; context: 
         ),
       )
       .where(and(...conditions))
-      .orderBy(pagination.sortOrder === "desc" ? desc(sortColumn) : asc(sortColumn))
+      // Unique tie-breaker in the same direction as the sort column, so
+      // offset/limit page boundaries are deterministic across pages even
+      // inside large same-timestamp groups.
+      .orderBy(
+        pagination.sortOrder === "desc" ? desc(sortColumn) : asc(sortColumn),
+        pagination.sortOrder === "desc" ? desc(articles.id) : asc(articles.id),
+      )
       .limit(pagination.limit)
       .offset(offset);
 

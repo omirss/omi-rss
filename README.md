@@ -91,7 +91,7 @@ JWT_SECRET=$(openssl rand -hex 32) POSTGRES_PASSWORD=$(openssl rand -hex 16) \
 
 The stack is four services: `web` (UI + API, port 8080 by default), `worker` (same image, background crons), `postgres:16`, `redis:7`. No nginx — the Neutron server serves statics itself; terminate TLS at your edge. Register the first user via `POST /api/auth/register`.
 
-For a localhost stack with dev-friendly defaults, use `docker-compose.yml` instead; for databases only (local development on `web/`), use `compose.dev.yml`.
+For a localhost stack, use `docker-compose.yml` instead (`JWT_SECRET` is required there too; the web port binds loopback — widen with `WEB_BIND` when proxying); for databases only (local development on `web/`), use `compose.dev.yml`.
 
 Extension: load unpacked, or build distribution zips with `cd extension && ./build.sh`.
 
@@ -122,7 +122,7 @@ The server and worker read these from the environment (`web/.env.example` carrie
 | `ALLOW_PRIVATE_FEED_URLS` | Dev-only bypass of the SSRF guard for loopback/private feed URLs (default `false`) |
 | `NODE_ENV` | `development` or `production`; production enables strict auth/rate-limit behavior |
 
-Compose additionally supports `WEB_PORT` (host port for `web`, default `8080`), `POSTGRES_PASSWORD`, and `RATE_LIMIT_*` (see [docs/self-hosting.md](docs/self-hosting.md)).
+Compose additionally supports `WEB_BIND` (host bind for `web`, default `127.0.0.1`), `WEB_PORT` (host port for `web`, default `8080`), `POSTGRES_PASSWORD`, `ARTICLE_RETENTION_DAYS` (worker), and `RATE_LIMIT_*` (see [docs/self-hosting.md](docs/self-hosting.md)).
 
 ## Network And Reader Limits
 

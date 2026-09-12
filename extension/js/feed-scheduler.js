@@ -16,6 +16,9 @@ class FeedScheduler {
     this.maxUpdateInterval = 86400000; // 24 hours
     this.tickAlarmName = 'omi-feed-tick';
     this.tickPeriodMinutes = 1; // alarm API minimum granularity
+    // Per-feed in-flight map: a manual refresh and an alarm tick for the
+    // same feed must never overlap.
+    this.inFlight = new Map();
   }
 
   // Start the scheduler. Safe to call on every service worker wake.
@@ -66,52 +69,58 @@ class FeedScheduler {
     return interval;
   }
 
-  // Update a single feed
+  // Update a single feed. Resolves { skipped, newArticles } with the REAL
+  // new-article count (from addArticles' actual inserts — capped list
+  // diffs undercount feeds already at the list limit); parse failures
+  // THROW so callers can report them instead of recording success.
   async updateFeed(feedId) {
+    if (this.inFlight.has(feedId)) {
+      return { skipped: true, duplicate: true, newArticles: 0 };
+    }
+    this.inFlight.set(feedId, true);
+
     try {
       const feed = await this.storageService.getFeed(feedId);
-      if (!feed || feed.disabled) return;
+      if (!feed || feed.disabled) {
+        return { skipped: true, newArticles: 0 };
+      }
 
       // Parse the feed
       const result = await this.feedParser.parseFeed(feed.url);
 
-      if (result.success) {
-        // Update feed metadata
-        await this.storageService.updateFeed(feedId, {
-          title: result.feed.title,
-          description: result.feed.description,
-          lastUpdated: new Date().toISOString(),
-          errorCount: 0,
-          lastError: null
-        });
-
-        // Add new articles
-        const newArticles = await this.storageService.addArticles(result.feed.items, feedId);
-
-        // Update unread count
-        const unreadCount = (feed.unreadCount || 0) + newArticles.length;
-        await this.storageService.updateFeed(feedId, { unreadCount });
-
-        // Send notification if new articles
-        if (newArticles.length > 0) {
-          this.sendNewArticlesNotification(feed, newArticles.length);
-        }
-
-        // Update badge
-        await this.updateBadge();
-
-        console.log(`Updated feed "${feed.title}": ${newArticles.length} new articles`);
-      } else {
-        // Handle error
+      if (!result.success) {
         await this.storageService.updateFeed(feedId, {
           errorCount: (feed.errorCount || 0) + 1,
           lastError: result.error
         });
-
-        console.error(`Failed to update feed "${feed.title}": ${result.error}`);
+        throw new Error(result.error);
       }
-    } catch (error) {
-      console.error(`Error updating feed ${feedId}:`, error);
+
+      // Update feed metadata
+      await this.storageService.updateFeed(feedId, {
+        title: result.feed.title,
+        description: result.feed.description,
+        lastUpdated: new Date().toISOString(),
+        errorCount: 0,
+        lastError: null
+      });
+
+      // Add new articles — addArticles maintains the unread count with
+      // the inserts, so no stale pre-fetch overwrite happens here.
+      const newArticles = await this.storageService.addArticles(result.feed.items, feedId);
+
+      // Send notification if new articles
+      if (newArticles.length > 0) {
+        this.sendNewArticlesNotification(feed, newArticles.length);
+      }
+
+      // Update badge
+      await this.updateBadge();
+
+      console.log(`Updated feed "${feed.title}": ${newArticles.length} new articles`);
+      return { skipped: false, newArticles: newArticles.length };
+    } finally {
+      this.inFlight.delete(feedId);
     }
   }
 
@@ -127,10 +136,13 @@ class FeedScheduler {
       const timeSinceUpdate = now - lastUpdated;
       const updateInterval = this.getUpdateInterval(feed);
 
-      // If feed is overdue for update, update it now
+      // If feed is overdue for update, update it now. One failing feed
+      // must not stop the rest of the sweep from running.
       if (timeSinceUpdate > updateInterval) {
         console.log(`Feed "${feed.title}" is stale, updating now...`);
-        await this.updateFeed(feed.id);
+        await this.updateFeed(feed.id).catch(error => {
+          console.error(`Failed to update feed "${feed.title}":`, error);
+        });
       }
     }
   }
@@ -147,21 +159,19 @@ class FeedScheduler {
       newArticles: 0
     };
 
-    // Update feeds in parallel (max 3 at a time)
+    // Update feeds in parallel (max 3 at a time); success/failed follows
+    // the resolved/rejected distinction, not an unconditional counter.
     const batchSize = 3;
     for (let i = 0; i < feeds.length; i += batchSize) {
       const batch = feeds.slice(i, i + batchSize);
 
       await Promise.all(batch.map(async (feed) => {
         try {
-          const before = await this.storageService.getArticles({ feedId: feed.id });
-          await this.updateFeed(feed.id);
-          const after = await this.storageService.getArticles({ feedId: feed.id });
-
-          const newCount = after.length - before.length;
-          results.newArticles += newCount;
+          const result = await this.updateFeed(feed.id);
+          results.newArticles += result.newArticles;
           results.success++;
         } catch (error) {
+          console.error(`Failed to update feed "${feed.title}":`, error);
           results.failed++;
         }
       }));

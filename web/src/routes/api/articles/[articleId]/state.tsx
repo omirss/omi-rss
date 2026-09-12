@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { articles, userArticleStates, feeds } from "../../../../data/db/schema.js";
 import { getDb } from "../../../../lib/api/db.js";
 import { AppError, handle, jsonResponse } from "../../../../lib/api/errors.js";
@@ -41,24 +41,35 @@ export async function action({ request, params, context }: { request: Request; p
       throw new AppError("Article not found", 404);
     }
 
+    // Timestamps are consistent with batch-update and greader: clearing a
+    // flag clears its timestamp, and a repeated true keeps the ORIGINAL
+    // event time (COALESCE against the current row) instead of rewriting
+    // history.
     const stateData: Record<string, unknown> = {
       userId: auth.id,
       articleId,
       updatedAt: new Date(),
     };
+    const setPatch: Record<string, unknown> = {
+      updatedAt: new Date(),
+    };
 
     if (updates.isRead !== undefined) {
       stateData.isRead = updates.isRead;
-      if (updates.isRead) {
-        stateData.readAt = new Date();
-      }
+      stateData.readAt = updates.isRead ? new Date() : null;
+      setPatch.isRead = updates.isRead;
+      setPatch.readAt = updates.isRead
+        ? sql`CASE WHEN ${userArticleStates.isRead} THEN COALESCE(${userArticleStates.readAt}, now()) ELSE now() END`
+        : null;
     }
 
     if (updates.isStarred !== undefined) {
       stateData.isStarred = updates.isStarred;
-      if (updates.isStarred) {
-        stateData.starredAt = new Date();
-      }
+      stateData.starredAt = updates.isStarred ? new Date() : null;
+      setPatch.isStarred = updates.isStarred;
+      setPatch.starredAt = updates.isStarred
+        ? sql`CASE WHEN ${userArticleStates.isStarred} THEN COALESCE(${userArticleStates.starredAt}, now()) ELSE now() END`
+        : null;
     }
 
     await db
@@ -66,7 +77,7 @@ export async function action({ request, params, context }: { request: Request; p
       .values(stateData as typeof userArticleStates.$inferInsert)
       .onConflictDoUpdate({
         target: [userArticleStates.userId, userArticleStates.articleId],
-        set: stateData,
+        set: setPatch,
       });
 
     return jsonResponse({ message: "Article state updated" });

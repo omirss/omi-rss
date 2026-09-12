@@ -1,10 +1,11 @@
 import { Queue } from "bullmq";
 import crypto from "node:crypto";
 import Parser from "rss-parser";
-import { eq, and, sql, gte, inArray, isNull, ne, desc } from "drizzle-orm";
+import { eq, and, sql, gte, isNull, ne, desc } from "drizzle-orm";
 import { createBullMqQueueDriver, type BullMqQueueDriver } from "@neutron-build/data";
 import { getDataRuntime, QUEUE_NAME, QUEUE_PREFIX } from "./data/runtime.js";
 import { getDb, type Database } from "./lib/api/db.js";
+import { AppError } from "./lib/api/errors.js";
 import { validateAuthBootEnv } from "./lib/api/tokens.js";
 import { feeds, articles, userArticleStates, readingStats, notifications } from "./data/db/schema.js";
 import { assertSafeFeedUrl, fetchFeedXml, isTransientFeedUrlError } from "./services/feed-fetch.js";
@@ -49,13 +50,11 @@ const EXTRACT_QUEUE_NAME = "omiweb-extract";
 const EXTRACT_QUEUE_CONCURRENCY = 2;
 const EXTRACT_RUN_MAX_ARTICLES = 20;
 const EXTRACT_RUN_BUDGET_MS = 10000;
-const EXTRACTION_MEMO_MAX = 64;
 
 type FeedRow = typeof feeds.$inferSelect;
 
 let extractQueuePromise: Promise<BullMqQueueDriver> | null = null;
 const pageFeedInFlight = new Set<string>();
-const extractionMemo = new Map<string, string>();
 
 function getExtractQueue(): Promise<BullMqQueueDriver> {
   if (!extractQueuePromise) {
@@ -109,24 +108,14 @@ async function storeExtraction(db: Database, articleId: string, contentExtracted
     .where(and(eq(articles.id, articleId), isNull(articles.contentExtracted)));
 }
 
-// LRU memo: reads refresh recency; inserts evict the least-recently-used
-// entry at the 64-entry cap (Map preserves insertion order).
-function memoizeExtraction(url: string, contentHtml: string): void {
-  if (extractionMemo.has(url)) {
-    extractionMemo.delete(url);
-  } else if (extractionMemo.size >= EXTRACTION_MEMO_MAX) {
-    const oldest = extractionMemo.keys().next().value;
-    if (oldest !== undefined) {
-      extractionMemo.delete(oldest);
-    }
-  }
-  extractionMemo.set(url, contentHtml);
-}
-
 // Enqueues extraction jobs for the feed's pending articles (contentExtracted
 // NULL, non-empty URL): the run's new articles first (most recent
 // publishedAt), bounded by the per-run budget; the rest defer to later runs.
-async function enqueuePendingExtractions(db: Database, feed: FeedRow, runStartedAt: number): Promise<number> {
+// The budget clock starts INSIDE this step — time spent fetching and
+// inserting articles must not consume the extraction budget, or slow feeds
+// would never enqueue any extraction at all.
+export async function enqueuePendingExtractions(db: Database, feed: FeedRow): Promise<number> {
+  const runStartedAt = Date.now();
   const candidates = await db
     .select({ id: articles.id })
     .from(articles)
@@ -188,13 +177,6 @@ export async function processExtractArticle(articleId: string): Promise<{ articl
 
   const url = article!.url;
 
-  const memoized = extractionMemo.get(url);
-  if (memoized !== undefined) {
-    memoizeExtraction(url, memoized);
-    await storeExtraction(db, articleId, memoized);
-    return { articleId, status: "memoized" };
-  }
-
   try {
     // Bring-your-own-subscription headers only ride the article fetch when
     // the article URL is on the feed's own site (sameSiteHost: naive
@@ -207,12 +189,17 @@ export async function processExtractArticle(articleId: string): Promise<{ articl
         : undefined;
     const doc = await fetchDocument(url, undefined, articleHeaders);
     if (doc.status !== 200 || !doc.body) {
+      // Transient upstream statuses stay NULL so a later run backfills
+      // them; only genuinely terminal outcomes (404/410/…) store ''.
+      if (RETRYABLE_EXTRACTION_STATUSES.has(doc.status)) {
+        console.warn(`Extraction deferred (transient HTTP ${doc.status}) for ${url}`);
+        return { articleId, status: `deferred-http-${doc.status}` };
+      }
       await storeExtraction(db, articleId, "");
       return { articleId, status: `http-${doc.status}` };
     }
     const html = decodeBody(doc.body, doc.contentType);
     const extracted = extractArticle(html, doc.finalUrl || url);
-    memoizeExtraction(url, extracted.contentHtml);
     await storeExtraction(db, articleId, extracted.contentHtml);
     return { articleId, status: `ok-${extracted.method}` };
   } catch (error) {
@@ -220,9 +207,15 @@ export async function processExtractArticle(articleId: string): Promise<{ articl
       console.warn(`Extraction deferred (transient DNS) for ${url}:`, error);
       return { articleId, status: "deferred-transient" };
     }
-    console.warn(`Extraction failed (terminal, not re-fetched) for ${url}:`, error);
-    await storeExtraction(db, articleId, "");
-    return { articleId, status: "error" };
+    if (error instanceof AppError) {
+      console.warn(`Extraction failed (terminal, not re-fetched) for ${url}:`, error);
+      await storeExtraction(db, articleId, "");
+      return { articleId, status: "error" };
+    }
+    // Timeouts and network errors are transient upstream conditions —
+    // leave NULL so the backfill retries them.
+    console.warn(`Extraction deferred (transient network) for ${url}:`, error);
+    return { articleId, status: "deferred-transient" };
   }
 }
 
@@ -303,6 +296,14 @@ const ANALYTICS_CRON = "0 * * * *";
 // Metadata cache entries live 24h; re-warm every 6h so the discover
 // endpoints always find warm enrichment data.
 const DISCOVERY_WARM_CRON = "0 */6 * * *";
+// A failed SMTP delivery is retried in-process (the neutron-data
+// QueueDriver.add carries no BullMQ job options, so queue-level
+// attempts/backoff are not expressible).
+const EMAIL_SEND_ATTEMPTS = 3;
+const EMAIL_SEND_RETRY_DELAY_MS = 5000;
+const RETRYABLE_EXTRACTION_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
+const FEED_TITLE_MAX_CHARS = 500;
+const ARTICLE_AUTHOR_MAX_CHARS = 255;
 
 const parser = new Parser({
   customFields: {
@@ -377,6 +378,22 @@ export function resolveArticleUrl(link: string | undefined, base: string | null 
   }
 }
 
+// Publisher-controlled text is clamped to column limits (codepoint-safe —
+// never splits a surrogate pair) and unparseable dates fall back to arrival
+// time, so one malformed item cannot abort ingestion of every later item in
+// the feed on every refresh.
+export function publisherText(value: unknown, limit: number): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const chars = Array.from(value);
+  return chars.length > limit ? chars.slice(0, limit).join("") : value;
+}
+
+export function publisherDate(value: unknown): Date {
+  const date = value instanceof Date ? value : new Date(value as string | number);
+  if (!Number.isNaN(date.getTime())) return date;
+  return new Date();
+}
+
 async function processUpdateSingle(feedId: string): Promise<{ feedId: string; newArticles: number }> {
   try {
     const db = await getDb();
@@ -397,14 +414,15 @@ async function processUpdateSingle(feedId: string): Promise<{ feedId: string; ne
 
     console.info(`Updating feed: ${feed.title} (${feed.url})`);
 
-    const runStartedAt = Date.now();
+    console.info(`Updating feed: ${feed.title} (${feed.url})`);
+
     const feedXml = await withHostGate(feed.url, () => fetchFeedXml(feed.url, feed.httpHeaders ?? undefined));
     const feedData = await parser.parseString(feedXml);
 
     await db
       .update(feeds)
       .set({
-        title: feedData.title || feed.title,
+        title: publisherText(feedData.title, FEED_TITLE_MAX_CHARS) || feed.title,
         description: feedData.description || feed.description,
         siteUrl: feedData.link || feed.siteUrl,
         imageUrl: extractImageUrl(feedData) || feed.imageUrl,
@@ -424,7 +442,9 @@ async function processUpdateSingle(feedId: string): Promise<{ feedId: string; ne
 
       // Conflict-tolerant insert: a duplicate guid appearing between the
       // pre-check and the insert (concurrent update run) is skipped per
-      // item instead of killing the whole feed update.
+      // item instead of killing the whole feed update. Publisher-controlled
+      // strings/dates are clamped first — an unparseable pubDate or an
+      // oversized author must not poison every later item of the feed.
       const insertedArticles = await db
         .insert(articles)
         .values({
@@ -432,11 +452,11 @@ async function processUpdateSingle(feedId: string): Promise<{ feedId: string; ne
           guid,
           url: resolveArticleUrl(item.link, feed.siteUrl || feed.url),
           title: item.title || "Untitled",
-          author: item.creator || (item as { author?: string }).author,
+          author: publisherText(item.creator || (item as { author?: string }).author, ARTICLE_AUTHOR_MAX_CHARS),
           content: (item as { "content:encoded"?: string })["content:encoded"] || item.content,
           summary: item.summary || (item as { description?: string }).description,
           imageUrl: extractItemImageUrl(item),
-          publishedAt: item.pubDate ? new Date(item.pubDate) : new Date(),
+          publishedAt: publisherDate(item.pubDate),
           categories: item.categories || [],
           enclosures: (item as { enclosure?: unknown }).enclosure
             ? [(item as { enclosure: unknown }).enclosure]
@@ -458,7 +478,7 @@ async function processUpdateSingle(feedId: string): Promise<{ feedId: string; ne
     }
 
     if (feed.fullTextEnabled) {
-      const enqueued = await enqueuePendingExtractions(db, feed, runStartedAt);
+      const enqueued = await enqueuePendingExtractions(db, feed);
       if (enqueued > 0) {
         console.info(`Enqueued ${enqueued} extraction jobs for feed ${feed.title}`);
       }
@@ -492,39 +512,39 @@ async function processUpdateSingle(feedId: string): Promise<{ feedId: string; ne
   }
 }
 
-async function processCleanup(): Promise<{ expired: number; inactive: number }> {
-  const retentionDays = parseInt(process.env.ARTICLE_RETENTION_DAYS || "90", 10);
-  const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
-  const db = await getDb();
-
-  const inactiveFeeds = await db
-    .select({ id: feeds.id })
-    .from(feeds)
-    .where(eq(feeds.isActive, false));
-
-  let inactiveDeleted = 0;
-  if (inactiveFeeds.length > 0) {
-    const inactiveIds = inactiveFeeds.map((f) => f.id);
-    const removed = await db
-      .delete(articles)
-      .where(inArray(articles.feedId, inactiveIds))
-      .returning({ id: articles.id });
-    inactiveDeleted = removed.length;
+// Retention cutoff with validation: garbage ARTICLE_RETENTION_DAYS must
+// fail the job instead of computing a destructive (or no-op) date.
+export function articleRetentionCutoff(raw: string | undefined, now: Date = new Date()): Date {
+  const days = Number(raw && raw.trim() ? raw : "90");
+  if (!Number.isInteger(days) || days < 1 || days > 36500) {
+    throw new Error(`Invalid ARTICLE_RETENTION_DAYS: ${raw ?? "(unset)"}`);
   }
+  return new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+}
+
+// Nightly retention: deletes articles past the cutoff EXCEPT starred ones.
+// Pausing a feed only stops fetching — it never deletes the library.
+export async function processCleanup(): Promise<{ expired: number }> {
+  const cutoff = articleRetentionCutoff(process.env.ARTICLE_RETENTION_DAYS);
+  const db = await getDb();
 
   const expired = await db
     .delete(articles)
     .where(
-      sql`COALESCE(${articles.publishedAt}, ${articles.createdAt}) < ${cutoff}`,
+      and(
+        sql`COALESCE(${articles.publishedAt}, ${articles.createdAt}) < ${cutoff}`,
+        sql`NOT EXISTS (
+          SELECT 1 FROM ${userArticleStates}
+          WHERE ${userArticleStates.articleId} = ${articles.id}
+          AND ${userArticleStates.isStarred} = true
+        )`,
+      ),
     )
     .returning({ id: articles.id });
 
-  console.info(
-    `Cleanup complete: ${expired.length} articles past ${retentionDays}-day retention, ` +
-      `${inactiveDeleted} from inactive feeds`,
-  );
+  console.info(`Cleanup complete: ${expired.length} articles past retention (starred excluded)`);
 
-  return { expired: expired.length, inactive: inactiveDeleted };
+  return { expired: expired.length };
 }
 
 // Ported verbatim from Express workers/analytics.worker.ts — the
@@ -683,13 +703,23 @@ async function processSendEmail(jobData: SendEmailJobData): Promise<{ success: b
       return { success: true, status: "skipped" };
     }
 
-    const sent = await sendEmail({
-      to: email,
-      subject,
-      text: body,
-      template,
-      data,
-    });
+    // A failed delivery is retried before being recorded as failed; the
+    // throw after recording surfaces the failure on the queue too.
+    let sent = false;
+    for (let attempt = 1; attempt <= EMAIL_SEND_ATTEMPTS; attempt++) {
+      sent = await sendEmail({
+        to: email,
+        subject,
+        text: body,
+        template,
+        data,
+      });
+      if (sent) break;
+      if (attempt < EMAIL_SEND_ATTEMPTS) {
+        console.warn(`Email delivery attempt ${attempt}/${EMAIL_SEND_ATTEMPTS} failed for user ${userId}: ${subject}`);
+        await new Promise((resolve) => setTimeout(resolve, EMAIL_SEND_RETRY_DELAY_MS));
+      }
+    }
 
     if (!sent) {
       await db
@@ -706,7 +736,7 @@ async function processSendEmail(jobData: SendEmailJobData): Promise<{ success: b
         });
 
       console.error(`Email delivery failed for user ${userId}: ${subject}`);
-      return { success: false, status: "failed" };
+      throw new Error(`Email delivery failed after ${EMAIL_SEND_ATTEMPTS} attempts: ${subject}`);
     }
 
     await db

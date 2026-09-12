@@ -176,8 +176,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       return true;
 
     case 'open-sidepanel':
-      chrome.sidePanel.open({ windowId: sender.tab.windowId });
-      sendResponse({ success: true });
+      // The popup has no sender.tab (extension page) and sidePanel.open
+      // needs a user gesture that a message hop can lose — the popup opens
+      // the panel directly; this path only serves real tabs.
+      if (sender.tab && chrome.sidePanel) {
+        chrome.sidePanel.open({ windowId: sender.tab.windowId });
+        sendResponse({ success: true });
+      } else {
+        sendResponse({ error: 'open-sidepanel requires a sender tab; popup opens the panel directly' });
+      }
       break;
 
     case 'update-settings':
@@ -195,7 +202,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
     case 'refresh-feed':
       feedScheduler.updateFeed(request.feedId)
-        .then(() => sendResponse({ success: true }))
+        .then(result => sendResponse({ success: true, ...result }))
         .catch(err => sendResponse({ error: err.message }));
       return true;
 
@@ -271,46 +278,56 @@ chrome.commands.onCommand.addListener(async (command) => {
   }
 });
 
-// Save current page as a local item.
+// Save a page/link as a local item.
 // The server has no direct article-upload endpoint, so saves are local-first.
 async function handleSaveArticle(data = {}, tab = null) {
   const article = { ...data };
 
+  // Popup senders carry no sender.tab: query the active tab so content can
+  // still be extracted for the page the user is looking at.
+  if (!tab) {
+    tab = await getTargetTab(null);
+  }
+
   if ((!article.content || !article.title) && tab) {
-    try {
-      Object.assign(article, await extractArticleContent(tab));
-    } catch (err) {
-      // Fall through with whatever data we have
+    // Only extract from the page itself when the save targets THAT page —
+    // a link save must never receive the container page's URL/content.
+    const sameDocument = !article.url || !tab.url || article.url === tab.url;
+    if (sameDocument) {
+      try {
+        Object.assign(article, await extractArticleContent(tab));
+      } catch (err) {
+        // Fall through with whatever data we have
+      }
     }
   }
 
+  if (!article.url && tab && tab.url) {
+    article.url = tab.url;
+  }
+
   const item = {
-    id: Date.now().toString(),
-    url: article.url || (tab && tab.url) || '',
+    url: article.url || '',
     title: article.title || (tab && tab.title) || 'Untitled',
     excerpt: article.excerpt || '',
     content: article.content || '',
-    type: 'article',
-    savedAt: new Date().toISOString()
+    type: 'article'
   };
 
-  const { savedArticles = [] } = await chrome.storage.local.get('savedArticles');
+  // Single locked mutation: dedupes by URL and returns the authoritative
+  // list plus the EXISTING item's id on duplicate saves.
+  const { alreadySaved, item: stored } = await savedArticlesAdd(item);
 
-  if (item.url && savedArticles.some(a => a.url === item.url)) {
-    return { success: true, alreadySaved: true, id: item.id, savedLocally: true, title: item.title };
+  if (!alreadySaved) {
+    chrome.notifications.create({
+      type: 'basic',
+      iconUrl: NOTIFICATION_ICON,
+      title: 'Article Saved',
+      message: stored.title
+    });
   }
 
-  savedArticles.unshift(item);
-  await chrome.storage.local.set({ savedArticles });
-
-  chrome.notifications.create({
-    type: 'basic',
-    iconUrl: NOTIFICATION_ICON,
-    title: 'Article Saved',
-    message: item.title
-  });
-
-  return { success: true, id: item.id, savedLocally: true, title: item.title };
+  return { success: true, alreadySaved: !!alreadySaved, id: stored.id, savedLocally: true, title: stored.title };
 }
 
 async function isUrlSaved(url) {

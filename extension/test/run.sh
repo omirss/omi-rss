@@ -1,5 +1,5 @@
 #!/bin/sh
 # Optional runner for the extension's pure-function tests.
-# Usage: extension/test/run.sh   (equivalent to: node --test extension/test/)
+# Usage: extension/test/run.sh   (equivalent to: node --test extension/test/*.test.mjs)
 DIR="$(cd "$(dirname "$0")" && pwd)"
-exec node --test "$DIR/picker-selectors.test.mjs"
+exec node --test "$DIR"/*.test.mjs

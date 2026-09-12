@@ -85,6 +85,8 @@ describe("PATCH /api/users/me email handling", () => {
     expect(patch.email).toBe("new-address@test.local");
     expect(patch.emailVerified).toBe(false);
     expect(patch.emailVerificationToken).toMatch(/^[0-9a-f]{64}$/);
+    expect(patch.passwordResetToken).toBeNull();
+    expect(patch.passwordResetExpires).toBeNull();
     expect(queueAdd).toHaveBeenCalledTimes(1);
     const [jobName, payload] = queueAdd.mock.calls[0] as [string, { email: string; data: { verificationUrl: string } }];
     expect(jobName).toBe("notification.send-email");

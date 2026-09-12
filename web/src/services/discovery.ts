@@ -5,8 +5,9 @@
 
 import { eq, and, desc } from "drizzle-orm";
 import Parser from "rss-parser";
+import { DOMParser } from "linkedom";
 import { feeds, articles, folders, userArticleStates, readingStats } from "../data/db/schema.js";
-import { getDb } from "../lib/api/db.js";
+import { getDb, type Database } from "../lib/api/db.js";
 import { AppError } from "../lib/api/errors.js";
 import { getDataRuntime } from "../data/runtime.js";
 import { assertSafeFeedUrl, fetchFeedXml } from "./feed-fetch.js";
@@ -195,6 +196,21 @@ export interface OpmlImportOutcome {
 
 const MAX_OPML_ENTRIES = 500;
 const OPML_INSERT_CHUNK = 100;
+const OPML_MAX_DEPTH = 32;
+const FEED_TITLE_MAX_CHARS = 500;
+
+interface OpmlEntry {
+  url: string;
+  title?: string;
+  siteUrl?: string;
+  folderPath: string[];
+}
+
+function clampFeedTitle(value: string | undefined): string {
+  const source = value && value.trim() ? value : "Imported Feed";
+  const chars = Array.from(source);
+  return chars.length > FEED_TITLE_MAX_CHARS ? chars.slice(0, FEED_TITLE_MAX_CHARS).join("") : source;
+}
 
 export class FeedDiscoveryService {
   async discoverFeeds(userId: string, options?: {
@@ -576,7 +592,8 @@ export class FeedDiscoveryService {
       .where(eq(feeds.userId, userId));
     const knownUrls = new Set(subscribed.map(f => f.url));
 
-    const toInsert: Array<typeof feeds.$inferInsert> = [];
+    const toInsert: Array<{ row: typeof feeds.$inferInsert; folderPath: string[] }> = [];
+    const usedFolderPaths = new Set<string>();
 
     for (let index = 0; index < entries.length; index++) {
       const entry = entries[index];
@@ -600,11 +617,17 @@ export class FeedDiscoveryService {
       }
 
       knownUrls.add(entry.url);
+      if (entry.folderPath.length > 0) {
+        usedFolderPaths.add(entry.folderPath.join("\u0000"));
+      }
       toInsert.push({
-        userId,
-        url: entry.url,
-        title: entry.title || "Imported Feed",
-        siteUrl: entry.siteUrl || null,
+        row: {
+          userId,
+          url: entry.url,
+          title: clampFeedTitle(entry.title),
+          siteUrl: entry.siteUrl || null,
+        },
+        folderPath: entry.folderPath,
       });
     }
 
@@ -612,10 +635,34 @@ export class FeedDiscoveryService {
 
     if (toInsert.length > 0) {
       await db.transaction(async (tx) => {
+        // Folder chains are created first, reusing existing folders by
+        // (parent, name) so re-imports never duplicate labels.
+        const folderIdByPath = await this.ensureFolderPaths(
+          tx,
+          userId,
+          [...usedFolderPaths].map((joined) => joined.split("\u0000")),
+        );
+
         for (let i = 0; i < toInsert.length; i += OPML_INSERT_CHUNK) {
           const chunk = toInsert.slice(i, i + OPML_INSERT_CHUNK);
           try {
-            const inserted = await tx.insert(feeds).values(chunk).returning({ id: feeds.id });
+            // Per-chunk SAVEPOINT: one bad chunk fails independently and
+            // the earlier chunks still commit — a failure inside the outer
+            // transaction no longer rolls back everything while the counter
+            // still reported it imported.
+            const inserted = await tx.transaction(async (sp) =>
+              sp
+                .insert(feeds)
+                .values(
+                  chunk.map(({ row, folderPath }) => ({
+                    ...row,
+                    folderId:
+                      folderPath.length > 0 ? folderIdByPath.get(folderPath.join("\u0000")) : undefined,
+                  })),
+                )
+                .onConflictDoNothing({ target: [feeds.userId, feeds.url] })
+                .returning({ id: feeds.id }),
+            );
             imported += inserted.length;
           } catch (error) {
             failed += chunk.length;
@@ -636,44 +683,98 @@ export class FeedDiscoveryService {
     };
   }
 
-  private parseOPML(opmlContent: string): Array<{ url: string; title?: string; siteUrl?: string }> {
-    const results: Array<{ url: string; title?: string; siteUrl?: string }> = [];
-    const outlineRegex = /<outline\b[^>]*>/gi;
-    let match: RegExpExecArray | null;
-
-    while ((match = outlineRegex.exec(opmlContent)) !== null) {
-      const tag = match[0];
-      const xmlUrl = this.getXmlAttribute(tag, "xmlUrl");
-      if (!xmlUrl) continue;
-
-      const title = this.getXmlAttribute(tag, "title") || this.getXmlAttribute(tag, "text");
-      const htmlUrl = this.getXmlAttribute(tag, "htmlUrl");
-
-      results.push({
-        url: this.unescapeXml(xmlUrl),
-        title: title ? this.unescapeXml(title) : undefined,
-        siteUrl: htmlUrl ? this.unescapeXml(htmlUrl) : undefined,
-      });
+  // Tree-walking OPML parse (linkedom): enclosing folder outlines become a
+  // folderPath per feed, so hierarchy round-trips instead of being discarded
+  // by the old flat <outline> regex. DOCTYPE is rejected (entity expansion)
+  // and depth is capped.
+  private parseOPML(opmlContent: string): OpmlEntry[] {
+    if (/<!DOCTYPE/i.test(opmlContent)) {
+      throw new AppError("OPML with a DOCTYPE declaration is not accepted", 400);
     }
 
+    // XML parsing (not HTML): the HTML parser re-nests unknown elements
+    // like <opml> and silently re-parents the outlines.
+    const document = new DOMParser().parseFromString(opmlContent, "text/xml");
+    const results: OpmlEntry[] = [];
+
+    const walk = (element: unknown, path: string[], depth: number): void => {
+      if (depth > OPML_MAX_DEPTH) {
+        throw new AppError(`OPML nested deeper than ${OPML_MAX_DEPTH} levels`, 400);
+      }
+      for (const child of (element as { children: Iterable<unknown> }).children) {
+        const node = child as {
+          tagName?: string;
+          getAttribute?: (name: string) => string | null;
+          children?: Iterable<unknown>;
+        };
+        if (node.tagName?.toLowerCase() !== "outline") continue;
+
+        const xmlUrl = node.getAttribute?.("xmlUrl");
+        if (xmlUrl) {
+          const title = node.getAttribute?.("title") || node.getAttribute?.("text");
+          const htmlUrl = node.getAttribute?.("htmlUrl");
+          results.push({
+            url: xmlUrl,
+            title: title || undefined,
+            siteUrl: htmlUrl || undefined,
+            folderPath: [...path],
+          });
+          continue;
+        }
+
+        const name = (node.getAttribute?.("title") || node.getAttribute?.("text") || "").trim();
+        walk(node, name ? [...path, name] : path, depth + 1);
+      }
+    };
+
+    walk(document.querySelector("body") ?? document, [], 0);
     return results;
   }
 
-  private getXmlAttribute(tag: string, name: string): string | null {
-    const doubleQuoted = tag.match(new RegExp(`${name}\\s*=\\s*"([^"]*)"`, "i"));
-    if (doubleQuoted) return doubleQuoted[1];
-    const singleQuoted = tag.match(new RegExp(`${name}\\s*=\\s*'([^']*)'`, "i"));
-    if (singleQuoted) return singleQuoted[1];
-    return null;
-  }
+  // Creates the folder chains referenced by the import inside the caller's
+  // transaction, reusing existing folders by (parent, name). Returns a map
+  // of "\u0000"-joined path → folder id.
+  private async ensureFolderPaths(
+    tx: Parameters<Parameters<Database["transaction"]>[0]>[0],
+    userId: string,
+    paths: string[][],
+  ): Promise<Map<string, string>> {
+    const existing = await tx
+      .select({ id: folders.id, name: folders.name, parentId: folders.parentId })
+      .from(folders)
+      .where(eq(folders.userId, userId));
 
-  private unescapeXml(text: string): string {
-    return text
-      .replace(/&amp;/g, "&")
-      .replace(/&lt;/g, "<")
-      .replace(/&gt;/g, ">")
-      .replace(/&quot;/g, '"')
-      .replace(/&apos;/g, "'");
+    const byParentName = new Map<string, string>();
+    for (const folder of existing) {
+      byParentName.set(`${folder.parentId ?? ""}\u0000${folder.name}`, folder.id);
+    }
+
+    let nextPosition = existing.length + 1;
+    const idByPath = new Map<string, string>();
+    const sortedPaths = [...paths].sort((a, b) => a.length - b.length);
+
+    for (const path of sortedPaths) {
+      let parentId: string | null = null;
+      let partial: string[] = [];
+      for (const segment of path) {
+        partial = [...partial, segment];
+        const key: string = partial.join("\u0000");
+        const parentKey: string = `${parentId ?? ""}\u0000${segment}`;
+        let folderId: string | undefined = byParentName.get(parentKey) ?? idByPath.get(key);
+        if (!folderId) {
+          const created: Array<{ id: string }> = await tx
+            .insert(folders)
+            .values({ userId, name: segment, parentId: parentId ?? undefined, position: nextPosition++ })
+            .returning({ id: folders.id });
+          folderId = created[0]?.id;
+        }
+        if (!folderId) continue;
+        idByPath.set(key, folderId);
+        parentId = folderId;
+      }
+    }
+
+    return idByPath;
   }
 
   async exportOPML(userId: string): Promise<string> {
@@ -686,11 +787,59 @@ export class FeedDiscoveryService {
         .where(eq(feeds.userId, userId));
 
       const userFolders = await db
-        .select({ id: folders.id, name: folders.name })
+        .select({ id: folders.id, name: folders.name, parentId: folders.parentId })
         .from(folders)
         .where(eq(folders.userId, userId));
 
-      const folderNamesById = new Map(userFolders.map((folder) => [folder.id, folder.name]));
+      const folderById = new Map(userFolders.map((folder) => [folder.id, folder]));
+
+      const feedsByFolder = new Map<string | null, typeof userFeeds>();
+      const childFoldersByParent = new Map<string | null, typeof userFolders>();
+      for (const folder of userFolders) {
+        const siblings = childFoldersByParent.get(folder.parentId) ?? [];
+        siblings.push(folder);
+        childFoldersByParent.set(folder.parentId, siblings);
+      }
+
+      // Folders orphaned by a dangling parentId export as roots instead of
+      // disappearing.
+      const rootFolders: typeof userFolders = [
+        ...(childFoldersByParent.get(null) ?? []),
+      ];
+      for (const folder of userFolders) {
+        if (folder.parentId !== null && !folderById.has(folder.parentId)) {
+          rootFolders.push(folder);
+        }
+      }
+
+      // Page feeds are excluded: they scrape a selector, not an RSS URL,
+      // and do not round-trip as xmlUrl outlines (v0.4.1 audit).
+      for (const feed of userFeeds) {
+        if (feed.sourceType === "page") continue;
+        const list = feedsByFolder.get(feed.folderId ?? null) ?? [];
+        list.push(feed);
+        feedsByFolder.set(feed.folderId ?? null, list);
+      }
+
+      const outlineForFeed = (feed: (typeof userFeeds)[number], indent: string): string => {
+        // customTitle wins: it is the name the user actually chose.
+        const title = feed.customTitle || feed.title;
+        return `\n${indent}<outline type="rss" text="${this.escapeXml(title)}" title="${this.escapeXml(title)}" xmlUrl="${this.escapeXml(feed.url)}" htmlUrl="${this.escapeXml(feed.siteUrl || "")}" />`;
+      };
+
+      const outlineForFolder = (folder: (typeof userFolders)[number], indent: string, ancestors: Set<string>): string => {
+        let opml = `\n${indent}<outline text="${this.escapeXml(folder.name)}" title="${this.escapeXml(folder.name)}">`;
+        for (const feed of feedsByFolder.get(folder.id) ?? []) {
+          opml += outlineForFeed(feed, `${indent}  `);
+        }
+        // Cycle guard: a folder never recurses into its own ancestry.
+        const nextAncestors = new Set([...ancestors, folder.id]);
+        for (const child of childFoldersByParent.get(folder.id) ?? []) {
+          if (nextAncestors.has(child.id)) continue;
+          opml += outlineForFolder(child, `${indent}  `, nextAncestors);
+        }
+        return `${opml}\n${indent}</outline>`;
+      };
 
       let opml = `<?xml version="1.0" encoding="UTF-8"?>
 <opml version="2.0">
@@ -700,27 +849,13 @@ export class FeedDiscoveryService {
   </head>
   <body>`;
 
-      const feedsByFolder = new Map<string, typeof userFeeds>();
-
-      // Page feeds are excluded: they scrape a selector, not an RSS URL,
-      // and do not round-trip as xmlUrl outlines (v0.4.1 audit).
-      for (const feed of userFeeds) {
-        if (feed.sourceType === "page") continue;
-        const folder = (feed.folderId ? folderNamesById.get(feed.folderId) : undefined) || "Uncategorized";
-        if (!feedsByFolder.has(folder)) {
-          feedsByFolder.set(folder, []);
-        }
-        feedsByFolder.get(folder)!.push(feed);
+      // Root feeds sit directly in <body> — no synthetic "Uncategorized".
+      for (const feed of feedsByFolder.get(null) ?? []) {
+        opml += outlineForFeed(feed, "    ");
       }
 
-      for (const [folder, folderFeeds] of feedsByFolder) {
-        opml += `\n    <outline text="${this.escapeXml(folder)}" title="${this.escapeXml(folder)}">`;
-
-        for (const feed of folderFeeds) {
-          opml += `\n      <outline type="rss" text="${this.escapeXml(feed.title)}" title="${this.escapeXml(feed.title)}" xmlUrl="${this.escapeXml(feed.url)}" htmlUrl="${this.escapeXml(feed.siteUrl || "")}" />`;
-        }
-
-        opml += "\n    </outline>";
+      for (const folder of rootFolders) {
+        opml += outlineForFolder(folder, "    ", new Set());
       }
 
       opml += "\n  </body>\n</opml>";
