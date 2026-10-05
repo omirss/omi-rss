@@ -1,4 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:rss_glassmorphism_reader/core/models/feed.dart';
+import 'package:rss_glassmorphism_reader/core/models/folder.dart';
 import 'package:rss_glassmorphism_reader/services/opml_service.dart';
 
 void main() {
@@ -56,5 +58,64 @@ void main() {
     final root = result.folders.firstWhere((f) => f.name == 'Root');
     expect(child.parentId, root.id);
     expect(result.feeds.single.folderId, child.id);
+  });
+
+  test('B17: export nests feeds by folder membership, not categoryId',
+      () async {
+    final folder = Folder(id: 'folder-1', name: 'Tech');
+    final feeds = [
+      Feed(
+        id: 'feed-member',
+        url: 'https://member.example/feed.xml',
+        title: 'Member',
+        // categoryId null: membership still comes from the join table.
+        categoryId: null,
+      ),
+      Feed(
+        id: 'feed-loose',
+        url: 'https://loose.example/feed.xml',
+        title: 'Loose',
+        // categoryId pointing at a folder id must NOT imply membership.
+        categoryId: 'folder-1',
+      ),
+    ];
+
+    final opml = await OPMLService().exportOPML(
+      feeds: feeds,
+      folders: [folder],
+      folderFeedIds: {'folder-1': ['feed-member']},
+    );
+
+    expect(opml, contains('xmlUrl="https://member.example/feed.xml"'));
+    final folderStart = opml.indexOf('text="Tech"');
+    final memberPos = opml.indexOf('https://member.example/feed.xml');
+    final loosePos = opml.indexOf('https://loose.example/feed.xml');
+    final folderEnd = opml.indexOf('</outline>', folderStart);
+    expect(folderStart, greaterThanOrEqualTo(0));
+    // The member feed is nested inside the folder outline...
+    expect(memberPos, greaterThan(folderStart));
+    expect(memberPos, lessThan(folderEnd),
+        reason: 'join-table member must be nested under its folder');
+    // ...while the loose feed is emitted at the body level.
+    expect(loosePos, lessThan(folderStart),
+        reason: 'categoryId must not be treated as folder membership');
+  });
+
+  test('B18: exporting corrupted duplicate-id folder data terminates',
+      () async {
+    // Two folders sharing one id where the duplicate is its own parent:
+    // without an ancestry guard the builder would recurse forever.
+    final root = Folder(id: 'x', name: 'Root');
+    final evil = Folder(id: 'x', name: 'Evil', parentId: 'x');
+
+    final opml = await OPMLService().exportOPML(
+      feeds: const [],
+      folders: [root, evil],
+      folderFeedIds: const {},
+    );
+
+    expect(opml, contains('text="Root"'));
+    // The cyclic duplicate is skipped instead of recursing.
+    expect(opml, isNot(contains('text="Evil"')));
   });
 }

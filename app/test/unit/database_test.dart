@@ -288,4 +288,262 @@ void main() {
     expect(id1b, id1a, reason: 'id is stable within one installation');
     expect(id2, isNot(id1a), reason: 'installations must not share an id');
   });
+
+  test('B01: backups with multiple sync metadata rows are rejected atomically',
+      () async {
+    final db = AppDatabase.testing(NativeDatabase.memory());
+    addTearDown(db.close);
+
+    await db.feedDao.insertOrUpdateFeed(Feed(
+      id: 'feed-1',
+      url: 'https://example.com/feed.xml',
+      title: 'Example',
+    ));
+
+    await expectLater(
+      db.importFromJson({
+        'format': 'omi-rss-backup',
+        'version': db.schemaVersion,
+        'syncMetadata': [
+          {
+            'deviceId': 'device-a',
+            'lastSync': null,
+            'syncToken': null,
+            'pendingChangesJson': null,
+          },
+          {
+            'deviceId': 'device-b',
+            'lastSync': null,
+            'syncToken': null,
+            'pendingChangesJson': null,
+          },
+        ],
+      }),
+      throwsArgumentError,
+    );
+
+    expect(await db.getAllFeeds(), hasLength(1),
+        reason: 'rejected import must leave the database untouched');
+    // Sync accessors keep working rather than throwing on any legacy
+    // multi-row state.
+    expect((await db.getLastSyncAt()), isNull);
+    expect(await db.syncDeviceId(), isNotEmpty);
+  });
+
+  test('B15: backups with wrong format or version are rejected', () async {
+    final db = AppDatabase.testing(NativeDatabase.memory());
+    addTearDown(db.close);
+
+    await expectLater(
+      db.importFromJson(<String, dynamic>{}),
+      throwsArgumentError,
+    );
+    await expectLater(
+      db.importFromJson(<String, dynamic>{
+        'format': 'some-other-tool',
+        'version': 1,
+      }),
+      throwsArgumentError,
+    );
+    await expectLater(
+      db.importFromJson(<String, dynamic>{
+        'format': 'omi-rss-backup',
+        'version': db.schemaVersion + 1,
+      }),
+      throwsArgumentError,
+    );
+
+    expect(await db.getAllFeeds(), isEmpty);
+  });
+
+  test('B16: v5 folder data with dangling references migrates cleanly',
+      () async {
+    final path = await _downgradedDb(
+      5,
+      extraStatements: [
+        'DROP TABLE folder_feeds_table',
+        'DROP TABLE folders_table',
+        'CREATE TABLE folders_table (id TEXT NOT NULL PRIMARY KEY,'
+            ' name TEXT NOT NULL, description TEXT NULL, parent_id TEXT NULL,'
+            ' color TEXT NULL, icon TEXT NULL, position INTEGER NOT NULL'
+            ' DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT'
+            ' NULL)',
+        'CREATE TABLE folder_feeds_table (folder_id TEXT NOT NULL,'
+            ' feed_id TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0,'
+            ' added_at INTEGER NOT NULL, PRIMARY KEY (folder_id, feed_id))',
+        "INSERT INTO folders_table (id, name, parent_id, created_at,"
+            " updated_at) VALUES ('root', 'Root', NULL, 0, 0)",
+        "INSERT INTO folders_table (id, name, parent_id, created_at,"
+            " updated_at) VALUES ('child', 'Child', 'root', 0, 0)",
+        "INSERT INTO folders_table (id, name, parent_id, created_at,"
+            " updated_at) VALUES ('orphan', 'Orphan', 'ghost', 0, 0)",
+        "INSERT INTO folders_table (id, name, parent_id, created_at,"
+            " updated_at) VALUES ('grandorphan', 'GO', 'orphan', 0, 0)",
+        "INSERT INTO folder_feeds_table (folder_id, feed_id, added_at)"
+            " VALUES ('child', 'feed-1', 0)",
+        "INSERT INTO folder_feeds_table (folder_id, feed_id, added_at)"
+            " VALUES ('ghost-folder', 'feed-1', 0)",
+      ],
+      seed: (db) async {
+        await db.feedDao.insertOrUpdateFeed(Feed(
+          id: 'feed-1',
+          url: 'https://example.com/feed.xml',
+          title: 'Example',
+        ));
+      },
+    );
+    final db = await _openMigrated(path);
+    addTearDown(db.close);
+
+    final folders = await db.folderDao.getAllFolders();
+    expect(folders.map((f) => f.id), unorderedEquals(['root', 'child']),
+        reason: 'dangling parent chains must be dropped');
+    expect(await db.folderDao.getFeedsInFolder('child'), ['feed-1'],
+        reason: 'valid membership survives');
+    expect(await db.folderDao.getFeedsInFolder('ghost-folder'), isEmpty);
+
+    final fkViolations =
+        await db.customSelect('PRAGMA foreign_key_check').get();
+    expect(fkViolations, isEmpty);
+  });
+
+  test('B16: foreign keys are enforced at runtime', () async {
+    final db = AppDatabase.testing(NativeDatabase.memory());
+    addTearDown(db.close);
+
+    // Folder parent must exist.
+    await expectLater(
+      db.folderDao.insertFolder(Folder(id: 'f1', name: 'Bad', parentId: 'nope')),
+      throwsA(anything),
+    );
+
+    await db.folderDao.insertFolder(Folder(id: 'parent', name: 'Parent'));
+    await db.folderDao.insertFolder(
+        Folder(id: 'child', name: 'Child', parentId: 'parent'));
+    await db.feedDao.insertOrUpdateFeed(Feed(
+      id: 'feed-1',
+      url: 'https://example.com/feed.xml',
+      title: 'Example',
+    ));
+    await db.folderDao.addFeedToFolder('parent', 'feed-1');
+
+    // Deleting the feed removes its folder membership (cascade).
+    await db.feedDao.deleteFeed('feed-1');
+    expect(await db.folderDao.getFeedsInFolder('parent'), isEmpty);
+
+    // Deleting a parent folder promotes children to root (set null).
+    await db.folderDao.deleteFolder('parent');
+    final folders = await db.folderDao.getAllFolders();
+    expect(folders, hasLength(1));
+    expect(folders.first.id, 'child');
+    expect(folders.first.parentId, isNull);
+  });
+
+  test('B16: imports with dangling folder references are rejected atomically',
+      () async {
+    final db = AppDatabase.testing(NativeDatabase.memory());
+    addTearDown(db.close);
+
+    await db.feedDao.insertOrUpdateFeed(Feed(
+      id: 'feed-1',
+      url: 'https://example.com/feed.xml',
+      title: 'Example',
+    ));
+
+    final feedRow = {
+      'id': 'feed-9',
+      'url': 'https://example.com/9.xml',
+      'title': 'Nine',
+      'description': null,
+      'link': null,
+      'siteUrl': null,
+      'customTitle': null,
+      'categoryId': null,
+      'faviconUrl': null,
+      'lastFetched': null,
+      'etag': null,
+      'lastModified': null,
+      'updateFrequency': 60,
+      'isActive': true,
+      'type': 'rss',
+      'createdAt': '2026-10-04T00:00:00.000',
+      'updatedAt': '2026-10-04T00:00:00.000',
+      'language': null,
+      'copyright': null,
+      'generator': null,
+      'imageUrl': null,
+      'customFields': null,
+      'successfulFetches': 0,
+      'failedFetches': 0,
+      'successRate': 0.0,
+      'lastError': null,
+      'lastErrorAt': null,
+    };
+    final folderRow = {
+      'id': 'folder-9',
+      'name': 'Nine',
+      'description': null,
+      'parentId': 'missing-parent',
+      'color': null,
+      'icon': null,
+      'position': 0,
+      'createdAt': '2026-10-04T00:00:00.000',
+      'updatedAt': '2026-10-04T00:00:00.000',
+    };
+    final base = {
+      'format': 'omi-rss-backup',
+      'version': db.schemaVersion,
+    };
+
+    await expectLater(
+      db.importFromJson({...base, 'feeds': [feedRow], 'folders': [folderRow]}),
+      throwsArgumentError,
+    );
+    await expectLater(
+      db.importFromJson({
+        ...base,
+        'feeds': [feedRow],
+        'folderFeeds': [
+          {
+            'folderId': 'missing-folder',
+            'feedId': 'feed-9',
+            'position': 0,
+            'addedAt': '2026-10-04T00:00:00.000',
+          }
+        ],
+      }),
+      throwsArgumentError,
+    );
+    await expectLater(
+      db.importFromJson({
+        ...base,
+        'feeds': [feedRow],
+        'folders': [
+          {
+            'id': 'folder-9',
+            'name': 'Nine',
+            'description': null,
+            'parentId': null,
+            'color': null,
+            'icon': null,
+            'position': 0,
+            'createdAt': '2026-10-04T00:00:00.000',
+            'updatedAt': '2026-10-04T00:00:00.000',
+          },
+        ],
+        'folderFeeds': [
+          {
+            'folderId': 'folder-9',
+            'feedId': 'missing-feed',
+            'position': 0,
+            'addedAt': '2026-10-04T00:00:00.000',
+          }
+        ],
+      }),
+      throwsArgumentError,
+    );
+
+    expect(await db.getAllFeeds(), hasLength(1),
+        reason: 'rejected imports must leave the database untouched');
+  });
 }

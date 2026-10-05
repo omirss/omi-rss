@@ -31,7 +31,7 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
   }
 
   Future<Folder> insertFolder(Folder folder) async {
-    await into(foldersTable).insert(
+    await into(foldersTable).insertOnConflictUpdate(
       FoldersTableCompanion.insert(
         id: folder.id,
         name: folder.name,
@@ -41,7 +41,6 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
         icon: Value(folder.icon),
         position: Value(folder.position),
       ),
-      mode: InsertMode.insertOrReplace,
     );
     return folder;
   }
@@ -62,13 +61,12 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
   Future<void> addFeedToFolder(String folderId, String feedId,
       {int? position}) async {
     final pos = position ?? await _getNextPosition(folderId);
-    await into(folderFeedsTable).insert(
+    await into(folderFeedsTable).insertOnConflictUpdate(
       FolderFeedsTableCompanion.insert(
         folderId: folderId,
         feedId: feedId,
         position: Value(pos),
       ),
-      mode: InsertMode.insertOrReplace,
     );
   }
 

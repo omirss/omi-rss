@@ -46,6 +46,7 @@ class RssParser {
       
       // iTunes image fallback
       imageUrl ??= _getItunesImage(channel);
+      imageUrl = _resolveUrl(imageUrl, feedUrl);
       
       // Parse last build date
       DateTime? lastBuildDate;
@@ -142,10 +143,10 @@ class RssParser {
         .toList();
     
     // Media content
-    final imageUrl = _extractImageUrl(item, content);
+    final imageUrl = _extractImageUrl(item, content, feedUrl);
     
     // Enclosures
-    final enclosures = _parseEnclosures(item);
+    final enclosures = _parseEnclosures(item, feedUrl);
     
     return Article(
       feedId: feedId,
@@ -163,14 +164,14 @@ class RssParser {
   }
   
   /// Extract image URL from item
-  String? _extractImageUrl(XmlElement item, String? content) {
+  String? _extractImageUrl(XmlElement item, String? content, String? feedUrl) {
     // Try media:content first
     final mediaContent = item.findElements('content', namespace: mediaNamespace);
     for (final media in mediaContent) {
       final medium = media.getAttribute('medium');
       final url = media.getAttribute('url');
       if (medium == 'image' && url != null) {
-        return url;
+        return _resolveUrl(url, feedUrl);
       }
     }
     
@@ -179,7 +180,7 @@ class RssParser {
         .firstOrNull;
     if (mediaThumbnail != null) {
       final url = mediaThumbnail.getAttribute('url');
-      if (url != null) return url;
+      if (url != null) return _resolveUrl(url, feedUrl);
     }
     
     // Try enclosure with image type
@@ -188,7 +189,7 @@ class RssParser {
       final type = enclosure.getAttribute('type');
       final url = enclosure.getAttribute('url');
       if (type != null && type.startsWith('image/') && url != null) {
-        return url;
+        return _resolveUrl(url, feedUrl);
       }
     }
     
@@ -197,7 +198,7 @@ class RssParser {
       final document = html_parser.parse(content);
       final img = document.querySelector('img');
       if (img != null) {
-        return img.attributes['src'];
+        return _resolveUrl(img.attributes['src'], feedUrl);
       }
     }
     
@@ -205,7 +206,7 @@ class RssParser {
   }
   
   /// Parse enclosures
-  List<Enclosure> _parseEnclosures(XmlElement item) {
+  List<Enclosure> _parseEnclosures(XmlElement item, String? feedUrl) {
     final enclosures = <Enclosure>[];
     
     // Standard enclosures
@@ -213,7 +214,7 @@ class RssParser {
       final url = enclosure.getAttribute('url');
       if (url != null) {
         enclosures.add(Enclosure(
-          url: url,
+          url: _resolveUrl(url, feedUrl) ?? url,
           type: enclosure.getAttribute('type'),
           length: int.tryParse(enclosure.getAttribute('length') ?? ''),
         ));
@@ -225,7 +226,7 @@ class RssParser {
       final url = media.getAttribute('url');
       if (url != null) {
         enclosures.add(Enclosure(
-          url: url,
+          url: _resolveUrl(url, feedUrl) ?? url,
           type: media.getAttribute('type'),
           length: int.tryParse(media.getAttribute('fileSize') ?? ''),
           duration: media.getAttribute('duration'),

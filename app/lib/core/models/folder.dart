@@ -1,12 +1,15 @@
 import 'package:drift/drift.dart';
 import 'package:uuid/uuid.dart';
+import '../database/tables/feeds_table.dart' show FeedsTable;
 
 @DataClassName('FolderEntry')
 class FoldersTable extends Table {
   TextColumn get id => text()();
   TextColumn get name => text().withLength(min: 1, max: 255)();
   TextColumn get description => text().nullable()();
-  TextColumn get parentId => text().nullable()();
+  // Deleting a folder promotes its subfolders to the root level.
+  TextColumn get parentId =>
+      text().nullable().references(FoldersTable, #id, onDelete: KeyAction.setNull)();
   TextColumn get color => text().nullable()();
   TextColumn get icon => text().nullable()();
   IntColumn get position => integer().withDefault(const Constant(0))();
@@ -98,8 +101,10 @@ class Folder {
 
 @DataClassName('FolderFeedEntry')
 class FolderFeedsTable extends Table {
-  TextColumn get folderId => text()();
-  TextColumn get feedId => text()();
+  TextColumn get folderId =>
+      text().references(FoldersTable, #id, onDelete: KeyAction.cascade)();
+  TextColumn get feedId =>
+      text().references(FeedsTable, #id, onDelete: KeyAction.cascade)();
   IntColumn get position => integer().withDefault(const Constant(0))();
   DateTimeColumn get addedAt => dateTime().withDefault(currentDateAndTime)();
 

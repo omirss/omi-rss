@@ -63,8 +63,7 @@ class FeedDao extends DatabaseAccessor<AppDatabase> with _$FeedDaoMixin {
 
   /// Insert feed
   Future<void> insertFeed(Feed feed) async {
-    await into(feedsTable).insert(_toEntry(feed),
-        mode: InsertMode.insertOrReplace);
+    await into(feedsTable).insertOnConflictUpdate(_toEntry(feed));
   }
 
   /// Insert or update feed

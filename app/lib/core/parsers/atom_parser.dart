@@ -2,6 +2,7 @@ import 'package:xml/xml.dart';
 import 'package:html/parser.dart' as html_parser;
 import '../models/feed.dart';
 import '../models/article.dart';
+import 'feed_dates.dart';
 
 /// Atom 1.0 parser with full spec support
 class AtomParser {
@@ -42,7 +43,7 @@ class AtomParser {
       // Parse logo or icon
       final logo = _getElementText(feed, 'logo');
       final icon = _getElementText(feed, 'icon');
-      final imageUrl = logo ?? icon;
+      final imageUrl = _resolveUrl(logo ?? icon, feedUrl);
       
       // Parse updated date
       DateTime? updated;
@@ -163,10 +164,10 @@ class AtomParser {
         .toList();
     
     // Parse links for enclosures
-    final enclosures = _parseEnclosures(entry);
+    final enclosures = _parseEnclosures(entry, feedUrl);
     
     // Extract image from content
-    final imageUrl = _extractImageUrl(content?.text);
+    final imageUrl = _resolveUrl(_extractImageUrl(content?.text), feedUrl);
     
     return Article(
       feedId: feedId,
@@ -207,7 +208,7 @@ class AtomParser {
   }
   
   /// Parse enclosures from link elements
-  List<Enclosure> _parseEnclosures(XmlElement entry) {
+  List<Enclosure> _parseEnclosures(XmlElement entry, String? feedUrl) {
     final enclosures = <Enclosure>[];
     
     final links = entry.findElements('link');
@@ -218,7 +219,7 @@ class AtomParser {
         if (href != null) {
           final lengthStr = link.getAttribute('length');
           enclosures.add(Enclosure(
-            url: href,
+            url: _resolveUrl(href, feedUrl) ?? href,
             type: link.getAttribute('type'),
             length: lengthStr != null ? int.tryParse(lengthStr) : null,
             title: link.getAttribute('title'),
@@ -261,28 +262,10 @@ class AtomParser {
     }
   }
   
-  /// Parse Atom date format (RFC 3339)
+  /// Parse Atom date format (RFC 3339) using the shared feed date parser
+  /// so every parser path normalizes to UTC identically.
   DateTime? _parseAtomDate(String dateStr) {
-    try {
-      return DateTime.parse(dateStr);
-    } catch (e) {
-      // Handle various date formats
-      // Atom dates should be RFC 3339 but some feeds use other formats
-      try {
-        // Try without timezone
-        if (dateStr.contains('T')) {
-          final parts = dateStr.split('T');
-          if (parts.length == 2) {
-            final datePart = parts[0];
-            final timePart = parts[1].split(RegExp(r'[+-Z]'))[0];
-            return DateTime.parse('${datePart}T$timePart');
-          }
-        }
-      } catch (e) {
-        // Give up
-      }
-      return null;
-    }
+    return parseFeedDate(dateStr);
   }
   
   /// Clean text content

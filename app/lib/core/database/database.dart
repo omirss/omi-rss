@@ -45,7 +45,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.testing(QueryExecutor executor) : super(executor);
 
   @override
-  int get schemaVersion => 5;
+  int get schemaVersion => 6;
   
   @override
   MigrationStrategy get migration {
@@ -137,6 +137,43 @@ class AppDatabase extends _$AppDatabase {
                 'ALTER TABLE feeds_table ADD COLUMN custom_title TEXT');
           }
         }
+        if (from < 6) {
+          // Foreign-key constraints for the folder tables. SQLite cannot
+          // add constraints via ALTER TABLE, so both tables are rebuilt;
+          // rows referencing missing folders or feeds are dropped.
+          await customStatement(
+              'ALTER TABLE folders_table RENAME TO folders_table_v5');
+          await customStatement(
+              'ALTER TABLE folder_feeds_table RENAME TO folder_feeds_table_v5');
+          await m.createTable(foldersTable);
+          await m.createTable(folderFeedsTable);
+          await customStatement(''
+              'INSERT INTO folders_table (id, name, description, parent_id,'
+              ' color, icon, position, created_at, updated_at) '
+              'SELECT id, name, description, parent_id, color, icon,'
+              ' position, created_at, updated_at FROM folders_table_v5');
+          // Drop folders whose parent chain does not reach a root;
+          // repeat until stable so multi-level orphans are removed too.
+          var removed = -1;
+          while (removed != 0) {
+            removed = await customUpdate(
+                'DELETE FROM folders_table WHERE parent_id IS NOT NULL '
+                'AND parent_id NOT IN (SELECT id FROM folders_table)');
+          }
+          await customStatement(''
+              'INSERT INTO folder_feeds_table (folder_id, feed_id, position,'
+              ' added_at) '
+              'SELECT folder_id, feed_id, position, added_at'
+              ' FROM folder_feeds_table_v5 '
+              'WHERE folder_id IN (SELECT id FROM folders_table) '
+              'AND feed_id IN (SELECT id FROM feeds_table)');
+          await customStatement('DROP TABLE folder_feeds_table_v5');
+          await customStatement('DROP TABLE folders_table_v5');
+        }
+      },
+      beforeOpen: (details) async {
+        // Enforce the declared foreign keys at runtime.
+        await customStatement('PRAGMA foreign_keys = ON');
       },
     );
   }
@@ -144,6 +181,9 @@ class AppDatabase extends _$AppDatabase {
   /// Delete all data (useful for testing)
   Future<void> deleteEverything() async {
     await transaction(() async {
+      // Foreign keys are enforced (beforeOpen); defer the checks to the
+      // end of the transaction so table deletion order cannot trip them.
+      await customStatement('PRAGMA defer_foreign_keys = ON');
       for (final table in allTables) {
         await delete(table).go();
       }
@@ -178,15 +218,25 @@ class AppDatabase extends _$AppDatabase {
       'syncMetadata': syncMetadata.map((s) => s.toJson()).toList(),
     };
   }
-
   /// Import database from JSON. The payload is fully parsed and validated
   /// before any existing data is deleted; a failure leaves the database
   /// untouched.
   Future<void> importFromJson(Map<String, dynamic> data) async {
+    if (data['format'] != 'omi-rss-backup') {
+      throw ArgumentError(
+          'Unsupported backup format: ${data['format']}');
+    }
+    final version = data['version'];
+    if (version is! int || version < 1 || version > schemaVersion) {
+      throw ArgumentError('Unsupported backup version: $version');
+    }
+
     final categories =
         _parseRows(data['categories'], CategoryEntry.fromJson);
-    final folders = _parseRows(data['folders'], FolderEntry.fromJson);
-    final feeds = _parseRows(data['feeds'], FeedEntry.fromJson);
+    final folders =
+        _parseRows(data['folders'], FolderEntry.fromJson);
+    final feeds =
+        _parseRows(data['feeds'], FeedEntry.fromJson);
     final folderFeeds =
         _parseRows(data['folderFeeds'], FolderFeedEntry.fromJson);
     final articles = _parseRows(data['articles'], ArticleEntry.fromJson);
@@ -194,9 +244,34 @@ class AppDatabase extends _$AppDatabase {
     final syncMetadata =
         _parseRows(data['syncMetadata'], SyncMetadataEntry.fromJson);
 
-    await transaction(() async {
-      await deleteEverything();
+    if (syncMetadata.length > 1) {
+      throw ArgumentError(
+          'Invalid backup: expected at most one sync metadata row');
+    }
+    final folderIds = folders.map((f) => f.id).toSet();
+    for (final folder in folders) {
+      final parent = folder.parentId;
+      if (parent != null && !folderIds.contains(parent)) {
+        throw ArgumentError('Invalid backup: folder ${folder.id} '
+            'references missing parent folder $parent');
+      }
+    }
+    final feedIds = feeds.map((f) => f.id).toSet();
+    for (final link in folderFeeds) {
+      if (!folderIds.contains(link.folderId)) {
+        throw ArgumentError('Invalid backup: folder feed entry references '
+            'missing folder ${link.folderId}');
+      }
+      if (!feedIds.contains(link.feedId)) {
+        throw ArgumentError('Invalid backup: folder feed entry references '
+            'missing feed ${link.feedId}');
+      }
+    }
 
+    await transaction(() async {
+      // Defer FK checks to commit so batch insert order cannot trip them.
+      await customStatement('PRAGMA defer_foreign_keys = ON');
+      await deleteEverything();
       if (categories.isNotEmpty) {
         await batch((b) => b.insertAll(categoriesTable, categories));
       }
@@ -246,7 +321,7 @@ class AppDatabase extends _$AppDatabase {
   /// still carrying the legacy constant id are migrated to a generated
   /// id so installations stop sharing one identity.
   Future<String> syncDeviceId() async {
-    final existing = await select(syncMetadataTable).getSingleOrNull();
+    final existing = await _syncRow();
     if (existing != null && existing.deviceId != 'app-web') {
       return existing.deviceId;
     }
@@ -261,12 +336,19 @@ class AppDatabase extends _$AppDatabase {
       SyncMetadataTableCompanion.insert(deviceId: deviceId),
       mode: InsertMode.insertOrIgnore,
     );
-    final row = await select(syncMetadataTable).getSingleOrNull();
+    final row = await _syncRow();
     return row!.deviceId;
   }
 
+  /// The sync metadata table holds a single row. Legacy databases or
+  /// hand-edited backups can accumulate more; read deterministically
+  /// instead of throwing on multi-row state.
+  Future<SyncMetadataEntry?> _syncRow() {
+    return (select(syncMetadataTable)..limit(1)).getSingleOrNull();
+  }
+
   Future<DateTime?> getLastSyncAt() async {
-    final row = await select(syncMetadataTable).getSingleOrNull();
+    final row = await _syncRow();
     return row?.lastSync;
   }
 

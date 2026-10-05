@@ -12,15 +12,17 @@ import '../core/models/folder.dart';
 class OPMLService {
   final Logger _logger = Logger();
 
-  // Export feeds to OPML
+  // Export feeds to OPML. Folder membership comes from the folder-feed
+  // join table, not from Feed.categoryId (category ids are not folder ids).
   Future<String> exportOPML({
     required List<Feed> feeds,
     required List<Folder> folders,
+    required Map<String, List<String>> folderFeedIds,
     String title = 'Omi RSS Feeds',
   }) async {
     try {
       final builder = XmlBuilder();
-      
+
       builder.processing('xml', 'version="1.0" encoding="UTF-8"');
       builder.element('opml', attributes: {'version': '2.0'}, nest: () {
         // Head section
@@ -29,25 +31,30 @@ class OPMLService {
           builder.element('dateCreated', nest: DateTime.now().toUtc().toIso8601String());
           builder.element('docs', nest: 'http://opml.org/spec2.opml');
         });
-        
+
         // Body section
         builder.element('body', nest: () {
           // Build folder hierarchy
           final rootFolders = folders.where((f) => f.parentId == null).toList();
-          
-          // Add feeds without folders
-          final feedsWithoutFolder = feeds.where((f) => f.categoryId == null).toList();
+
+          // Feeds not assigned to any folder through the join table
+          final assignedFeedIds = <String>{
+            for (final ids in folderFeedIds.values) ...ids,
+          };
+          final feedsWithoutFolder =
+              feeds.where((f) => !assignedFeedIds.contains(f.id)).toList();
           for (final feed in feedsWithoutFolder) {
             _buildOutlineElement(builder, feed);
           }
-          
+
           // Add folders and their feeds
           for (final folder in rootFolders) {
-            _buildFolderElement(builder, folder, folders, feeds);
+            _buildFolderElement(builder, folder, folders, feeds,
+                folderFeedIds, <String>{});
           }
         });
       });
-      
+
       final document = builder.buildDocument();
       return document.toXmlString(pretty: true);
     } catch (e, stackTrace) {
@@ -166,29 +173,38 @@ class OPMLService {
     builder.element('outline', attributes: attributes);
   }
 
-  // Build folder element with nested feeds
+  // Build folder element with nested feeds. The ancestry set guards
+  // against corrupted (cyclic or duplicate-id) folder data recursing
+  // forever; a repeated folder id is skipped.
   void _buildFolderElement(
     XmlBuilder builder,
     Folder folder,
     List<Folder> allFolders,
     List<Feed> allFeeds,
+    Map<String, List<String>> folderFeedIds,
+    Set<String> ancestors,
   ) {
-    builder.element('outline', 
+    if (!ancestors.add(folder.id)) return;
+
+    final memberIds = folderFeedIds[folder.id]?.toSet() ?? const <String>{};
+    builder.element('outline',
       attributes: {
         'text': folder.name,
         'title': folder.name,
       },
       nest: () {
         // Add feeds in this folder
-        final feedsInFolder = allFeeds.where((f) => f.categoryId == folder.id).toList();
+        final feedsInFolder =
+            allFeeds.where((f) => memberIds.contains(f.id)).toList();
         for (final feed in feedsInFolder) {
           _buildOutlineElement(builder, feed);
         }
-        
+
         // Add subfolders
         final subfolders = allFolders.where((f) => f.parentId == folder.id).toList();
         for (final subfolder in subfolders) {
-          _buildFolderElement(builder, subfolder, allFolders, allFeeds);
+          _buildFolderElement(builder, subfolder, allFolders, allFeeds,
+              folderFeedIds, {...ancestors});
         }
       },
     );

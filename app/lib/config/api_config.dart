@@ -19,7 +19,10 @@ class ApiConfig {
   static String get baseUrl {
     final saved = _savedServerUrl;
     if (saved != null && saved.isNotEmpty) return saved;
-    if (_defaultBaseUrl.isNotEmpty) return _defaultBaseUrl;
+    if (_defaultBaseUrl.isNotEmpty) {
+      final normalized = normalizeUrl(_defaultBaseUrl);
+      if (_isValidServerUrl(normalized)) return normalized;
+    }
     if (kIsWeb) {
       final String? origin = html.window.location.origin;
       if (origin != null && origin.isNotEmpty && !origin.startsWith('about:')) {
@@ -45,7 +48,20 @@ class ApiConfig {
   static Future<void> load() async {
     final prefs = await _prefsOrRepair();
     try {
-      _savedServerUrl = prefs?.getString(_serverUrlKey);
+      final raw = prefs?.getString(_serverUrlKey);
+      if (raw != null && raw.isNotEmpty) {
+        final normalized = normalizeUrl(raw);
+        if (_isValidServerUrl(normalized)) {
+          _savedServerUrl = normalized;
+        } else {
+          // A legacy or hand-edited stored value must not leak a
+          // malformed URL into the API client; discard it.
+          _savedServerUrl = null;
+          await prefs?.remove(_serverUrlKey);
+        }
+      } else {
+        _savedServerUrl = null;
+      }
     } catch (_) {
       _savedServerUrl = null;
     }
@@ -121,6 +137,15 @@ class ApiConfig {
     if (uri.userInfo.isNotEmpty) {
       throw FormatException(
           'Server URL must not contain credentials (user:pass@host): $url');
+    }
+  }
+
+  static bool _isValidServerUrl(String url) {
+    try {
+      _validateServerUrl(url);
+      return true;
+    } on FormatException {
+      return false;
     }
   }
 

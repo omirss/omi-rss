@@ -14,15 +14,21 @@ final opmlServiceProvider = Provider<OPMLService>((ref) {
 final exportOPMLProvider = FutureProvider<String>((ref) async {
   final database = ref.watch(databaseProvider);
   final opmlService = ref.watch(opmlServiceProvider);
-  
+
   // Get all feeds and folders
   final feeds = await database.feedDao.getAllFeeds();
   final folders = await database.folderDao.getAllFolders();
-  
+  final folderFeedIds = <String, List<String>>{};
+  for (final folder in folders) {
+    folderFeedIds[folder.id] =
+        await database.folderDao.getFeedsInFolder(folder.id);
+  }
+
   // Generate OPML
   return await opmlService.exportOPML(
     feeds: feeds,
     folders: folders,
+    folderFeedIds: folderFeedIds,
     title: 'Omi RSS Reader Feeds',
   );
 });

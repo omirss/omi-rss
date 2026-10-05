@@ -479,7 +479,14 @@ class FeedService {
         onFeedLog?.call(feed.id, 'Success: ${result.newArticles.length} new articles');
       }
     } catch (e) {
-      errors[feed.id] = e.toString();
+      final message = e.toString();
+      errors[feed.id] = message;
+      results[feed.id] = RefreshResult(
+        feed: feed,
+        newArticles: const [],
+        wasModified: false,
+        error: message,
+      );
       onFeedLog?.call(feed.id, 'Fatal error: $e');
     }
   }
@@ -588,10 +595,15 @@ class FeedService {
 
     final firstArticle = datedArticles.first;
     final lastArticle = datedArticles.last;
-    final daysDiff =
-        lastArticle.publishedAt!.difference(firstArticle.publishedAt!).inDays;
+    // Inclusive calendar-day coverage: articles on Oct 1 and Oct 2 span
+    // two days, so the denominator is 2, not difference.inDays (1).
+    final first = firstArticle.publishedAt!;
+    final last = lastArticle.publishedAt!;
+    final firstDay = DateTime.utc(first.year, first.month, first.day);
+    final lastDay = DateTime.utc(last.year, last.month, last.day);
+    final dayCount = lastDay.difference(firstDay).inDays + 1;
 
-    return datedArticles.length / (daysDiff > 0 ? daysDiff : 1);
+    return datedArticles.length / dayCount;
   }
 
   List<int> _calculateMostActiveHours(List<Article> articles) {
@@ -627,7 +639,7 @@ class FeedService {
     
     for (final feed in feeds) {
       final articles = await _database!.getArticlesByFeed(feed.id);
-      final toDelete = <String>[];
+      final toDelete = <String>{};
 
       for (final article in articles) {
         final ageReference = article.publishedAt ?? article.createdAt;
@@ -658,10 +670,11 @@ class FeedService {
 
       // Apply max articles per feed limit
       if (maxArticlesPerFeed != null && articles.length > maxArticlesPerFeed) {
-        final sortedArticles = articles
-            .where((a) => a.publishedAt != null)
-            .toList()
-          ..sort((a, b) => b.publishedAt!.compareTo(a.publishedAt!));
+        // Sort by publishedAt with createdAt fallback so undated articles
+        // are capped too; starred articles stay exempt.
+        final sortedArticles = List<Article>.from(articles)
+          ..sort((a, b) =>
+              (b.publishedAt ?? b.createdAt).compareTo(a.publishedAt ?? a.createdAt));
 
         for (int i = maxArticlesPerFeed; i < sortedArticles.length; i++) {
           if (!sortedArticles[i].isStarred) {
@@ -672,7 +685,7 @@ class FeedService {
       
       // Delete articles
       if (toDelete.isNotEmpty) {
-        await _database!.deleteArticles(toDelete);
+        await _database!.deleteArticles(toDelete.toList());
         deletedCount += toDelete.length;
       }
     }

@@ -169,8 +169,96 @@ void main() {
     final stats = await service.getFeedStatistics('feed-1');
 
     expect(stats.totalArticles, 5);
-    // 3 dated articles across a 3-day span; the 2 undated ones must not
-    // inflate the rate.
-    expect(stats.articlesPerDay, closeTo(1.0, 0.001));
+    // 3 dated articles across 4 calendar days (Oct 1..4, inclusive);
+    // the 2 undated ones must not inflate the rate.
+    expect(stats.articlesPerDay, closeTo(0.75, 0.001));
   });
+
+  test('B07: a refreshFeed() that throws still yields a failed result',
+      () async {
+    final service = _ThrowingFeedService();
+
+    final result = await service.batchRefresh([_feed('f1')]);
+
+    expect(result.totalFeeds, 1);
+    expect(result.failedFeeds, 1);
+    expect(result.successfulFeeds, 0);
+    expect(result.errors.keys, ['f1']);
+    expect(result.results.keys, ['f1'],
+        reason: 'thrown failures must appear in the result contract');
+    expect(result.results['f1']!.error, isNotNull);
+    expect(result.results['f1']!.newArticles, isEmpty);
+  });
+
+  test('B08/B09: cleanup caps undated articles without double counting',
+      () async {
+    final db = AppDatabase.testing(NativeDatabase.memory());
+    addTearDown(db.close);
+    await db.feedDao.insertOrUpdateFeed(Feed(
+      id: 'feed-1',
+      url: 'https://example.com/feed.xml',
+      title: 'Example',
+    ));
+
+    final old = DateTime(2020, 1, 1);
+    await db.articleDao.insertArticles([
+      // Undated, read, ancient: caught by BOTH keepReadFor retention and
+      // the per-feed cap; must only be counted once.
+      for (var i = 0; i < 5; i++)
+        Article(
+          feedId: 'feed-1',
+          guid: 'old-$i',
+          title: 'Old $i',
+          url: 'https://example.com/old/$i',
+          isRead: true,
+          createdAt: old,
+        ),
+      Article(
+        feedId: 'feed-1',
+        guid: 'new-0',
+        title: 'New 0',
+        url: 'https://example.com/new/0',
+        publishedAt: DateTime(2026, 10, 4),
+      ),
+      Article(
+        feedId: 'feed-1',
+        guid: 'new-1',
+        title: 'New 1',
+        url: 'https://example.com/new/1',
+        publishedAt: DateTime(2026, 10, 3),
+      ),
+      // Undated and starred: exempt from the cap.
+      Article(
+        feedId: 'feed-1',
+        guid: 'star-0',
+        title: 'Starred',
+        url: 'https://example.com/star/0',
+        isStarred: true,
+        createdAt: DateTime(2026, 10, 2),
+      ),
+    ]);
+
+    final service = FeedService(database: db);
+    final deleted = await service.cleanupOldArticles(
+      keepReadFor: const Duration(days: 365),
+      maxArticlesPerFeed: 3,
+    );
+
+    final remaining = await db.getArticlesByFeed('feed-1');
+    expect(remaining.map((a) => a.guid),
+        unorderedEquals(['new-0', 'new-1', 'star-0']),
+        reason: 'undated articles beyond the cap must be deleted');
+    expect(deleted, 5,
+        reason: 'rows flagged by both retention and cap must not be '
+            'double-counted in cleanup metrics');
+  });
+}
+
+class _ThrowingFeedService extends FeedService {
+  _ThrowingFeedService() : super(dio: Dio());
+
+  @override
+  Future<RefreshResult> refreshFeed(Feed feed) async {
+    throw StateError('refresh exploded');
+  }
 }

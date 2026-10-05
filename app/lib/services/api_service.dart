@@ -28,7 +28,8 @@ class ApiService {
   final Ref _ref;
 
   int _authGeneration = 0;
-  Future<Map<String, dynamic>?>? _refreshInFlight;
+  ({String refreshToken, String baseUrl, int generation,
+     Future<Map<String, dynamic>?> future})? _refreshFlight;
 
   ApiService(this._ref) {
     _dio = Dio(BaseOptions(
@@ -59,7 +60,7 @@ class ApiService {
   /// cannot resurrect or overwrite credentials.
   void rotateAuthSession() {
     _authGeneration++;
-    _refreshInFlight = null;
+    _refreshFlight = null;
   }
 
   void updateBaseUrl(String url) {
@@ -128,26 +129,40 @@ class ApiService {
     String refreshToken,
     String baseUrl,
   ) {
-    final existing = _refreshInFlight;
-    if (existing != null) return existing;
+    final existing = _refreshFlight;
+    if (existing != null &&
+        existing.refreshToken == refreshToken &&
+        existing.baseUrl == baseUrl &&
+        existing.generation == _authGeneration) {
+      return existing.future;
+    }
 
     final generation = _authGeneration;
     late final Future<Map<String, dynamic>?> future;
     future = _performTokenRefresh(refreshToken, baseUrl)
         .then((tokens) async {
       if (generation != _authGeneration) return null;
+      final token = tokens['token'];
+      if (token is! String || token.isEmpty) {
+        throw const ApiException('Invalid refresh response');
+      }
       final prefs = await SharedPreferences.getInstance();
       if (prefs.getString('refresh_token') != refreshToken) return null;
-      await prefs.setString('access_token', tokens['token'] as String);
+      await prefs.setString('access_token', token);
       final newRefreshToken = tokens['refreshToken'];
       if (newRefreshToken is String) {
         await prefs.setString('refresh_token', newRefreshToken);
       }
       return tokens;
     }).whenComplete(() {
-      if (identical(_refreshInFlight, future)) _refreshInFlight = null;
+      if (identical(_refreshFlight?.future, future)) _refreshFlight = null;
     });
-    _refreshInFlight = future;
+    _refreshFlight = (
+      refreshToken: refreshToken,
+      baseUrl: baseUrl,
+      generation: generation,
+      future: future,
+    );
     return future;
   }
 
@@ -160,7 +175,11 @@ class ApiService {
     final response = await dio.post('/auth/refresh', data: {
       'refreshToken': refreshToken,
     });
-    return response.data;
+    final data = response.data;
+    if (data is! Map<String, dynamic>) {
+      throw const ApiException('Invalid refresh response');
+    }
+    return data;
   }
 
   Future<void> logout() async {
@@ -535,9 +554,12 @@ class AuthInterceptor extends Interceptor {
         } on DioException catch (e) {
           if (e.response?.statusCode == 401 || e.response?.statusCode == 403) {
             // Refresh token rejected: clear the session locally. Network
-          // and 5xx failures keep stored credentials.
+            // and 5xx failures keep stored credentials.
             unawaited(ref.read(authProvider.notifier).clearLocalSession());
           }
+        } on ApiException {
+          // Malformed refresh payload: surface the original 401 and keep
+          // stored credentials.
         }
       }
     }

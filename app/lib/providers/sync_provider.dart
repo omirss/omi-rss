@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../config/api_config.dart';
 import '../core/database/database.dart';
 import '../core/models/feed.dart';
+import '../core/models/folder.dart';
 import '../services/api_service.dart';
 import 'auth_provider.dart';
 import 'database_provider.dart';
@@ -131,8 +132,20 @@ class FeedSyncNotifier extends StateNotifier<FeedSyncState> {
 
       try {
         final folders = await _api.getFolders();
-        for (final folder in folders) {
-          await _db.folderDao.insertFolder(folder);
+        // Insert parents before children: folder parent ids are foreign
+        // keys, so a child arriving before its parent would be rejected.
+        final known = <String>{};
+        final pending = List<Folder>.from(folders);
+        while (pending.isNotEmpty) {
+          final ready = pending
+              .where((f) => f.parentId == null || known.contains(f.parentId))
+              .toList();
+          if (ready.isEmpty) break; // cyclic/dangling parents: skip the rest
+          for (final folder in ready) {
+            await _db.folderDao.insertFolder(folder);
+            known.add(folder.id);
+          }
+          pending.removeWhere((f) => known.contains(f.id));
         }
       } catch (_) {
         // Folders are optional

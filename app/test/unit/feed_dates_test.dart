@@ -39,4 +39,36 @@ void main() {
     expect(parseFeedDate(null), isNull);
     expect(parseFeedDate('99 Zzz 2026 25:99'), isNull);
   });
+
+  test('B02: unknown timezone names are rejected, not treated as UTC', () {
+    expect(parseFeedDate('04 Oct 2026 12:00:00 XYZ'), isNull);
+    expect(parseFeedDate('Sun, 04 Oct 2026 12:00:00 NOTAZONE'), isNull);
+  });
+
+  test('B02: out-of-range numeric offsets are rejected', () {
+    expect(parseFeedDate('04 Oct 2026 12:00:00 +2460'), isNull);
+    expect(parseFeedDate('04 Oct 2026 12:00:00 -1261'), isNull);
+    // Valid boundary offsets still parse.
+    expect(parseFeedDate('04 Oct 2026 12:00:00 -1200'),
+        DateTime.utc(2026, 10, 5, 0, 0, 0));
+  });
+
+  test('B03: trailing garbage is rejected', () {
+    expect(parseFeedDate('04 Oct 2026 12:00 GMT garbage'), isNull);
+    expect(parseFeedDate('Sun, 04 Oct 2026 12:00:00 GMT extra words'), isNull);
+    // Leading/trailing whitespace alone remains acceptable.
+    expect(parseFeedDate('  04 Oct 2026 12:00:00 GMT  '),
+        DateTime.utc(2026, 10, 4, 12, 0, 0));
+  });
+
+  test('B04: impossible dates are rejected, not normalized', () {
+    expect(parseFeedDate('31 Feb 2026 12:00:00 GMT'), isNull);
+    expect(parseFeedDate('04 Oct 2026 25:00:00 GMT'), isNull);
+    expect(parseFeedDate('04 Oct 2026 12:99:00 GMT'), isNull);
+    expect(parseFeedDate('04 Oct 2026 12:00:99 GMT'), isNull);
+    expect(parseFeedDate('00 Oct 2026 12:00:00 GMT'), isNull);
+    // A real leap day still parses.
+    expect(parseFeedDate('29 Feb 2024 12:00:00 GMT'),
+        DateTime.utc(2024, 2, 29, 12, 0, 0));
+  });
 }

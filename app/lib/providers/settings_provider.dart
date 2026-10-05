@@ -99,17 +99,20 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
     _saveSettings();
   }
 
-  Future<void> setServerUrl(String url) async {
+  /// Returns false when the URL is rejected so callers can show feedback;
+  /// true when the server configuration was applied.
+  Future<bool> setServerUrl(String url) async {
     try {
       await ApiConfig.setServerUrl(url);
     } on FormatException {
       // Not a usable server URL; keep the current configuration.
-      return;
+      return false;
     }
     state = state.copyWith(serverUrl: ApiConfig.baseUrl);
     ref.read(apiServiceProvider).updateBaseUrl(ApiConfig.baseUrl);
     // Tokens belong to the previous origin; never send them elsewhere.
     await ref.read(authProvider.notifier).clearLocalSession();
+    return true;
   }
 
   Future<void> resetToDefaults() async {
