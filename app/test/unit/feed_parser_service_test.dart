@@ -187,4 +187,87 @@ void main() {
       reason: 'only same-origin favicon paths may be probed',
     );
   });
+
+  test('C12: ISO-8859-1 feeds decode via the declared header charset',
+      () async {
+    final rss = latin1.encode(
+      '<rss version="2.0"><channel><title>Café</title>'
+      '<link>https://example.com/</link>'
+      '<item><title>Café au lait</title><guid>g1</guid>'
+      '<link>https://example.com/1</link></item>'
+      '</channel></rss>',
+    );
+    final (_, dio) = _dioFor((o) => ResponseBody.fromBytes(rss, 200,
+        headers: {
+          Headers.contentTypeHeader: [
+            'application/rss+xml; charset=ISO-8859-1',
+          ],
+        }));
+    final service = FeedParserService(dio: dio);
+
+    final feed = await service.parseFeed('https://example.com/feed.xml');
+    expect(feed.title, 'Café',
+        reason: 'force-decoding latin1 bytes as UTF-8 corrupts the text');
+    expect(feed.items.first.title, 'Café au lait');
+  });
+
+  test('C12: charset falls back to the XML declaration without a header '
+      'charset', () async {
+    final rss = latin1.encode(
+      '<?xml version="1.0" encoding="ISO-8859-1"?>'
+      '<rss version="2.0"><channel><title>Café</title>'
+      '<link>https://example.com/</link>'
+      '</channel></rss>',
+    );
+    final (_, dio) = _dioFor((o) => ResponseBody.fromBytes(rss, 200,
+        headers: {
+          Headers.contentTypeHeader: ['application/xml'],
+        }));
+    final service = FeedParserService(dio: dio);
+
+    final feed = await service.parseFeed('https://example.com/feed.xml');
+    expect(feed.title, 'Café');
+  });
+
+  test('C13: relative RSS item images resolve against the feed URL',
+      () async {
+    const rss = '''
+<rss version="2.0"><channel><title>T</title>
+<link>https://example.com/blog/</link>
+<item><title>One</title><guid>g1</guid><link>/posts/1</link>
+<content:encoded><![CDATA[<p><img src="../images/x.jpg"></p>]]></content:encoded>
+</item>
+</channel></rss>
+''';
+    final (_, dio) = _dioFor((o) => ResponseBody.fromString(rss, 200,
+        headers: {
+          Headers.contentTypeHeader: ['application/xml'],
+        }));
+    final service = FeedParserService(dio: dio);
+
+    final feed = await service.parseFeed('https://example.com/blog/feed.xml');
+    expect(feed.items.first.thumbnail, 'https://example.com/images/x.jpg');
+  });
+
+  test('C13: relative Atom entry images resolve against the feed URL',
+      () async {
+    const atom = '''
+<feed xmlns="http://www.w3.org/2005/Atom">
+<title>A</title>
+<link rel="alternate" href="https://example.com/"/>
+<entry><title>E</title><id>e1</id>
+<link rel="alternate" href="https://example.com/posts/1"/>
+<content type="html">&lt;p&gt;&lt;img src="images/y.png"&gt;&lt;/p&gt;</content>
+</entry>
+</feed>
+''';
+    final (_, dio) = _dioFor((o) => ResponseBody.fromString(atom, 200,
+        headers: {
+          Headers.contentTypeHeader: ['application/atom+xml'],
+        }));
+    final service = FeedParserService(dio: dio);
+
+    final feed = await service.parseFeed('https://example.com/blog/feed.xml');
+    expect(feed.items.first.thumbnail, 'https://example.com/blog/images/y.png');
+  });
 }

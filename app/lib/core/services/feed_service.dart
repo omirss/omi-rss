@@ -136,8 +136,11 @@ class FeedService {
           imageUrl: parsedFeed.imageUrl ?? feed.imageUrl,
           successfulFetches: feed.successfulFetches + 1,
           successRate: (feed.successfulFetches + 1) / (feed.successfulFetches + feed.failedFetches + 1),
+          lastError: null,
+          lastErrorAt: null,
         ),
         newArticles: newArticles,
+        upsertArticles: articles,
         wasModified: true,
       );
     } catch (e) {
@@ -668,8 +671,11 @@ class FeedService {
         }
       }
 
-      // Apply max articles per feed limit
-      if (maxArticlesPerFeed != null && articles.length > maxArticlesPerFeed) {
+      // Apply max articles per feed limit. A non-positive cap is
+      // invalid data, not "keep nothing"; it disables the cap.
+      if (maxArticlesPerFeed != null &&
+          maxArticlesPerFeed >= 1 &&
+          articles.length > maxArticlesPerFeed) {
         // Sort by publishedAt with createdAt fallback so undated articles
         // are capped too; starred articles stay exempt.
         final sortedArticles = List<Article>.from(articles)
@@ -754,12 +760,18 @@ class FeedStatistics {
 class RefreshResult {
   final Feed feed;
   final List<Article> newArticles;
+
+  /// Every article fetched this round (new and known). Persisting this
+  /// list with upsertPublisherArticles applies publisher corrections to
+  /// existing guids while keeping client-owned state.
+  final List<Article> upsertArticles;
   final bool wasModified;
   final String? error;
-  
+
   RefreshResult({
     required this.feed,
     required this.newArticles,
+    this.upsertArticles = const [],
     required this.wasModified,
     this.error,
   });

@@ -1,7 +1,32 @@
+import 'dart:typed_data';
+
+import 'package:dio/dio.dart';
+import 'package:drift/native.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:rss_glassmorphism_reader/core/database/database.dart';
 import 'package:rss_glassmorphism_reader/core/models/feed.dart';
 import 'package:rss_glassmorphism_reader/core/models/folder.dart';
+import 'package:rss_glassmorphism_reader/core/services/feed_service.dart';
+import 'package:rss_glassmorphism_reader/providers/database_provider.dart';
+import 'package:rss_glassmorphism_reader/providers/feed_provider.dart';
+import 'package:rss_glassmorphism_reader/providers/opml_provider.dart';
 import 'package:rss_glassmorphism_reader/services/opml_service.dart';
+
+class _FakeAdapter implements HttpClientAdapter {
+  _FakeAdapter(this.handler);
+
+  final ResponseBody Function(RequestOptions options) handler;
+
+  @override
+  Future<ResponseBody> fetch(RequestOptions options,
+      Stream<Uint8List>? requestStream, Future? cancelFuture) async {
+    return handler(options);
+  }
+
+  @override
+  void close({bool force = false}) {}
+}
 
 void main() {
   test('A17: type="rss" outline without xmlUrl is skipped, not fatal',
@@ -117,5 +142,85 @@ void main() {
     expect(opml, contains('text="Root"'));
     // The cyclic duplicate is skipped instead of recursing.
     expect(opml, isNot(contains('text="Evil"')));
+  });
+
+  test(
+      'C02: OPML import persists feeds, folder membership, and custom '
+      'titles for new and existing feeds', () async {
+    final db = AppDatabase.testing(NativeDatabase.memory());
+    addTearDown(db.close);
+
+    const rss = '''
+<rss version="2.0"><channel><title>Parsed Title</title>
+<link>https://new.example/</link>
+<item><title>Only</title><guid>g1</guid>
+<link>https://new.example/1</link></item>
+</channel></rss>
+''';
+    final dio = Dio()..httpClientAdapter = _FakeAdapter((options) {
+      if (options.method == 'HEAD') {
+        return ResponseBody.fromString('', 404);
+      }
+      return ResponseBody.fromString(rss, 200);
+    });
+
+    await db.feedDao.insertOrUpdateFeed(Feed(
+      id: 'feed-existing',
+      url: 'https://existing.example/feed.xml',
+      title: 'Parsed Title',
+    ));
+
+    final container = ProviderContainer(overrides: [
+      databaseProvider.overrideWithValue(db),
+      feedServiceProvider
+          .overrideWithValue(FeedService(dio: dio, database: db)),
+    ]);
+    addTearDown(container.dispose);
+
+    const opml = '''
+<opml version="2.0"><body>
+<outline text="Root">
+<outline text="Child">
+<outline type="rss" text="Custom New" xmlUrl="https://new.example/feed.xml"/>
+</outline>
+<outline type="rss" text="Custom Existing" xmlUrl="https://existing.example/feed.xml"/>
+</outline>
+</body></opml>
+''';
+
+    final notifier = container.read(opmlImportProvider.notifier);
+    await notifier.importOPML(opml);
+
+    final state = container.read(opmlImportProvider);
+    expect(state.failedFeeds, 0, reason: 'errors: ${state.errors}');
+    expect(state.importedFeeds, 2);
+
+    final folders = await db.folderDao.getAllFolders();
+    expect(folders, hasLength(2));
+    final child = folders.firstWhere((f) => f.name == 'Child');
+    final root = folders.firstWhere((f) => f.name == 'Root');
+    expect(child.parentId, root.id, reason: 'nested folders must survive');
+
+    final feeds = await db.getAllFeeds();
+    expect(feeds, hasLength(2));
+    for (final feed in feeds) {
+      expect(feed.categoryId, isNull,
+          reason: 'OPML folder UUIDs must never enter category_id');
+    }
+
+    final newFeed = feeds.firstWhere((f) => f.url.contains('new.example'));
+    expect(newFeed.customTitle, 'Custom New',
+        reason: 'the imported feed row must be persisted with its title');
+    final existingFeed =
+        feeds.firstWhere((f) => f.url.contains('existing.example'));
+    expect(existingFeed.customTitle, 'Custom Existing',
+        reason: 'existing feeds receive imported titles too');
+
+    expect(await db.folderDao.getFeedsInFolder(child.id), [newFeed.id],
+        reason: 'new feeds gain folder membership');
+    expect(await db.folderDao.getFeedsInFolder(root.id), [existingFeed.id],
+        reason: 'existing feeds gain folder membership too');
+    expect(await db.getArticlesByFeed(newFeed.id), hasLength(1),
+        reason: 'articles for the newly persisted feed must be stored');
   });
 }

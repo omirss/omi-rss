@@ -447,9 +447,9 @@ class _DiscoverScreenState extends ConsumerState<DiscoverScreen> with SingleTick
                         await database.feedDao.insertFeed(newFeed);
                         final refreshResult =
                             await feedService.refreshFeed(newFeed);
-                        if (refreshResult.newArticles.isNotEmpty) {
-                          await database.articleDao
-                              .insertArticles(refreshResult.newArticles);
+                        if (refreshResult.upsertArticles.isNotEmpty) {
+                          await database.articleDao.upsertPublisherArticles(
+                              refreshResult.upsertArticles);
                         }
 
                         if (mounted) {

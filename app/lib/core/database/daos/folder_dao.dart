@@ -78,6 +78,20 @@ class FolderDao extends DatabaseAccessor<AppDatabase> with _$FolderDaoMixin {
     return deleted > 0;
   }
 
+  /// Make [folderId] the feed's only membership, or clear membership
+  /// entirely when null.
+  Future<void> replaceFeedFolderMembership(
+      String feedId, String? folderId) async {
+    await transaction(() async {
+      await (delete(folderFeedsTable)
+            ..where((ff) => ff.feedId.equals(feedId)))
+          .go();
+      if (folderId != null) {
+        await addFeedToFolder(folderId, feedId);
+      }
+    });
+  }
+
   Future<List<String>> getFeedsInFolder(String folderId) async {
     final query = select(folderFeedsTable)
       ..where((ff) => ff.folderId.equals(folderId))

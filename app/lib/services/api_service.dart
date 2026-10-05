@@ -23,6 +23,23 @@ class ApiException implements Exception {
   String toString() => message;
 }
 
+/// One page of the server's paginated article list.
+class ArticlePage {
+  final List<Article> articles;
+  final int page;
+  final int limit;
+  final int total;
+  final int totalPages;
+
+  const ArticlePage({
+    required this.articles,
+    required this.page,
+    required this.limit,
+    required this.total,
+    required this.totalPages,
+  });
+}
+
 class ApiService {
   late final Dio _dio;
   final Ref _ref;
@@ -340,6 +357,46 @@ class ApiService {
       return (response.data['articles'] as List)
           .map((json) => Article.fromJson(json))
           .toList();
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  /// Paginated article fetch. The server caps pages at 200 items; use
+  /// [totalPages] to walk an account completely.
+  Future<ArticlePage> getArticlePage({
+    String? feedId,
+    String? folderId,
+    bool? unreadOnly,
+    bool? starredOnly,
+    int page = 1,
+    int limit = 200,
+    String? search,
+  }) async {
+    try {
+      final queryParams = <String, dynamic>{
+        'page': page,
+        'limit': limit,
+        if (feedId != null) 'feedId': feedId,
+        if (folderId != null) 'folderId': folderId,
+        if (unreadOnly == true) 'isRead': 'false',
+        if (starredOnly == true) 'isStarred': 'true',
+        if (search != null) 'search': search,
+      };
+
+      final response =
+          await _dio.get('/articles', queryParameters: queryParams);
+      final pagination = response.data['pagination'];
+      final pageJson = pagination is Map ? pagination : const <String, dynamic>{};
+      return ArticlePage(
+        articles: (response.data['articles'] as List)
+            .map((json) => Article.fromJson(json))
+            .toList(),
+        page: (pageJson['page'] as num?)?.toInt() ?? page,
+        limit: (pageJson['limit'] as num?)?.toInt() ?? limit,
+        total: (pageJson['total'] as num?)?.toInt() ?? 0,
+        totalPages: (pageJson['totalPages'] as num?)?.toInt() ?? page,
+      );
     } on DioException catch (e) {
       throw _handleError(e);
     }

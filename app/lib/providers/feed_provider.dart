@@ -252,10 +252,11 @@ class FeedRefreshNotifier extends StateNotifier<AsyncValue<RefreshProgress>> {
       for (final result in results.results.values) {
         // Update feed
         await database.feedDao.updateFeed(result.feed);
-        
-        // Insert new articles
-        if (result.newArticles.isNotEmpty) {
-          await database.articleDao.insertArticles(result.newArticles);
+
+        // Upsert articles so publisher corrections reach known guids
+        if (result.upsertArticles.isNotEmpty) {
+          await database.articleDao
+              .upsertPublisherArticles(result.upsertArticles);
         }
       }
       
@@ -287,13 +288,13 @@ class FeedRefreshNotifier extends StateNotifier<AsyncValue<RefreshProgress>> {
       
       // Refresh feed
       final result = await feedService.refreshFeed(feed);
-      
+
       // Update feed
       await database.feedDao.updateFeed(result.feed);
-      
-      // Insert new articles
-      if (result.newArticles.isNotEmpty) {
-        await database.articleDao.insertArticles(result.newArticles);
+
+      // Upsert articles so publisher corrections reach known guids
+      if (result.upsertArticles.isNotEmpty) {
+        await database.articleDao.upsertPublisherArticles(result.upsertArticles);
       }
       
       state = AsyncValue.data(RefreshProgress(

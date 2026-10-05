@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:rss_glassmorphism_reader/core/models/article.dart';
 import 'package:rss_glassmorphism_reader/services/api_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -226,5 +227,62 @@ void main() {
         reason: 'the server must store the configured interval');
     expect(feed.updateFrequency, 120,
         reason: 'the persisted value comes from the server response');
+  });
+
+  test('C05: getArticlePage exposes pagination so sync can walk all pages',
+      () async {
+    final requests = <Uri>[];
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(server.close);
+    server.listen((request) async {
+      requests.add(request.uri);
+      final page = int.parse(request.uri.queryParameters['page'] ?? '1');
+      final limit = int.parse(request.uri.queryParameters['limit'] ?? '20');
+      final start = (page - 1) * limit;
+      final slice = [for (var i = start; i < start + limit && i < 250; i++) i];
+      final response = request.response;
+      response.headers.contentType = ContentType.json;
+      response.write(jsonEncode({
+        'articles': [
+          for (final i in slice)
+            {
+              'id': 'a$i',
+              'feedId': 'f1',
+              'title': 'T$i',
+              'url': 'https://example.com/$i',
+            }
+        ],
+        'pagination': {
+          'page': page,
+          'limit': limit,
+          'total': 250,
+          'totalPages': (250 / limit).ceil(),
+        },
+      }));
+      await response.close();
+    });
+
+    SharedPreferences.setMockInitialValues(const {});
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final api = container.read(apiServiceProvider);
+    api.updateBaseUrl(_base(server));
+
+    // Same walk syncFromServer performs.
+    final articles = <Article>[];
+    var page = 1;
+    ArticlePage result;
+    do {
+      result = await api.getArticlePage(page: page, limit: 200);
+      articles.addAll(result.articles);
+      page++;
+    } while (page <= result.totalPages);
+
+    expect(articles, hasLength(250),
+        reason: 'accounts beyond one page must fully converge');
+    expect(result.totalPages, 2);
+    expect(requests, hasLength(2));
+    expect(requests.first.queryParameters['limit'], '200');
+    expect(requests.last.queryParameters['page'], '2');
   });
 }

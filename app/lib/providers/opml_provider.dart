@@ -117,38 +117,47 @@ class OPMLImportNotifier extends StateNotifier<OPMLImportState> {
         try {
           // Check if feed already exists
           final existingFeed = await database.feedDao.getFeedByUrl(opmlFeed.xmlUrl);
-          
-          if (existingFeed != null) {
-            // Skip existing feed
-            importedCount++;
-            state = state.copyWith(importedFeeds: importedCount);
-            continue;
+
+          Feed feed;
+          if (existingFeed == null) {
+            // Subscribe parses the feed; persist the row before anything
+            // references it.
+            feed = await feedService.subscribeFeed(opmlFeed.xmlUrl);
+            if (opmlFeed.title != feed.title) {
+              feed = feed.copyWith(customTitle: opmlFeed.title);
+            }
+            await database.feedDao.insertFeed(feed);
+          } else {
+            feed = existingFeed;
+            final effectiveTitle = feed.customTitle ?? feed.title;
+            if (opmlFeed.title != effectiveTitle) {
+              feed = feed.copyWith(customTitle: opmlFeed.title);
+              await database.feedDao.updateFeed(feed);
+            }
           }
-          
-          // Subscribe to new feed
-          final feed = await feedService.subscribeFeed(opmlFeed.xmlUrl);
-          
-          // Update feed folder if needed
-          if (opmlFeed.folderId != null && folderIdMap.containsKey(opmlFeed.folderId!)) {
-            await database.feedDao.updateFeed(
-              feed.copyWith(categoryId: folderIdMap[opmlFeed.folderId!]),
+
+          // Folder membership lives in the join table, never in
+          // category_id (folder ids are not category ids).
+          final importedFolderId = opmlFeed.folderId == null
+              ? null
+              : folderIdMap[opmlFeed.folderId!];
+          if (importedFolderId != null) {
+            await database.folderDao.addFeedToFolder(
+              importedFolderId,
+              feed.id,
             );
           }
-          
-          // Custom title if different from parsed
-          if (opmlFeed.title != feed.title) {
-            await database.feedDao.updateFeed(
-              feed.copyWith(customTitle: opmlFeed.title),
-            );
-          }
-          
+
           importedCount++;
           state = state.copyWith(importedFeeds: importedCount);
-          
-          // Fetch initial articles
+
+          // Fetch initial articles; persist the refreshed feed before
+          // its articles.
           final refreshResult = await feedService.refreshFeed(feed);
-          if (refreshResult.newArticles.isNotEmpty) {
-            await database.articleDao.insertArticles(refreshResult.newArticles);
+          await database.feedDao.updateFeed(refreshResult.feed);
+          if (refreshResult.upsertArticles.isNotEmpty) {
+            await database.articleDao
+                .upsertPublisherArticles(refreshResult.upsertArticles);
           }
         } catch (e) {
           failedCount++;

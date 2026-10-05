@@ -10,6 +10,7 @@ import '../services/api_service.dart';
 import 'auth_provider.dart';
 import 'database_provider.dart';
 import 'feed_provider.dart';
+import 'settings_provider.dart' show sanitizeArticleLimit;
 
 /// Sync state
 class FeedSyncState {
@@ -92,7 +93,7 @@ class FeedSyncNotifier extends StateNotifier<FeedSyncState> {
   Future<int> _perFeedLimit() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      return prefs.getInt('articlesPerFeed') ?? 50;
+      return sanitizeArticleLimit(prefs.getInt('articlesPerFeed') ?? 50);
     } catch (_) {
       return 50;
     }
@@ -112,11 +113,13 @@ class FeedSyncNotifier extends StateNotifier<FeedSyncState> {
       final serverUrls = serverFeeds.map((f) => f.url).toSet();
 
       for (final serverFeed in serverFeeds) {
-        for (final localFeed
-            in localFeeds.where((f) => f.url == serverFeed.url && f.id != serverFeed.id)) {
-          await _db.feedDao.deleteFeed(localFeed.id);
-        }
+        // The server row must exist before local data is re-keyed onto
+        // its id, so foreign keys hold throughout the merge.
         await _db.feedDao.insertOrUpdateFeed(serverFeed);
+        for (final localFeed in localFeeds
+            .where((f) => f.url == serverFeed.url && f.id != serverFeed.id)) {
+          await _db.feedDao.mergeFeedIdentity(localFeed.id, serverFeed.id);
+        }
       }
 
       for (final localFeed
@@ -126,36 +129,61 @@ class FeedSyncNotifier extends StateNotifier<FeedSyncState> {
             localFeed.url,
             updateInterval: localFeed.updateFrequency.clamp(5, 1440),
           );
-          await _db.feedDao.deleteFeed(localFeed.id);
           await _db.feedDao.insertOrUpdateFeed(created);
+          if (created.id != localFeed.id) {
+            await _db.feedDao.mergeFeedIdentity(localFeed.id, created.id);
+          }
         } catch (_) {
           // Server refused the feed; keep the local row
         }
       }
 
+      final knownFolders = <String>{};
       try {
         final folders = await _api.getFolders();
         // Insert parents before children: folder parent ids are foreign
         // keys, so a child arriving before its parent would be rejected.
-        final known = <String>{};
         final pending = List<Folder>.from(folders);
         while (pending.isNotEmpty) {
           final ready = pending
-              .where((f) => f.parentId == null || known.contains(f.parentId))
+              .where((f) => f.parentId == null || knownFolders.contains(f.parentId))
               .toList();
           if (ready.isEmpty) break; // cyclic/dangling parents: skip the rest
           for (final folder in ready) {
             await _db.folderDao.insertFolder(folder);
-            known.add(folder.id);
+            knownFolders.add(folder.id);
           }
-          pending.removeWhere((f) => known.contains(f.id));
+          pending.removeWhere((f) => knownFolders.contains(f.id));
+        }
+
+        // Server folder membership lives on the feed, the local UI
+        // reads the join table: reconcile every server feed's
+        // membership. Only runs when the folder list was actually
+        // fetched, so an unreachable folders endpoint cannot strip
+        // existing local memberships.
+        for (final serverFeed in serverFeeds) {
+          final folderId = serverFeed.folderId != null &&
+                  knownFolders.contains(serverFeed.folderId)
+              ? serverFeed.folderId
+              : null;
+          await _db.folderDao
+              .replaceFeedFolderMembership(serverFeed.id, folderId);
         }
       } catch (_) {
         // Folders are optional
       }
 
-      final articles = await _api.getArticles(limit: 100);
-      await _db.articleDao.insertArticles(articles);
+      // Walk every page so accounts with more than one page of articles
+      // fully converge; retention is applied only afterwards.
+      var page = 1;
+      while (true) {
+        final result = await _api.getArticlePage(page: page, limit: 200);
+        if (result.articles.isNotEmpty) {
+          await _db.articleDao.insertArticles(result.articles);
+        }
+        if (page >= result.totalPages) break;
+        page++;
+      }
       await _db.articleDao.enforcePerFeedLimit(await _perFeedLimit());
 
       final now = DateTime.now();
@@ -246,8 +274,8 @@ final subscribeFeedProvider =
   final localFeed = feed.copyWith(updateFrequency: defaultInterval);
   await database.feedDao.insertFeed(localFeed);
   final result = await feedService.refreshFeed(localFeed);
-  if (result.newArticles.isNotEmpty) {
-    await database.articleDao.insertArticles(result.newArticles);
+  if (result.upsertArticles.isNotEmpty) {
+    await database.articleDao.upsertPublisherArticles(result.upsertArticles);
   }
   return localFeed;
 });

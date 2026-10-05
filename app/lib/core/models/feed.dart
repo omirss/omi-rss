@@ -2,6 +2,8 @@ import 'package:uuid/uuid.dart';
 
 /// Feed model representing an RSS/Atom/JSON feed
 class Feed {
+  static const Object _unset = Object();
+
   final String id;
   final String url;
   final String title;
@@ -10,6 +12,9 @@ class Feed {
   final String? siteUrl; // Website URL (different from feed URL)
   final String? customTitle; // User-defined title override
   final String? categoryId;
+  // Transport-only: server folder membership. Never persisted to
+  // category_id; reconciled through folder_feeds_table instead.
+  final String? folderId;
   final String? faviconUrl;
   final DateTime? lastFetched;
   final String? etag;
@@ -43,6 +48,7 @@ class Feed {
     this.siteUrl,
     this.customTitle,
     this.categoryId,
+    this.folderId,
     this.faviconUrl,
     this.lastFetched,
     this.etag,
@@ -66,63 +72,87 @@ class Feed {
         createdAt = createdAt ?? DateTime.now(),
         updatedAt = updatedAt ?? DateTime.now();
   
+  /// Nullable parameters use a sentinel so passing null explicitly
+  /// clears the field instead of keeping the old value.
   Feed copyWith({
     String? id,
     String? url,
     String? title,
-    String? description,
-    String? link,
-    String? siteUrl,
-    String? customTitle,
-    String? categoryId,
-    String? faviconUrl,
-    DateTime? lastFetched,
-    String? etag,
-    String? lastModified,
+    Object? description = _unset,
+    Object? link = _unset,
+    Object? siteUrl = _unset,
+    Object? customTitle = _unset,
+    Object? categoryId = _unset,
+    Object? faviconUrl = _unset,
+    Object? lastFetched = _unset,
+    Object? etag = _unset,
+    Object? lastModified = _unset,
     int? updateFrequency,
     bool? isActive,
     FeedType? type,
     DateTime? createdAt,
     DateTime? updatedAt,
-    String? language,
-    String? copyright,
-    String? generator,
-    String? imageUrl,
-    Map<String, dynamic>? customFields,
+    Object? language = _unset,
+    Object? copyright = _unset,
+    Object? generator = _unset,
+    Object? imageUrl = _unset,
+    Object? customFields = _unset,
     int? successfulFetches,
     int? failedFetches,
     double? successRate,
-    String? lastError,
-    DateTime? lastErrorAt,
+    Object? lastError = _unset,
+    Object? lastErrorAt = _unset,
+    String? folderId,
   }) {
     return Feed(
       id: id ?? this.id,
       url: url ?? this.url,
       title: title ?? this.title,
-      description: description ?? this.description,
-      link: link ?? this.link,
-      siteUrl: siteUrl ?? this.siteUrl,
-      customTitle: customTitle ?? this.customTitle,
-      categoryId: categoryId ?? this.categoryId,
-      faviconUrl: faviconUrl ?? this.faviconUrl,
-      lastFetched: lastFetched ?? this.lastFetched,
-      etag: etag ?? this.etag,
-      lastModified: lastModified ?? this.lastModified,
+      description: identical(description, _unset)
+          ? this.description
+          : description as String?,
+      link: identical(link, _unset) ? this.link : link as String?,
+      siteUrl: identical(siteUrl, _unset) ? this.siteUrl : siteUrl as String?,
+      customTitle: identical(customTitle, _unset)
+          ? this.customTitle
+          : customTitle as String?,
+      categoryId: identical(categoryId, _unset)
+          ? this.categoryId
+          : categoryId as String?,
+      folderId: folderId ?? this.folderId,
+      faviconUrl: identical(faviconUrl, _unset)
+          ? this.faviconUrl
+          : faviconUrl as String?,
+      lastFetched: identical(lastFetched, _unset)
+          ? this.lastFetched
+          : lastFetched as DateTime?,
+      etag: identical(etag, _unset) ? this.etag : etag as String?,
+      lastModified: identical(lastModified, _unset)
+          ? this.lastModified
+          : lastModified as String?,
       updateFrequency: updateFrequency ?? this.updateFrequency,
       isActive: isActive ?? this.isActive,
       type: type ?? this.type,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
-      language: language ?? this.language,
-      copyright: copyright ?? this.copyright,
-      generator: generator ?? this.generator,
-      imageUrl: imageUrl ?? this.imageUrl,
-      customFields: customFields ?? this.customFields,
+      language: identical(language, _unset) ? this.language : language as String?,
+      copyright:
+          identical(copyright, _unset) ? this.copyright : copyright as String?,
+      generator:
+          identical(generator, _unset) ? this.generator : generator as String?,
+      imageUrl: identical(imageUrl, _unset) ? this.imageUrl : imageUrl as String?,
+      customFields: identical(customFields, _unset)
+          ? this.customFields
+          : customFields as Map<String, dynamic>?,
       successfulFetches: successfulFetches ?? this.successfulFetches,
       failedFetches: failedFetches ?? this.failedFetches,
       successRate: successRate ?? this.successRate,
-      lastError: lastError ?? this.lastError,
-      lastErrorAt: lastErrorAt ?? this.lastErrorAt,
+      lastError: identical(lastError, _unset)
+          ? this.lastError
+          : lastError as String?,
+      lastErrorAt: identical(lastErrorAt, _unset)
+          ? this.lastErrorAt
+          : lastErrorAt as DateTime?,
     );
   }
   
@@ -167,7 +197,8 @@ class Feed {
       link: json['link'] as String?,
       siteUrl: json['siteUrl'] as String?,
       customTitle: json['customTitle'] as String?,
-      categoryId: json['categoryId'] as String? ?? json['folderId'] as String?,
+      categoryId: json['categoryId'] as String?,
+      folderId: json['folderId'] as String?,
       faviconUrl: json['faviconUrl'] as String? ?? json['favicon'] as String?,
       lastFetched: json['lastFetched'] != null
           ? DateTime.tryParse(json['lastFetched'] as String)

@@ -9,6 +9,12 @@ final settingsProvider = StateNotifierProvider<SettingsNotifier, AppSettings>((r
   return SettingsNotifier(ref);
 });
 
+/// Retention and interval preferences can be corrupted on disk or by
+/// older builds; clamp them so an invalid value can never wipe data.
+int sanitizeArticleLimit(int n) => n.clamp(1, 10000);
+
+int sanitizeUpdateInterval(int n) => n.clamp(5, 1440);
+
 class AppSettings {
   final bool autoUpdateFeeds;
   final int updateInterval; // minutes
@@ -57,10 +63,12 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
     await prefs.remove('useDarkTheme');
     state = AppSettings(
       autoUpdateFeeds: prefs.getBool('autoUpdateFeeds') ?? true,
-      updateInterval: prefs.getInt('updateInterval') ?? 30,
+      updateInterval:
+          sanitizeUpdateInterval(prefs.getInt('updateInterval') ?? 30),
       enableSync: prefs.getBool('enableSync') ?? true,
       showReadArticles: prefs.getBool('showReadArticles') ?? true,
-      articlesPerFeed: prefs.getInt('articlesPerFeed') ?? 50,
+      articlesPerFeed:
+          sanitizeArticleLimit(prefs.getInt('articlesPerFeed') ?? 50),
       serverUrl: ApiConfig.baseUrl,
     );
   }
@@ -80,7 +88,7 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
   }
 
   void setUpdateInterval(int minutes) {
-    state = state.copyWith(updateInterval: minutes);
+    state = state.copyWith(updateInterval: sanitizeUpdateInterval(minutes));
     _saveSettings();
   }
 
@@ -95,7 +103,7 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
   }
 
   void setArticlesPerFeed(int count) {
-    state = state.copyWith(articlesPerFeed: count);
+    state = state.copyWith(articlesPerFeed: sanitizeArticleLimit(count));
     _saveSettings();
   }
 

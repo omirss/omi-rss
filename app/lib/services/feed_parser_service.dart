@@ -7,9 +7,6 @@ import 'package:html/parser.dart' as html_parser;
 import 'package:logger/logger.dart';
 import '../core/parsers/feed_dates.dart';
 
-final RegExp _imgSrcRegex =
-    RegExp(r"""<img[^>]+src=["'](https?://[^"']+)["']""");
-
 class FeedParserService {
   final Dio _dio;
   final Logger _logger = Logger();
@@ -87,7 +84,8 @@ class FeedParserService {
       );
     }
 
-    final body = await _readCapped(response.data!, url);
+    final body =
+        await _readCapped(response.data!, url, response.headers.value('content-type'));
     return Response<String>(
       requestOptions: response.requestOptions,
       statusCode: response.statusCode,
@@ -96,7 +94,8 @@ class FeedParserService {
     );
   }
 
-  Future<String> _readCapped(ResponseBody body, String url) async {
+  Future<String> _readCapped(
+      ResponseBody body, String url, String? contentTypeHeader) async {
     final bytes = <int>[];
     var received = 0;
     final completer = Completer<String>();
@@ -118,7 +117,7 @@ class FeedParserService {
       },
       onDone: () {
         if (!completer.isCompleted) {
-          completer.complete(utf8.decode(bytes, allowMalformed: true));
+          completer.complete(_decodeFeedBytes(bytes, contentTypeHeader, url));
         }
       },
       onError: (Object e) {
@@ -126,6 +125,59 @@ class FeedParserService {
       },
     );
     return completer.future;
+  }
+
+  /// Decode feed bytes honoring the declared encoding: BOM first, then
+  /// the HTTP Content-Type charset, then the XML declaration. Feeds
+  /// are not always UTF-8; force-decoding ISO-8859-1 content as UTF-8
+  /// silently corrupts it.
+  String _decodeFeedBytes(List<int> bytes, String? contentType, String url) {
+    if (bytes.length >= 2 &&
+        ((bytes[0] == 0xFF && bytes[1] == 0xFE) ||
+            (bytes[0] == 0xFE && bytes[1] == 0xFF))) {
+      throw FeedParseException('Unsupported feed encoding (UTF-16): $url', url);
+    }
+    var offset = 0;
+    if (bytes.length >= 3 &&
+        bytes[0] == 0xEF &&
+        bytes[1] == 0xBB &&
+        bytes[2] == 0xBF) {
+      offset = 3;
+    }
+
+    final charset = _headerCharset(contentType) ?? _xmlDeclarationCharset(bytes);
+    final normalized = charset?.toLowerCase().replaceAll('_', '-');
+    if (normalized == 'iso-8859-1' ||
+        normalized == 'iso8859-1' ||
+        normalized == 'latin-1' ||
+        normalized == 'latin1' ||
+        normalized == 'windows-1252' ||
+        normalized == 'cp1252') {
+      return latin1.decode(bytes.sublist(offset));
+    }
+    if (normalized != null &&
+        normalized != 'utf-8' &&
+        normalized != 'utf8' &&
+        normalized != 'us-ascii') {
+      throw FeedParseException('Unsupported feed encoding "$charset": $url', url);
+    }
+    return utf8.decode(bytes.sublist(offset), allowMalformed: true);
+  }
+
+  String? _headerCharset(String? contentType) {
+    if (contentType == null) return null;
+    final match = RegExp(r'charset=([\w.\-]+)', caseSensitive: false)
+        .firstMatch(contentType);
+    return match?.group(1);
+  }
+
+  /// The XML declaration itself is ASCII, so it can be read from the
+  /// raw bytes regardless of the document encoding.
+  String? _xmlDeclarationCharset(List<int> bytes) {
+    final head = latin1.decode(bytes.take(2048).toList());
+    final match =
+        RegExp(r"""<\?xml[^>]*encoding=["']([\w.\-]+)["']""").firstMatch(head);
+    return match?.group(1);
   }
 
   // Parse XML feeds (RSS/Atom)
@@ -343,9 +395,9 @@ class FeedParserService {
       
       // Extract first image if no thumbnail
       if (item.thumbnail == null && item.content.isNotEmpty) {
-        final imgMatch = _imgSrcRegex.firstMatch(item.content);
-        if (imgMatch != null) {
-          item.thumbnail = imgMatch.group(1);
+        final src = _firstImageSrc(item.content);
+        if (src != null) {
+          item.thumbnail = _resolveUrl(src, feed.url);
         }
       }
       
@@ -382,10 +434,7 @@ class FeedParserService {
     // Extract from content
     final content = _text(item, 'content:encoded') ?? _text(item, 'description');
     if (content != null) {
-      final imgMatch = _imgSrcRegex.firstMatch(content);
-      if (imgMatch != null) {
-        return imgMatch.group(1);
-      }
+      return _firstImageSrc(content);
     }
 
     return null;
@@ -409,13 +458,19 @@ class FeedParserService {
     // Extract from content
     final content = _text(entry, 'content');
     if (content != null) {
-      final imgMatch = _imgSrcRegex.firstMatch(content);
-      if (imgMatch != null) {
-        return imgMatch.group(1);
-      }
+      return _firstImageSrc(content);
     }
 
     return null;
+  }
+
+  /// First <img src> in an HTML fragment, possibly relative. Callers
+  /// resolve it against the feed URL.
+  String? _firstImageSrc(String html) {
+    if (html.isEmpty) return null;
+    final src = html_parser.parseFragment(html).querySelector('img')?.attributes['src'];
+    if (src == null || src.isEmpty) return null;
+    return src;
   }
 
   // XML helpers

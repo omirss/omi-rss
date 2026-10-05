@@ -138,6 +138,39 @@ class ArticleDao extends DatabaseAccessor<AppDatabase> with _$ArticleDaoMixin {
     await into(articlesTable).insertOnConflictUpdate(_toEntry(article));
   }
 
+  /// Upsert publisher-owned content. New articles insert as-is; for an
+  /// existing article (same feed + guid) publisher fields are refreshed
+  /// while client-owned state (read/starred/archived, full-content
+  /// cache, AI fields) is preserved.
+  Future<void> upsertPublisherArticles(List<Article> articles) async {
+    await transaction(() async {
+      for (final article in articles) {
+        final existing = await (select(articlesTable)
+              ..where((a) =>
+                  a.feedId.equals(article.feedId) &
+                  a.guid.equals(article.guid)))
+            .getSingleOrNull();
+        if (existing == null) {
+          await into(articlesTable).insertOnConflictUpdate(_toEntry(article));
+          continue;
+        }
+        await (update(articlesTable)..where((a) => a.id.equals(existing.id)))
+            .write(ArticlesTableCompanion(
+          title: Value(article.title),
+          content: Value(article.content),
+          summary: Value(article.summary),
+          author: Value(article.author),
+          publishedAt: Value(article.publishedAt),
+          url: Value(article.url),
+          imageUrl: Value(article.imageUrl),
+          categories: Value(_encodeCategories(article.categories)),
+          enclosures: Value(_encodeEnclosures(article.enclosures)),
+          updatedAt: Value(DateTime.now()),
+        ));
+      }
+    });
+  }
+
   /// Mark article as read
   Future<void> markAsRead(String articleId) {
     return (update(articlesTable)..where((a) => a.id.equals(articleId)))
@@ -290,7 +323,12 @@ class ArticleDao extends DatabaseAccessor<AppDatabase> with _$ArticleDaoMixin {
 
   /// Enforce a retention cap: keep only the newest [limit] articles per
   /// feed (starred articles are always kept). Returns rows deleted.
+  /// A non-positive limit would delete every unstarred article and is
+  /// rejected outright.
   Future<int> enforcePerFeedLimit(int limit) {
+    if (limit < 1) {
+      throw ArgumentError.value(limit, 'limit', 'must be at least 1');
+    }
     return customUpdate(
       'DELETE FROM articles WHERE is_starred = 0 AND feed_id IS NOT NULL AND '
       '(SELECT COUNT(*) FROM articles a2 WHERE a2.feed_id = articles.feed_id '
@@ -349,6 +387,14 @@ class ArticleDao extends DatabaseAccessor<AppDatabase> with _$ArticleDaoMixin {
         .get();
     return rows.map(_toModel).toList();
   }
+
+  static String? _encodeCategories(List<String>? categories) =>
+      categories == null ? null : jsonEncode(categories);
+
+  static String? _encodeEnclosures(List<Enclosure>? enclosures) =>
+      enclosures == null
+          ? null
+          : jsonEncode(enclosures.map((e) => e.toJson()).toList());
 
   SimpleSelectStatement<$ArticlesTableTable, ArticleEntry> _orderedArticles(
       {Expression<bool> Function($ArticlesTableTable a)? where}) {

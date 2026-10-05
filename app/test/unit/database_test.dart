@@ -596,4 +596,355 @@ void main() {
     expect(rows.first.deviceId, ids[0]);
     expect(rows.first.deviceId, isNot('app-web'));
   });
+
+  test('C01: server folderId never lands in category_id', () async {
+    final db = AppDatabase.testing(NativeDatabase.memory());
+    addTearDown(db.close);
+
+    final feed = Feed.fromJson({
+      'id': 'feed-srv',
+      'url': 'https://example.com/feed.xml',
+      'title': 'Server Feed',
+      'folderId': '11111111-1111-1111-1111-111111111111',
+    });
+    expect(feed.categoryId, isNull,
+        reason: 'folder ids are not category ids');
+    expect(feed.folderId, '11111111-1111-1111-1111-111111111111');
+
+    // With FKs enforced, persisting a folder UUID as category_id
+    // would fail; insertion must succeed now.
+    await db.feedDao.insertOrUpdateFeed(feed);
+    final stored = await db.feedDao.getFeed('feed-srv');
+    expect(stored!.categoryId, isNull);
+  });
+
+  test(
+      'C03: replaceFeedFolderMembership adds, moves, and removes', () async {
+    final db = AppDatabase.testing(NativeDatabase.memory());
+    addTearDown(db.close);
+
+    await db.folderDao.insertFolder(Folder(id: 'folder-1', name: 'One'));
+    await db.folderDao.insertFolder(Folder(id: 'folder-2', name: 'Two'));
+    await db.feedDao.insertOrUpdateFeed(Feed(
+      id: 'feed-1',
+      url: 'https://example.com/feed.xml',
+      title: 'Example',
+    ));
+
+    await db.folderDao.replaceFeedFolderMembership('feed-1', 'folder-1');
+    expect(await db.folderDao.getFeedsInFolder('folder-1'), ['feed-1']);
+
+    // A different folder replaces, not adds.
+    await db.folderDao.replaceFeedFolderMembership('feed-1', 'folder-2');
+    expect(await db.folderDao.getFeedsInFolder('folder-1'), isEmpty);
+    expect(await db.folderDao.getFeedsInFolder('folder-2'), ['feed-1']);
+
+    // null clears membership entirely.
+    await db.folderDao.replaceFeedFolderMembership('feed-1', null);
+    expect(await db.folderDao.getFeedsInFolder('folder-2'), isEmpty);
+  });
+
+  test(
+      'C04: merging feed identities preserves articles, user state, '
+      'and folder membership', () async {
+    final db = AppDatabase.testing(NativeDatabase.memory());
+    addTearDown(db.close);
+
+    await db.folderDao.insertFolder(Folder(id: 'folder-1', name: 'News'));
+    await db.feedDao.insertOrUpdateFeed(Feed(
+      id: 'feed-local',
+      url: 'https://example.com/feed.xml',
+      title: 'Local',
+    ));
+    await db.folderDao.addFeedToFolder('folder-1', 'feed-local');
+    await db.articleDao.insertArticles([
+      Article(
+        id: 'local-shared',
+        feedId: 'feed-local',
+        guid: 'g1',
+        title: 'Old title',
+        url: 'https://example.com/1',
+        isRead: true,
+        isStarred: true,
+        fullContent: 'locally extracted',
+      ),
+      Article(
+        id: 'local-unique',
+        feedId: 'feed-local',
+        guid: 'g2',
+        title: 'Only local',
+        url: 'https://example.com/2',
+        isStarred: true,
+      ),
+    ]);
+
+    // Server already synced the same article under its own feed id.
+    await db.feedDao.insertOrUpdateFeed(Feed(
+      id: 'feed-server',
+      url: 'https://example.com/feed.xml',
+      title: 'Server',
+    ));
+    await db.articleDao.insertArticles([
+      Article(
+        id: 'server-shared',
+        feedId: 'feed-server',
+        guid: 'g1',
+        title: 'Server title',
+        url: 'https://example.com/1',
+      ),
+    ]);
+
+    await db.feedDao.mergeFeedIdentity('feed-local', 'feed-server');
+
+    expect(await db.feedDao.getFeed('feed-local'), isNull,
+        reason: 'the local identity must be retired');
+    expect(await db.feedDao.getFeed('feed-server'), isNotNull);
+
+    final articles = await db.getArticlesByFeed('feed-server');
+    expect(articles.map((a) => a.guid), unorderedEquals(['g1', 'g2']));
+    final shared = articles.firstWhere((a) => a.guid == 'g1');
+    expect(shared.id, 'server-shared',
+        reason: 'the surviving row keeps the server id');
+    expect(shared.isRead, isTrue, reason: 'local read state must survive');
+    expect(shared.isStarred, isTrue,
+        reason: 'local starred state must survive');
+    expect(shared.fullContent, 'locally extracted',
+        reason: 'local full-content cache must survive');
+    final unique = articles.firstWhere((a) => a.guid == 'g2');
+    expect(unique.isStarred, isTrue);
+
+    expect(await db.folderDao.getFeedsInFolder('folder-1'), ['feed-server'],
+        reason: 'folder membership must follow the new identity');
+  });
+
+  test(
+      'C06: pre-format legacy backups import; foreign payloads still fail',
+      () async {
+    final db = AppDatabase.testing(NativeDatabase.memory());
+    addTearDown(db.close);
+
+    await db.feedDao.insertOrUpdateFeed(Feed(
+      id: 'feed-1',
+      url: 'https://example.com/feed.xml',
+      title: 'Example',
+    ));
+    final legacy =
+        Map<String, dynamic>.from(await db.exportToJson())..remove('format');
+
+    await db.importFromJson(legacy);
+    expect(await db.getAllFeeds(), hasLength(1),
+        reason: 'backups made before the format field must restore');
+
+    await expectLater(
+      db.importFromJson(
+          {'format': 'some-other-tool', 'version': 1, 'feeds': []}),
+      throwsArgumentError,
+    );
+    await expectLater(
+      db.importFromJson({'version': 1}),
+      throwsArgumentError,
+      reason: 'a format-less payload without rows is not recognizable',
+    );
+    expect(await db.getAllFeeds(), hasLength(1),
+        reason: 'rejected imports must leave the database untouched');
+  });
+
+  Map<String, dynamic> legacyFeedRow(String id, int frequency) => {
+        'id': id,
+        'url': 'https://example.com/$id.xml',
+        'title': id,
+        'description': null,
+        'link': null,
+        'siteUrl': null,
+        'customTitle': null,
+        'categoryId': null,
+        'faviconUrl': null,
+        'lastFetched': null,
+        'etag': null,
+        'lastModified': null,
+        'updateFrequency': frequency,
+        'isActive': true,
+        'type': 'rss',
+        'createdAt': '2026-10-04T00:00:00.000',
+        'updatedAt': '2026-10-04T00:00:00.000',
+        'language': null,
+        'copyright': null,
+        'generator': null,
+        'imageUrl': null,
+        'customFields': null,
+        'successfulFetches': 0,
+        'failedFetches': 0,
+        'successRate': 0.0,
+        'lastError': null,
+        'lastErrorAt': null,
+      };
+
+  test('C07: pre-v4 backup frequencies convert seconds to minutes',
+      () async {
+    final db = AppDatabase.testing(NativeDatabase.memory());
+    addTearDown(db.close);
+
+    await db.importFromJson({
+      'version': 3,
+      'feeds': [
+        legacyFeedRow('feed-3600', 3600),
+        legacyFeedRow('feed-30', 30),
+      ],
+    });
+
+    final frequencies = {
+      for (final feed in await db.getAllFeeds()) feed.id: feed.updateFrequency,
+    };
+    expect(frequencies['feed-3600'], 60,
+        reason: '3600 seconds must restore as 60 minutes');
+    expect(frequencies['feed-30'], 1,
+        reason: 'sub-minute values clamp to the 1-minute minimum');
+  });
+
+  test('C08: cyclic folder imports are rejected atomically', () async {
+    final db = AppDatabase.testing(NativeDatabase.memory());
+    addTearDown(db.close);
+
+    await db.feedDao.insertOrUpdateFeed(Feed(
+      id: 'feed-1',
+      url: 'https://example.com/feed.xml',
+      title: 'Example',
+    ));
+
+    Map<String, dynamic> folderRow(String id, String? parentId) => {
+          'id': id,
+          'name': id,
+          'description': null,
+          'parentId': parentId,
+          'color': null,
+          'icon': null,
+          'position': 0,
+          'createdAt': '2026-10-04T00:00:00.000',
+          'updatedAt': '2026-10-04T00:00:00.000',
+        };
+
+    await expectLater(
+      db.importFromJson({
+        'format': 'omi-rss-backup',
+        'version': db.schemaVersion,
+        'folders': [
+          folderRow('a', 'b'),
+          folderRow('b', 'a'),
+        ],
+      }),
+      throwsArgumentError,
+      reason: 'a two-folder cycle must be rejected',
+    );
+    await expectLater(
+      db.importFromJson({
+        'format': 'omi-rss-backup',
+        'version': db.schemaVersion,
+        'folders': [folderRow('self', 'self')],
+      }),
+      throwsArgumentError,
+      reason: 'self-parenting must be rejected',
+    );
+
+    expect(await db.getAllFeeds(), hasLength(1),
+        reason: 'rejected imports must leave the database untouched');
+  });
+
+  test(
+      'C08: cyclic v5 folder data migrates to a valid hierarchy', () async {
+    final path = await _downgradedDb(
+      5,
+      extraStatements: [
+        'DROP TABLE folder_feeds_table',
+        'DROP TABLE folders_table',
+        'CREATE TABLE folders_table (id TEXT NOT NULL PRIMARY KEY,'
+            ' name TEXT NOT NULL, description TEXT NULL, parent_id TEXT NULL,'
+            ' color TEXT NULL, icon TEXT NULL, position INTEGER NOT NULL'
+            ' DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT'
+            ' NULL)',
+        'CREATE TABLE folder_feeds_table (folder_id TEXT NOT NULL,'
+            ' feed_id TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0,'
+            ' added_at INTEGER NOT NULL, PRIMARY KEY (folder_id, feed_id))',
+        "INSERT INTO folders_table (id, name, parent_id, created_at,"
+            " updated_at) VALUES ('root', 'Root', NULL, 0, 0)",
+        "INSERT INTO folders_table (id, name, parent_id, created_at,"
+            " updated_at) VALUES ('child', 'Child', 'root', 0, 0)",
+        "INSERT INTO folders_table (id, name, parent_id, created_at,"
+            " updated_at) VALUES ('a', 'A', 'b', 0, 0)",
+        "INSERT INTO folders_table (id, name, parent_id, created_at,"
+            " updated_at) VALUES ('b', 'B', 'a', 0, 0)",
+      ],
+    );
+    final db = await _openMigrated(path);
+    addTearDown(db.close);
+
+    final folders = await db.folderDao.getAllFolders();
+    expect(folders.map((f) => f.id),
+        unorderedEquals(['root', 'child', 'a', 'b']),
+        reason: 'cyclic folders must survive, not be dropped');
+    final byId = {for (final f in folders) f.id: f.parentId};
+    // The cycle is broken deterministically: 'a' (lowest id in the
+    // cycle) is promoted to root, 'b' stays its child.
+    expect(byId['a'], isNull);
+    expect(byId['b'], 'a');
+    expect(byId['child'], 'root');
+
+    final fkViolations =
+        await db.customSelect('PRAGMA foreign_key_check').get();
+    expect(fkViolations, isEmpty);
+  });
+
+  test('C09: nested custom fields survive the feed DB round trip',
+      () async {
+    final db = AppDatabase.testing(NativeDatabase.memory());
+    addTearDown(db.close);
+
+    final customFields = {
+      'nested': {
+        'list': [1, 2, 3],
+        'flag': true,
+      },
+      'name': 'value',
+    };
+    await db.feedDao.insertOrUpdateFeed(Feed(
+      id: 'feed-1',
+      url: 'https://example.com/feed.xml',
+      title: 'Example',
+      customFields: customFields,
+    ));
+
+    final stored = await db.feedDao.getFeed('feed-1');
+    expect(stored!.customFields, equals(customFields));
+
+    // Malformed stored JSON must not break the whole feed list.
+    await db.customUpdate(
+        "UPDATE feeds_table SET custom_fields = '{oops' WHERE id = 'feed-1'");
+    final feeds = await db.getAllFeeds();
+    expect(feeds, hasLength(1));
+    expect(feeds.first.customFields, isNull);
+  });
+
+  test('C14: enforcePerFeedLimit rejects non-positive limits', () async {
+    final db = AppDatabase.testing(NativeDatabase.memory());
+    addTearDown(db.close);
+
+    await db.feedDao.insertOrUpdateFeed(Feed(
+      id: 'feed-1',
+      url: 'https://example.com/feed.xml',
+      title: 'Example',
+    ));
+    await db.articleDao.insertArticles([
+      Article(
+        feedId: 'feed-1',
+        guid: 'g1',
+        title: 'Kept',
+        url: 'https://example.com/1',
+      ),
+    ]);
+
+    expect(() => db.articleDao.enforcePerFeedLimit(0), throwsArgumentError);
+    expect(() => db.articleDao.enforcePerFeedLimit(-1), throwsArgumentError);
+
+    expect(await db.getArticlesByFeed('feed-1'), hasLength(1),
+        reason: 'an invalid limit must never wipe articles');
+  });
 }

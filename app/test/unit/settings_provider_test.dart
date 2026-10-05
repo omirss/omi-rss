@@ -58,4 +58,25 @@ void main() {
         reason: 'switching origin must still clear credentials');
     expect(prefs.getString('refresh_token'), isNull);
   });
+
+  test('C14: corrupt retention/interval preferences are clamped', () async {
+    SharedPreferences.setMockInitialValues(
+        {'articlesPerFeed': -1, 'updateInterval': 99999});
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final notifier = container.read(settingsProvider.notifier);
+    await pumpEventQueue(); // let _loadSettings settle
+
+    var settings = container.read(settingsProvider);
+    expect(settings.articlesPerFeed, 1,
+        reason: 'a corrupt cap must never become a wipe-all retention');
+    expect(settings.updateInterval, 1440);
+
+    notifier.setArticlesPerFeed(0);
+    notifier.setUpdateInterval(1);
+    await pumpEventQueue();
+    settings = container.read(settingsProvider);
+    expect(settings.articlesPerFeed, 1);
+    expect(settings.updateInterval, 5);
+  });
 }

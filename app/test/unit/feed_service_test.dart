@@ -47,6 +47,25 @@ Dio _okDio() {
   });
 }
 
+Dio _failingDio() {
+  return Dio()..httpClientAdapter = _FakeAdapter((options) {
+    throw DioException(
+      requestOptions: options,
+      type: DioExceptionType.connectionError,
+      message: 'unreachable',
+    );
+  });
+}
+
+Dio _rssDio(String rss) {
+  return Dio()..httpClientAdapter = _FakeAdapter((options) {
+    if (options.method == 'HEAD') {
+      return ResponseBody.fromString('', 404);
+    }
+    return ResponseBody.fromString(rss, 200);
+  });
+}
+
 Feed _feed(String id, {String? host}) => Feed(
       id: id,
       url: 'https://${host ?? 'ok.example'}/feed.xml',
@@ -251,6 +270,109 @@ void main() {
     expect(deleted, 5,
         reason: 'rows flagged by both retention and cap must not be '
             'double-counted in cleanup metrics');
+  });
+
+  test('C10: Feed.copyWith(null) clears nullable fields', () {
+    final feed = Feed(
+      id: 'f1',
+      url: 'https://example.com/feed.xml',
+      title: 'T',
+      categoryId: 'cat',
+      customTitle: 'Custom',
+      siteUrl: 'https://example.com',
+      lastError: 'boom',
+    );
+
+    final kept = feed.copyWith();
+    expect(kept.categoryId, 'cat',
+        reason: 'omitted parameters must keep the old value');
+
+    final cleared = feed.copyWith(
+      categoryId: null,
+      customTitle: null,
+      siteUrl: null,
+      lastError: null,
+      lastErrorAt: null,
+    );
+    expect(cleared.categoryId, isNull);
+    expect(cleared.customTitle, isNull);
+    expect(cleared.siteUrl, isNull);
+    expect(cleared.lastError, isNull);
+    expect(cleared.lastErrorAt, isNull);
+  });
+
+  test('C10: a successful refresh clears persisted error state', () async {
+    final db = AppDatabase.testing(NativeDatabase.memory());
+    addTearDown(db.close);
+    final feed = _feed('f1');
+    await db.feedDao.insertOrUpdateFeed(feed);
+
+    final failing = FeedService(dio: _failingDio(), database: db);
+    final failed = await failing.refreshFeed(feed);
+    await db.feedDao.updateFeed(failed.feed);
+    var stored = await db.feedDao.getFeed('f1');
+    expect(stored!.lastError, isNotNull);
+    expect(stored.lastErrorAt, isNotNull);
+
+    final succeeding = FeedService(dio: _okDio(), database: db);
+    final refreshed = await succeeding.refreshFeed(feed);
+    await db.feedDao.updateFeed(refreshed.feed);
+    stored = await db.feedDao.getFeed('f1');
+    expect(stored!.lastError, isNull,
+        reason: 'a later success must clear the stale error');
+    expect(stored.lastErrorAt, isNull);
+  });
+
+  test(
+      'C11: publisher corrections update known guids, user state preserved',
+      () async {
+    final db = AppDatabase.testing(NativeDatabase.memory());
+    addTearDown(db.close);
+    await db.feedDao.insertOrUpdateFeed(_feed('f1'));
+    await db.articleDao.insertArticles([
+      Article(
+        feedId: 'f1',
+        guid: 'a',
+        title: 'Old title',
+        content: 'old body',
+        url: 'https://ok.example/a',
+        isRead: true,
+        isStarred: true,
+      ),
+    ]);
+
+    const correctedRss = '''
+<rss version="2.0"><channel><title>Feed</title>
+<link>https://ok.example/</link>
+<item><title>Corrected title</title><link>https://ok.example/a</link>
+<guid>a</guid>
+<description>corrected body</description></item>
+</channel></rss>
+''';
+    final service = FeedService(
+      dio: _rssDio(correctedRss),
+      database: db,
+      feedParserService: FeedParserService(dio: _rssDio(correctedRss)),
+    );
+    final feed = await db.feedDao.getFeed('f1');
+    final result = await service.refreshFeed(feed!);
+
+    expect(result.upsertArticles, hasLength(1),
+        reason: 'refresh must return every fetched article, not just new');
+    expect(result.newArticles, isEmpty);
+
+    await db.feedDao.updateFeed(result.feed);
+    await db.articleDao.upsertPublisherArticles(result.upsertArticles);
+
+    final articles = await db.getArticlesByFeed('f1');
+    expect(articles, hasLength(1));
+    expect(articles.first.title, 'Corrected title',
+        reason: 'publisher corrections must overwrite stale content');
+    expect(articles.first.summary, 'corrected body');
+    expect(articles.first.isRead, isTrue,
+        reason: 'client-owned read state must be preserved');
+    expect(articles.first.isStarred, isTrue,
+        reason: 'client-owned starred state must be preserved');
   });
 }
 

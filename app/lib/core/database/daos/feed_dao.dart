@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:drift/drift.dart';
 import '../database.dart';
 import '../tables/feeds_table.dart';
@@ -80,6 +82,86 @@ class FeedDao extends DatabaseAccessor<AppDatabase> with _$FeedDaoMixin {
     await transaction(() async {
       await (delete(articlesTable)..where((a) => a.feedId.equals(feedId))).go();
       await (delete(feedsTable)..where((f) => f.id.equals(feedId))).go();
+    });
+  }
+
+  /// Re-key a local feed onto a server feed identity without losing
+  /// local data. Articles and folder memberships move to [newFeedId];
+  /// when an article already exists under [newFeedId] with the same
+  /// guid, user-owned state (read/starred/archived/full content) is
+  /// merged into the surviving row before the duplicate is dropped.
+  /// The caller must ensure the [newFeedId] row already exists so
+  /// foreign keys hold throughout.
+  Future<void> mergeFeedIdentity(String oldFeedId, String newFeedId) async {
+    if (oldFeedId == newFeedId) return;
+    await transaction(() async {
+      await customUpdate(
+        'UPDATE articles_table SET '
+        'is_read = CASE WHEN is_read != 0 THEN 1 '
+        'ELSE (SELECT moving.is_read FROM articles_table moving '
+        'WHERE moving.feed_id = ? AND moving.guid = articles_table.guid) END, '
+        'is_starred = CASE WHEN is_starred != 0 THEN 1 '
+        'ELSE (SELECT moving.is_starred FROM articles_table moving '
+        'WHERE moving.feed_id = ? AND moving.guid = articles_table.guid) END, '
+        'is_archived = CASE WHEN is_archived != 0 THEN 1 '
+        'ELSE (SELECT moving.is_archived FROM articles_table moving '
+        'WHERE moving.feed_id = ? AND moving.guid = articles_table.guid) END, '
+        'read_time_seconds = COALESCE(read_time_seconds, '
+        '(SELECT moving.read_time_seconds FROM articles_table moving '
+        'WHERE moving.feed_id = ? AND moving.guid = articles_table.guid)), '
+        'full_content = COALESCE(full_content, '
+        '(SELECT moving.full_content FROM articles_table moving '
+        'WHERE moving.feed_id = ? AND moving.guid = articles_table.guid)), '
+        'full_content_fetched_at = COALESCE(full_content_fetched_at, '
+        '(SELECT moving.full_content_fetched_at FROM articles_table moving '
+        'WHERE moving.feed_id = ? AND moving.guid = articles_table.guid)), '
+        'full_content_available = COALESCE(full_content_available, '
+        '(SELECT moving.full_content_available FROM articles_table moving '
+        'WHERE moving.feed_id = ? AND moving.guid = articles_table.guid)) '
+        'WHERE feed_id = ? AND EXISTS ('
+        'SELECT 1 FROM articles_table moving WHERE moving.feed_id = ? '
+        'AND moving.guid = articles_table.guid)',
+        variables: [
+          for (var i = 0; i < 7; i++) Variable.withString(oldFeedId),
+          Variable.withString(newFeedId),
+          Variable.withString(oldFeedId),
+        ],
+      );
+      await customUpdate(
+        'DELETE FROM articles_table WHERE feed_id = ? AND guid IN '
+        '(SELECT guid FROM articles_table WHERE feed_id = ?)',
+        variables: [
+          Variable.withString(oldFeedId),
+          Variable.withString(newFeedId),
+        ],
+      );
+      await customUpdate(
+        'UPDATE articles_table SET feed_id = ? WHERE feed_id = ?',
+        variables: [
+          Variable.withString(newFeedId),
+          Variable.withString(oldFeedId),
+        ],
+      );
+
+      final memberships = await (select(attachedDatabase.folderFeedsTable)
+            ..where((ff) => ff.feedId.equals(oldFeedId)))
+          .get();
+      for (final membership in memberships) {
+        await into(attachedDatabase.folderFeedsTable).insert(
+          FolderFeedEntry(
+            folderId: membership.folderId,
+            feedId: newFeedId,
+            position: membership.position,
+            addedAt: membership.addedAt,
+          ),
+          mode: InsertMode.insertOrIgnore,
+        );
+      }
+      await (delete(attachedDatabase.folderFeedsTable)
+            ..where((ff) => ff.feedId.equals(oldFeedId)))
+          .go();
+
+      await (delete(feedsTable)..where((f) => f.id.equals(oldFeedId))).go();
     });
   }
 
@@ -166,6 +248,7 @@ class FeedDao extends DatabaseAccessor<AppDatabase> with _$FeedDaoMixin {
       copyright: entry.copyright,
       generator: entry.generator,
       imageUrl: entry.imageUrl,
+      customFields: _decodeCustomFields(entry.customFields),
       successfulFetches: entry.successfulFetches,
       failedFetches: entry.failedFetches,
       successRate: entry.successRate,
@@ -197,11 +280,24 @@ class FeedDao extends DatabaseAccessor<AppDatabase> with _$FeedDaoMixin {
       copyright: feed.copyright,
       generator: feed.generator,
       imageUrl: feed.imageUrl,
+      customFields:
+          feed.customFields == null ? null : jsonEncode(feed.customFields),
       successfulFetches: feed.successfulFetches,
       failedFetches: feed.failedFetches,
       successRate: feed.successRate,
       lastError: feed.lastError,
       lastErrorAt: feed.lastErrorAt,
     );
+  }
+
+  /// Malformed stored JSON must not break the whole feed list.
+  static Map<String, dynamic>? _decodeCustomFields(String? raw) {
+    if (raw == null) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      return decoded is Map<String, dynamic> ? decoded : null;
+    } catch (_) {
+      return null;
+    }
   }
 }

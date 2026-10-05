@@ -160,6 +160,24 @@ class AppDatabase extends _$AppDatabase {
                 'DELETE FROM folders_table WHERE parent_id IS NOT NULL '
                 'AND parent_id NOT IN (SELECT id FROM folders_table)');
           }
+          // Cycles (a -> b -> a) survive the dangling-parent sweep
+          // because both ends exist. Break them deterministically: any
+          // folder not reachable from a root is cyclic, so promote the
+          // lowest-id unreachable folder to root and repeat.
+          var promoted = -1;
+          while (promoted != 0) {
+            promoted = await customUpdate(
+                'UPDATE folders_table SET parent_id = NULL WHERE id = ('
+                "SELECT id FROM folders_table WHERE parent_id IS NOT NULL "
+                'AND id NOT IN ('
+                'WITH RECURSIVE reachable(id) AS ('
+                "SELECT id FROM folders_table WHERE parent_id IS NULL "
+                'UNION ALL '
+                'SELECT f.id FROM folders_table f '
+                'JOIN reachable r ON f.parent_id = r.id) '
+                'SELECT id FROM reachable) '
+                'ORDER BY id LIMIT 1)');
+          }
           await customStatement(''
               'INSERT INTO folder_feeds_table (folder_id, feed_id, position,'
               ' added_at) '
@@ -226,27 +244,20 @@ class AppDatabase extends _$AppDatabase {
   /// before any existing data is deleted; a failure leaves the database
   /// untouched.
   Future<void> importFromJson(Map<String, dynamic> data) async {
-    if (data['format'] != 'omi-rss-backup') {
-      throw ArgumentError(
-          'Unsupported backup format: ${data['format']}');
-    }
-    final version = data['version'];
-    if (version is! int || version < 1 || version > schemaVersion) {
-      throw ArgumentError('Unsupported backup version: $version');
-    }
+    final normalized = _normalizeBackup(data);
 
     final categories =
-        _parseRows(data['categories'], CategoryEntry.fromJson);
+        _parseRows(normalized['categories'], CategoryEntry.fromJson);
     final folders =
-        _parseRows(data['folders'], FolderEntry.fromJson);
+        _parseRows(normalized['folders'], FolderEntry.fromJson);
     final feeds =
-        _parseRows(data['feeds'], FeedEntry.fromJson);
+        _parseRows(normalized['feeds'], FeedEntry.fromJson);
     final folderFeeds =
-        _parseRows(data['folderFeeds'], FolderFeedEntry.fromJson);
-    final articles = _parseRows(data['articles'], ArticleEntry.fromJson);
-    final settings = _parseRows(data['settings'], SettingEntry.fromJson);
+        _parseRows(normalized['folderFeeds'], FolderFeedEntry.fromJson);
+    final articles = _parseRows(normalized['articles'], ArticleEntry.fromJson);
+    final settings = _parseRows(normalized['settings'], SettingEntry.fromJson);
     final syncMetadata =
-        _parseRows(data['syncMetadata'], SyncMetadataEntry.fromJson);
+        _parseRows(normalized['syncMetadata'], SyncMetadataEntry.fromJson);
 
     if (syncMetadata.length > 1) {
       throw ArgumentError(
@@ -258,6 +269,20 @@ class AppDatabase extends _$AppDatabase {
       if (parent != null && !folderIds.contains(parent)) {
         throw ArgumentError('Invalid backup: folder ${folder.id} '
             'references missing parent folder $parent');
+      }
+    }
+    // Every parent chain must terminate at a root; cyclic folders
+    // would be invisible in hierarchy views.
+    final parentByFolderId = {for (final f in folders) f.id: f.parentId};
+    for (final folderId in parentByFolderId.keys) {
+      String? current = folderId;
+      final visited = <String>{};
+      while (current != null) {
+        if (!visited.add(current)) {
+          throw ArgumentError(
+              'Invalid backup: folder cycle detected at $current');
+        }
+        current = parentByFolderId[current];
       }
     }
     final feedIds = feeds.map((f) => f.id).toSet();
@@ -298,6 +323,58 @@ class AppDatabase extends _$AppDatabase {
         await batch((b) => b.insertAll(syncMetadataTable, syncMetadata));
       }
     });
+  }
+
+  /// Validate the envelope and bring legacy backups to the current
+  /// shape before any row is constructed. Backups predating the
+  /// `format` field are recognized by their schema version plus row
+  /// payloads; explicit foreign formats stay rejected. Versions before
+  /// 4 stored feed update frequency in seconds, current rows are in
+  /// minutes (same conversion as the on-disk migration).
+  Map<String, dynamic> _normalizeBackup(Map<String, dynamic> data) {
+    final format = data['format'];
+    if (format == null) {
+      final hasRows = const [
+        'feeds',
+        'articles',
+        'categories',
+        'folders',
+        'folderFeeds',
+        'settings',
+        'syncMetadata',
+      ].any((key) => data[key] is List);
+      if (data['version'] is! int || !hasRows) {
+        throw ArgumentError('Unsupported backup format: ${data['format']}');
+      }
+    } else if (format != 'omi-rss-backup') {
+      throw ArgumentError('Unsupported backup format: $format');
+    }
+    final version = data['version'];
+    if (version is! int || version < 1 || version > schemaVersion) {
+      throw ArgumentError('Unsupported backup version: $version');
+    }
+
+    final normalized = Map<String, dynamic>.from(data);
+    normalized['format'] = 'omi-rss-backup';
+    normalized['version'] = version;
+
+    if (version < 4) {
+      final feeds = normalized['feeds'];
+      if (feeds is List) {
+        final converted = <Map<String, dynamic>>[];
+        for (final row in feeds) {
+          final feed = Map<String, dynamic>.from(row as Map);
+          final frequency = feed['updateFrequency'];
+          if (frequency is num) {
+            final minutes = frequency.toInt() ~/ 60;
+            feed['updateFrequency'] = minutes < 1 ? 1 : minutes;
+          }
+          converted.add(feed);
+        }
+        normalized['feeds'] = converted;
+      }
+    }
+    return normalized;
   }
 
   List<T> _parseRows<T>(
