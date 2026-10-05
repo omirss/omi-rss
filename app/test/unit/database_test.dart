@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:rss_glassmorphism_reader/core/database/database.dart';
@@ -545,5 +546,54 @@ void main() {
 
     expect(await db.getAllFeeds(), hasLength(1),
         reason: 'rejected imports must leave the database untouched');
+  });
+
+  test('C15: export canonicalizes legacy multi-row sync metadata',
+      () async {
+    final db = AppDatabase.testing(NativeDatabase.memory());
+    addTearDown(db.close);
+
+    await db.into(db.syncMetadataTable).insert(
+          SyncMetadataTableCompanion.insert(
+            deviceId: 'device-a',
+            lastSync: Value(DateTime.utc(2026, 9, 1)),
+          ),
+        );
+    await db.into(db.syncMetadataTable).insert(
+          SyncMetadataTableCompanion.insert(
+            deviceId: 'device-b',
+            lastSync: Value(DateTime.utc(2026, 10, 1)),
+          ),
+        );
+
+    final export = await db.exportToJson();
+    final rows = export['syncMetadata'] as List;
+    expect(rows, hasLength(1),
+        reason: 'an export must never carry rows its importer rejects');
+    expect(rows.first['deviceId'], 'device-b',
+        reason: 'the newest lastSync row is the canonical one');
+
+    await db.importFromJson(Map<String, dynamic>.from(export));
+    expect(await db.getLastSyncAt(), isNotNull,
+        reason: 'the canonicalized backup round-trips');
+  });
+
+  test('C16: concurrent device-id migration converges on one row',
+      () async {
+    final db = AppDatabase.testing(NativeDatabase.memory());
+    addTearDown(db.close);
+
+    await db.into(db.syncMetadataTable).insert(
+          SyncMetadataTableCompanion.insert(deviceId: 'app-web'),
+        );
+
+    final ids = await Future.wait([db.syncDeviceId(), db.syncDeviceId()]);
+    expect(ids[0], ids[1],
+        reason: 'both callers must observe the single persisted id');
+
+    final rows = await db.select(db.syncMetadataTable).get();
+    expect(rows, hasLength(1));
+    expect(rows.first.deviceId, ids[0]);
+    expect(rows.first.deviceId, isNot('app-web'));
   });
 }

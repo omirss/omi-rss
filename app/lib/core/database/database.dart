@@ -174,6 +174,7 @@ class AppDatabase extends _$AppDatabase {
       beforeOpen: (details) async {
         // Enforce the declared foreign keys at runtime.
         await customStatement('PRAGMA foreign_keys = ON');
+        await _canonicalizeSyncMetadata();
       },
     );
   }
@@ -197,6 +198,9 @@ class AppDatabase extends _$AppDatabase {
 
   /// Export database to JSON
   Future<Map<String, dynamic>> exportToJson() async {
+    // The importer rejects backups with more than one sync metadata row;
+    // tolerated legacy multi-row state must not be exported as-is.
+    await _canonicalizeSyncMetadata();
     final feeds = await select(feedsTable).get();
     final articles = await select(articlesTable).get();
     final categories = await select(categoriesTable).get();
@@ -319,32 +323,72 @@ class AppDatabase extends _$AppDatabase {
   /// Device identity used to key the sync metadata row. Generated once
   /// on first use and stored in the sync metadata table itself. Rows
   /// still carrying the legacy constant id are migrated to a generated
-  /// id so installations stop sharing one identity.
+  /// id so installations stop sharing one identity. The migration runs
+  /// in a transaction and checks the update count so concurrent calls
+  /// converge on one persisted id instead of returning an id that was
+  /// never written.
   Future<String> syncDeviceId() async {
-    final existing = await _syncRow();
-    if (existing != null && existing.deviceId != 'app-web') {
-      return existing.deviceId;
-    }
-    final deviceId = const Uuid().v4();
-    if (existing != null) {
-      await (update(syncMetadataTable)
-            ..where((t) => t.deviceId.equals(existing.deviceId)))
-          .write(SyncMetadataTableCompanion(deviceId: Value(deviceId)));
-      return deviceId;
-    }
-    await into(syncMetadataTable).insert(
-      SyncMetadataTableCompanion.insert(deviceId: deviceId),
-      mode: InsertMode.insertOrIgnore,
-    );
-    final row = await _syncRow();
-    return row!.deviceId;
+    return transaction(() async {
+      final existing = await _syncRow();
+      if (existing != null && existing.deviceId != 'app-web') {
+        return existing.deviceId;
+      }
+      final deviceId = const Uuid().v4();
+      if (existing != null) {
+        final changed = await (update(syncMetadataTable)
+              ..where((t) => t.deviceId.equals('app-web')))
+            .write(SyncMetadataTableCompanion(deviceId: Value(deviceId)));
+        if (changed == 1) return deviceId;
+        final migrated = await _syncRow();
+        if (migrated != null) return migrated.deviceId;
+      }
+      await into(syncMetadataTable).insert(
+        SyncMetadataTableCompanion.insert(deviceId: deviceId),
+        mode: InsertMode.insertOrIgnore,
+      );
+      final row = await _syncRow();
+      return row!.deviceId;
+    });
   }
 
   /// The sync metadata table holds a single row. Legacy databases or
   /// hand-edited backups can accumulate more; read deterministically
   /// instead of throwing on multi-row state.
   Future<SyncMetadataEntry?> _syncRow() {
-    return (select(syncMetadataTable)..limit(1)).getSingleOrNull();
+    return (select(syncMetadataTable)
+          ..orderBy([
+            (t) => OrderingTerm.desc(t.lastSync),
+            (t) => OrderingTerm.asc(t.deviceId),
+          ])
+          ..limit(1))
+        .getSingleOrNull();
+  }
+
+  /// Collapse legacy multi-row sync metadata to one canonical row:
+  /// newest lastSync wins, device id breaks ties deterministically.
+  Future<void> _canonicalizeSyncMetadata() async {
+    final rows = await select(syncMetadataTable).get();
+    if (rows.length <= 1) return;
+    rows.sort((a, b) {
+      final aSync = a.lastSync;
+      final bSync = b.lastSync;
+      if (aSync != null && bSync != null) {
+        final byTime = bSync.compareTo(aSync);
+        if (byTime != 0) return byTime;
+      } else if (aSync != null) {
+        return -1;
+      } else if (bSync != null) {
+        return 1;
+      }
+      return a.deviceId.compareTo(b.deviceId);
+    });
+    await transaction(() async {
+      for (final row in rows.skip(1)) {
+        await (delete(syncMetadataTable)
+              ..where((t) => t.deviceId.equals(row.deviceId)))
+            .go();
+      }
+    });
   }
 
   Future<DateTime?> getLastSyncAt() async {

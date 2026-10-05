@@ -122,7 +122,10 @@ class FeedSyncNotifier extends StateNotifier<FeedSyncState> {
       for (final localFeed
           in localFeeds.where((f) => !serverUrls.contains(f.url))) {
         try {
-          final created = await _api.createFeed(localFeed.url);
+          final created = await _api.createFeed(
+            localFeed.url,
+            updateInterval: localFeed.updateFrequency.clamp(5, 1440),
+          );
           await _db.feedDao.deleteFeed(localFeed.id);
           await _db.feedDao.insertOrUpdateFeed(created);
         } catch (_) {
@@ -226,9 +229,14 @@ final subscribeFeedProvider =
   } catch (_) {}
 
   if (connected) {
-    final feed = await ref.read(apiServiceProvider).createFeed(url);
-    await database.feedDao
-        .insertOrUpdateFeed(feed.copyWith(updateFrequency: defaultInterval));
+    // Send the configured interval so the server stores it; the local
+    // row then persists the server value instead of a client-only
+    // override a later sync would overwrite.
+    final feed = await ref.read(apiServiceProvider).createFeed(
+          url,
+          updateInterval: defaultInterval.clamp(5, 1440),
+        );
+    await database.feedDao.insertOrUpdateFeed(feed);
     unawaited(ref.read(feedSyncProvider.notifier).syncFromServer());
     return feed;
   }

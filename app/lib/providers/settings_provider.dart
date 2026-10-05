@@ -102,14 +102,19 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
   /// Returns false when the URL is rejected so callers can show feedback;
   /// true when the server configuration was applied.
   Future<bool> setServerUrl(String url) async {
+    final oldUrl = ApiConfig.baseUrl;
     try {
       await ApiConfig.setServerUrl(url);
     } on FormatException {
       // Not a usable server URL; keep the current configuration.
       return false;
     }
-    state = state.copyWith(serverUrl: ApiConfig.baseUrl);
-    ref.read(apiServiceProvider).updateBaseUrl(ApiConfig.baseUrl);
+    final newUrl = ApiConfig.baseUrl;
+    state = state.copyWith(serverUrl: newUrl);
+    // Re-saving the same (normalized) origin is a no-op; clearing the
+    // session there would log the user out for nothing.
+    if (newUrl == oldUrl) return true;
+    ref.read(apiServiceProvider).updateBaseUrl(newUrl);
     // Tokens belong to the previous origin; never send them elsewhere.
     await ref.read(authProvider.notifier).clearLocalSession();
     return true;

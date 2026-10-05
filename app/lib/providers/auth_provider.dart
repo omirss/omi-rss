@@ -131,7 +131,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
           // Token expired, try refresh
           try {
             final response = await _apiService.refreshToken(refreshToken);
-            await _saveAuth(response);
+            await _saveRefreshedAuth(response);
           } catch (e) {
             await _handleRestoreFailure(e, prefs, token, refreshToken);
           }
@@ -256,12 +256,11 @@ class AuthNotifier extends StateNotifier<AuthState> {
     final refreshToken = response['refreshToken'] as String?;
     final userJson = response['user'];
 
-    if (token == null) {
-      state = state.copyWith(
-        isLoading: false,
-        error: 'Authentication failed: no token returned',
-      );
-      return;
+    if (token == null || token.isEmpty) {
+      // A success response without a token means authentication did
+      // not happen; surface it as an error instead of resolving the
+      // login/register future normally.
+      throw const ApiException('Authentication failed: no token returned');
     }
 
     _apiService.rotateAuthSession();
@@ -281,6 +280,36 @@ class AuthNotifier extends StateNotifier<AuthState> {
       await prefs.setString(_userKey, jsonEncode(user.toJson()));
     }
 
+    state = state.copyWith(
+      isAuthenticated: true,
+      user: user,
+      token: token,
+      refreshToken: refreshToken,
+      isLoading: false,
+      error: null,
+    );
+  }
+
+  /// Persist rotated credentials from a token-only refresh response.
+  /// Refresh payloads carry no user; keep the current or cached user
+  /// instead of storing an authenticated state with no user.
+  Future<void> _saveRefreshedAuth(Map<String, dynamic> response) async {
+    final token = response['token'] as String?;
+    final refreshToken = response['refreshToken'] as String?;
+
+    if (token == null || token.isEmpty) {
+      throw const ApiException('Authentication failed: no token returned');
+    }
+
+    final prefs = await _prefs;
+    await prefs.setString(_tokenKey, token);
+    if (refreshToken != null) {
+      await prefs.setString(_refreshTokenKey, refreshToken);
+    }
+
+    final user = state.user ??
+        _loadCachedUser(prefs) ??
+        await _apiService.getCurrentUser();
     state = state.copyWith(
       isAuthenticated: true,
       user: user,

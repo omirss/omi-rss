@@ -151,4 +151,80 @@ void main() {
     // The stale flight's result is discarded (null) after rotation.
     expect(await f1, isNull);
   });
+
+  test('C17: nested server folders are flattened with parents first',
+      () async {
+    final server = await _jsonServer(() => {
+          'folders': [
+            {
+              'id': 'root',
+              'name': 'Root',
+              'parentId': null,
+              'children': [
+                {
+                  'id': 'child',
+                  'name': 'Child',
+                  'parentId': 'root',
+                  'children': [
+                    {
+                      'id': 'grandchild',
+                      'name': 'Grandchild',
+                      'parentId': 'child',
+                      'children': const <dynamic>[],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        });
+    addTearDown(server.close);
+
+    SharedPreferences.setMockInitialValues(const {});
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final api = container.read(apiServiceProvider);
+    api.updateBaseUrl(_base(server));
+
+    final folders = await api.getFolders();
+    expect(folders.map((f) => f.id).toList(),
+        ['root', 'child', 'grandchild']);
+    expect(folders[1].parentId, 'root');
+    expect(folders[2].parentId, 'child');
+  });
+
+  test('C19: createFeed sends the configured interval and keeps the server value',
+      () async {
+    Map<String, dynamic>? captured;
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(server.close);
+    server.listen((request) async {
+      captured = jsonDecode(await utf8.decoder.bind(request).join())
+          as Map<String, dynamic>;
+      final response = request.response;
+      response.headers.contentType = ContentType.json;
+      response.write(jsonEncode({
+        'feed': {
+          'id': 'f1',
+          'url': 'https://example.com/x',
+          'title': 'T',
+          'updateInterval': 120,
+        },
+      }));
+      await response.close();
+    });
+
+    SharedPreferences.setMockInitialValues(const {});
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final api = container.read(apiServiceProvider);
+    api.updateBaseUrl(_base(server));
+
+    final feed = await api.createFeed('https://example.com/x',
+        updateInterval: 120);
+    expect(captured?['updateInterval'], 120,
+        reason: 'the server must store the configured interval');
+    expect(feed.updateFrequency, 120,
+        reason: 'the persisted value comes from the server response');
+  });
 }

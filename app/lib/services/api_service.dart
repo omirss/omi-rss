@@ -276,11 +276,12 @@ class ApiService {
     }
   }
 
-  Future<Feed> createFeed(String url, {String? folderId}) async {
+  Future<Feed> createFeed(String url, {String? folderId, int? updateInterval}) async {
     try {
       final response = await _dio.post('/feeds', data: {
         'url': url,
         if (folderId != null) 'folderId': folderId,
+        if (updateInterval != null) 'updateInterval': updateInterval,
       });
       return Feed.fromJson(response.data['feed']);
     } on DioException catch (e) {
@@ -384,12 +385,30 @@ class ApiService {
   Future<List<Folder>> getFolders() async {
     try {
       final response = await _dio.get('/folders');
-      return (response.data['folders'] as List)
-          .map((json) => Folder.fromJson(json))
-          .toList();
+      return _flattenFolders(response.data['folders'] as List);
     } on DioException catch (e) {
       throw _handleError(e);
     }
+  }
+
+  /// The server returns a tree of root folders with nested children;
+  /// sync consumers want the flattened list, parents before children.
+  static List<Folder> _flattenFolders(List<dynamic> nodes) {
+    final out = <Folder>[];
+    void visit(dynamic raw) {
+      final json = Map<String, dynamic>.from(raw as Map);
+      out.add(Folder.fromJson(json));
+      final children = json['children'];
+      if (children is List) {
+        for (final child in children) {
+          visit(child);
+        }
+      }
+    }
+    for (final node in nodes) {
+      visit(node);
+    }
+    return out;
   }
 
   Future<Folder> createFolder(String name) async {
