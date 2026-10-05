@@ -3,6 +3,7 @@ import 'package:html/parser.dart' as html_parser;
 import 'package:html/dom.dart' as html_dom;
 import '../models/feed.dart';
 import '../models/article.dart';
+import 'feed_dates.dart';
 
 /// RSS 2.0 parser with support for common namespaces
 class RssParser {
@@ -58,7 +59,7 @@ class RssParser {
         url: feedUrl,
         title: title,
         description: description,
-        link: link,
+        link: _resolveUrl(link, feedUrl),
         language: language,
         copyright: copyright,
         generator: generator,
@@ -72,7 +73,7 @@ class RssParser {
   }
   
   /// Parse articles from RSS feed
-  Future<List<Article>> parseArticles(String xmlString, String feedId) async {
+  Future<List<Article>> parseArticles(String xmlString, String feedId, {String? feedUrl}) async {
     try {
       final document = XmlDocument.parse(xmlString);
       final items = document.findAllElements('item');
@@ -81,7 +82,7 @@ class RssParser {
       
       for (final item in items) {
         try {
-          final article = _parseItem(item, feedId);
+          final article = _parseItem(item, feedId, feedUrl: feedUrl);
           if (article != null) {
             articles.add(article);
           }
@@ -98,7 +99,7 @@ class RssParser {
   }
   
   /// Parse individual item
-  Article? _parseItem(XmlElement item, String feedId) {
+  Article? _parseItem(XmlElement item, String feedId, {String? feedUrl}) {
     // Required fields
     final title = _getElementText(item, 'title');
     if (title == null || title.isEmpty) {
@@ -111,7 +112,7 @@ class RssParser {
                  title;
     
     // URL
-    final url = _getElementText(item, 'link') ?? '';
+    final url = _resolveUrl(_getElementText(item, 'link'), feedUrl) ?? '';
     
     // Description and content
     final description = _getElementText(item, 'description');
@@ -239,6 +240,18 @@ class RssParser {
   String? _getElementText(XmlElement parent, String name) {
     return parent.findElements(name).firstOrNull?.innerText.trim();
   }
+
+  /// Resolve a possibly relative link against the feed document URL
+  String? _resolveUrl(String? value, String? base) {
+    if (value == null || value.isEmpty || base == null || base.isEmpty) {
+      return value;
+    }
+    try {
+      return Uri.parse(base).resolve(value).toString();
+    } catch (_) {
+      return value;
+    }
+  }
   
   /// Get namespaced element text
   String? _getNamespacedElementText(XmlElement parent, String name, String namespace) {
@@ -259,21 +272,9 @@ class RssParser {
     return image?.getAttribute('href');
   }
   
-  /// Parse various date formats
+  /// Parse various date formats (RFC 822 RSS dates, RFC 3339)
   DateTime? _parseDate(String dateStr) {
-    try {
-      // Try parsing as RFC 822 (standard RSS date format)
-      return DateTime.parse(dateStr);
-    } catch (e) {
-      // Try other common formats
-      final formats = [
-        RegExp(r'(\w{3}),\s+(\d{1,2})\s+(\w{3})\s+(\d{4})\s+(\d{2}):(\d{2}):(\d{2})\s+([+-]\d{4})'),
-        RegExp(r'(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})'),
-      ];
-      
-      // Add more date parsing logic as needed
-      return null;
-    }
+    return parseFeedDate(dateStr);
   }
   
   /// Clean HTML tags from text

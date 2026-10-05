@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../config/api_config.dart';
 import '../services/api_service.dart';
+import 'auth_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 // Settings provider
@@ -98,16 +99,24 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
     _saveSettings();
   }
 
-  void setServerUrl(String url) {
-    state = state.copyWith(serverUrl: url);
-    ApiConfig.setServerUrl(url);
+  Future<void> setServerUrl(String url) async {
+    try {
+      await ApiConfig.setServerUrl(url);
+    } on FormatException {
+      // Not a usable server URL; keep the current configuration.
+      return;
+    }
+    state = state.copyWith(serverUrl: ApiConfig.baseUrl);
     ref.read(apiServiceProvider).updateBaseUrl(ApiConfig.baseUrl);
+    // Tokens belong to the previous origin; never send them elsewhere.
+    await ref.read(authProvider.notifier).clearLocalSession();
   }
 
   Future<void> resetToDefaults() async {
     state = AppSettings();
-    await _saveSettings();
     await ApiConfig.setServerUrl('');
     ref.read(apiServiceProvider).updateBaseUrl('');
+    await ref.read(authProvider.notifier).clearLocalSession();
+    await _saveSettings();
   }
 }

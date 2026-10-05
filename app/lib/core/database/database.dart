@@ -1,5 +1,6 @@
 import 'package:drift/drift.dart';
 import 'package:meta/meta.dart';
+import 'package:uuid/uuid.dart';
 import 'tables/feeds_table.dart';
 import 'tables/articles_table.dart';
 import 'tables/settings_table.dart';
@@ -44,7 +45,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.testing(QueryExecutor executor) : super(executor);
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 5;
   
   @override
   MigrationStrategy get migration {
@@ -93,10 +94,7 @@ class AppDatabase extends _$AppDatabase {
           await m.createTable(foldersTable);
           await m.createTable(folderFeedsTable);
         }
-        if (from < 3) {
-          await m.createTable(foldersTable);
-          await m.createTable(folderFeedsTable);
-        }
+        // v3 had no structural change beyond v2.
         if (from < 4) {
           // update_frequency switched from seconds to minutes; its CHECK
           // constraint changed too. feeds_table is rebuilt with the new
@@ -126,6 +124,19 @@ class AppDatabase extends _$AppDatabase {
           await customStatement('DROP TABLE articles_table_v3');
           await customStatement('DROP TABLE feeds_table_v3');
         }
+        if (from < 5) {
+          // site_url/custom_title. A from<4 rebuild already creates
+          // feeds_table at the current (v5) shape, so guard against
+          // duplicate columns.
+          if (!await _columnExists('feeds_table', 'site_url')) {
+            await customStatement(
+                'ALTER TABLE feeds_table ADD COLUMN site_url TEXT');
+          }
+          if (!await _columnExists('feeds_table', 'custom_title')) {
+            await customStatement(
+                'ALTER TABLE feeds_table ADD COLUMN custom_title TEXT');
+          }
+        }
       },
     );
   }
@@ -139,89 +150,89 @@ class AppDatabase extends _$AppDatabase {
     });
   }
   
+  Future<bool> _columnExists(String table, String column) async {
+    final rows = await customSelect('PRAGMA table_info($table)').get();
+    return rows.any((row) => row.read<String>('name') == column);
+  }
+
   /// Export database to JSON
   Future<Map<String, dynamic>> exportToJson() async {
     final feeds = await select(feedsTable).get();
     final articles = await select(articlesTable).get();
     final categories = await select(categoriesTable).get();
     final settings = await select(settingsTable).get();
-    
+    final folders = await select(foldersTable).get();
+    final folderFeeds = await select(folderFeedsTable).get();
+    final syncMetadata = await select(syncMetadataTable).get();
+
     return {
+      'format': 'omi-rss-backup',
       'version': schemaVersion,
       'exportedAt': DateTime.now().toIso8601String(),
       'feeds': feeds.map((f) => f.toJson()).toList(),
       'articles': articles.map((a) => a.toJson()).toList(),
       'categories': categories.map((c) => c.toJson()).toList(),
       'settings': settings.map((s) => s.toJson()).toList(),
+      'folders': folders.map((f) => f.toJson()).toList(),
+      'folderFeeds': folderFeeds.map((f) => f.toJson()).toList(),
+      'syncMetadata': syncMetadata.map((s) => s.toJson()).toList(),
     };
   }
-  
-  /// Import database from JSON
+
+  /// Import database from JSON. The payload is fully parsed and validated
+  /// before any existing data is deleted; a failure leaves the database
+  /// untouched.
   Future<void> importFromJson(Map<String, dynamic> data) async {
+    final categories =
+        _parseRows(data['categories'], CategoryEntry.fromJson);
+    final folders = _parseRows(data['folders'], FolderEntry.fromJson);
+    final feeds = _parseRows(data['feeds'], FeedEntry.fromJson);
+    final folderFeeds =
+        _parseRows(data['folderFeeds'], FolderFeedEntry.fromJson);
+    final articles = _parseRows(data['articles'], ArticleEntry.fromJson);
+    final settings = _parseRows(data['settings'], SettingEntry.fromJson);
+    final syncMetadata =
+        _parseRows(data['syncMetadata'], SyncMetadataEntry.fromJson);
+
     await transaction(() async {
       await deleteEverything();
-      
-      final categories = (data['categories'] as List<dynamic>?)
-          ?.map((c) => CategoriesTableCompanion.insert(
-                id: (c as Map<String, dynamic>)['id'] as String,
-                name: c['name'] as String,
-              ))
-          .toList();
-      if (categories != null && categories.isNotEmpty) {
-        await batch((batch) {
-          batch.insertAll(categoriesTable, categories);
-        });
+
+      if (categories.isNotEmpty) {
+        await batch((b) => b.insertAll(categoriesTable, categories));
       }
-      
-      final feeds = (data['feeds'] as List<dynamic>?)
-          ?.map((f) {
-            final json = f as Map<String, dynamic>;
-            return FeedsTableCompanion.insert(
-              id: json['id'] as String,
-              url: json['url'] as String,
-              title: json['title'] as String,
-            );
-          })
-          .toList();
-      if (feeds != null && feeds.isNotEmpty) {
-        await batch((batch) {
-          batch.insertAll(feedsTable, feeds);
-        });
+      if (folders.isNotEmpty) {
+        await batch((b) => b.insertAll(foldersTable, folders));
       }
-      
-      final articles = (data['articles'] as List<dynamic>?)
-          ?.map((a) {
-            final json = a as Map<String, dynamic>;
-            return ArticlesTableCompanion.insert(
-              id: json['id'] as String,
-              feedId: json['feedId'] as String,
-              guid: json['guid'] as String,
-              title: json['title'] as String,
-              url: json['url'] as String,
-            );
-          })
-          .toList();
-      if (articles != null && articles.isNotEmpty) {
-        await batch((batch) {
-          batch.insertAll(articlesTable, articles);
-        });
+      if (feeds.isNotEmpty) {
+        await batch((b) => b.insertAll(feedsTable, feeds));
       }
-      
-      final settings = (data['settings'] as List<dynamic>?)
-          ?.map((s) {
-            final json = s as Map<String, dynamic>;
-            return SettingsTableCompanion.insert(
-              key: json['key'] as String,
-              value: json['value'] as String,
-            );
-          })
-          .toList();
-      if (settings != null && settings.isNotEmpty) {
-        await batch((batch) {
-          batch.insertAll(settingsTable, settings);
-        });
+      if (folderFeeds.isNotEmpty) {
+        await batch((b) => b.insertAll(folderFeedsTable, folderFeeds));
+      }
+      if (articles.isNotEmpty) {
+        await batch((b) => b.insertAll(articlesTable, articles));
+      }
+      if (settings.isNotEmpty) {
+        await batch((b) => b.insertAll(settingsTable, settings));
+      }
+      if (syncMetadata.isNotEmpty) {
+        await batch((b) => b.insertAll(syncMetadataTable, syncMetadata));
       }
     });
+  }
+
+  List<T> _parseRows<T>(
+    Object? raw,
+    T Function(Map<String, dynamic>, {ValueSerializer? serializer}) fromJson,
+  ) {
+    if (raw == null) return [];
+    if (raw is! List) {
+      throw ArgumentError('Invalid backup payload: expected a list of rows');
+    }
+    return [
+      for (final row in raw)
+        fromJson(Map<String, dynamic>.from(row as Map)),
+    ];
   }
   
   /// Convenience accessors used by services
@@ -231,11 +242,21 @@ class AppDatabase extends _$AppDatabase {
   Future<void> insertFeed(Feed feed) => feedDao.insertOrUpdateFeed(feed);
 
   /// Device identity used to key the sync metadata row. Generated once
-  /// on first use and stored in the sync metadata table itself.
+  /// on first use and stored in the sync metadata table itself. Rows
+  /// still carrying the legacy constant id are migrated to a generated
+  /// id so installations stop sharing one identity.
   Future<String> syncDeviceId() async {
     final existing = await select(syncMetadataTable).getSingleOrNull();
-    if (existing != null) return existing.deviceId;
-    const deviceId = 'app-web';
+    if (existing != null && existing.deviceId != 'app-web') {
+      return existing.deviceId;
+    }
+    final deviceId = const Uuid().v4();
+    if (existing != null) {
+      await (update(syncMetadataTable)
+            ..where((t) => t.deviceId.equals(existing.deviceId)))
+          .write(SyncMetadataTableCompanion(deviceId: Value(deviceId)));
+      return deviceId;
+    }
     await into(syncMetadataTable).insert(
       SyncMetadataTableCompanion.insert(deviceId: deviceId),
       mode: InsertMode.insertOrIgnore,

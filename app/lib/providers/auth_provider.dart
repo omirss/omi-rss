@@ -13,7 +13,7 @@ class AuthState {
   final String? refreshToken;
   final bool isLoading;
   final String? error;
-  
+
   AuthState({
     this.isAuthenticated = false,
     this.user,
@@ -22,22 +22,25 @@ class AuthState {
     this.isLoading = false,
     this.error,
   });
-  
+
+  static const Object _unset = Object();
+
   AuthState copyWith({
     bool? isAuthenticated,
-    User? user,
-    String? token,
-    String? refreshToken,
+    Object? user = _unset,
+    Object? token = _unset,
+    Object? refreshToken = _unset,
     bool? isLoading,
-    String? error,
+    Object? error = _unset,
   }) {
     return AuthState(
       isAuthenticated: isAuthenticated ?? this.isAuthenticated,
-      user: user ?? this.user,
-      token: token ?? this.token,
-      refreshToken: refreshToken ?? this.refreshToken,
+      user: identical(user, _unset) ? this.user : user as User?,
+      token: identical(token, _unset) ? this.token : token as String?,
+      refreshToken:
+          identical(refreshToken, _unset) ? this.refreshToken : refreshToken as String?,
       isLoading: isLoading ?? this.isLoading,
-      error: error ?? this.error,
+      error: identical(error, _unset) ? this.error : error as String?,
     );
   }
 }
@@ -91,25 +94,28 @@ class LocalModeNotifier extends StateNotifier<bool> {
 /// Auth notifier
 class AuthNotifier extends StateNotifier<AuthState> {
   final Ref ref;
-  late final SharedPreferences _prefs;
   late final ApiService _apiService;
-  
+  late final Future<SharedPreferences> _prefsFuture =
+      SharedPreferences.getInstance();
+
   static const String _tokenKey = 'access_token';
   static const String _refreshTokenKey = 'refresh_token';
   static const String _userKey = 'auth_user';
-  
+
   AuthNotifier(this.ref) : super(AuthState()) {
     _apiService = ref.read(apiServiceProvider);
     _initialize();
   }
-  
+
+  Future<SharedPreferences> get _prefs => _prefsFuture;
+
   Future<void> _initialize() async {
-    _prefs = await SharedPreferences.getInstance();
-    
+    final prefs = await _prefs;
+
     // Check for stored auth
-    final token = _prefs.getString(_tokenKey);
-    final refreshToken = _prefs.getString(_refreshTokenKey);
-    
+    final token = prefs.getString(_tokenKey);
+    final refreshToken = prefs.getString(_refreshTokenKey);
+
     if (token != null) {
       // Try to restore session
       try {
@@ -127,30 +133,65 @@ class AuthNotifier extends StateNotifier<AuthState> {
             final response = await _apiService.refreshToken(refreshToken);
             await _saveAuth(response);
           } catch (e) {
-            // Refresh failed, clear auth
-            await _clearAuth();
+            await _handleRestoreFailure(e, prefs, token, refreshToken);
           }
         } else {
-          await _clearAuth();
+          await _handleRestoreFailure(e, prefs, token, refreshToken);
         }
       }
     }
   }
-  
+
+  /// A restore failure only destroys stored credentials when the server
+  /// actively rejected them (401/403). Network errors, timeouts, and 5xx
+  /// responses keep the stored session for a later retry; the cached user
+  /// (if any) is surfaced so the app can run offline.
+  Future<void> _handleRestoreFailure(
+    Object error,
+    SharedPreferences prefs,
+    String token,
+    String? refreshToken,
+  ) async {
+    if (error is ApiException &&
+        (error.statusCode == 401 || error.statusCode == 403)) {
+      await _clearAuth();
+      return;
+    }
+    final cachedUser = _loadCachedUser(prefs);
+    if (cachedUser != null) {
+      state = state.copyWith(
+        isAuthenticated: true,
+        user: cachedUser,
+        token: token,
+        refreshToken: refreshToken,
+      );
+    }
+  }
+
+  User? _loadCachedUser(SharedPreferences prefs) {
+    final raw = prefs.getString(_userKey);
+    if (raw == null) return null;
+    try {
+      return User.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> register({
-    required String email,
+    String? email,
     required String password,
     String? username,
   }) async {
     state = state.copyWith(isLoading: true, error: null);
-    
+
     try {
       final response = await _apiService.register(
-        username: username ?? email.split('@')[0],
+        username: username ?? (email != null && email.contains('@') ? email.split('@')[0] : ''),
         email: email,
         password: password,
       );
-      
+
       await _saveAuth(response);
     } catch (e) {
       state = state.copyWith(
@@ -160,16 +201,16 @@ class AuthNotifier extends StateNotifier<AuthState> {
       rethrow;
     }
   }
-  
+
   Future<void> login({
     required String emailOrUsername,
     required String password,
   }) async {
     state = state.copyWith(isLoading: true, error: null);
-    
+
     try {
       final response = await _apiService.login(emailOrUsername, password);
-      
+
       await _saveAuth(response);
     } catch (e) {
       state = state.copyWith(
@@ -179,7 +220,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       rethrow;
     }
   }
-  
+
   Future<void> logout() async {
     try {
       await _apiService.logout();
@@ -189,26 +230,32 @@ class AuthNotifier extends StateNotifier<AuthState> {
     await _clearAuth();
   }
 
+  /// Clear stored credentials locally without contacting the server. Used
+  /// on server switches and rejected refreshes.
+  Future<void> clearLocalSession() async {
+    await _clearAuth();
+  }
+
   /// Replace the cached user after a profile update and persist it.
   Future<void> updateUser(User user) async {
     state = state.copyWith(user: user);
     try {
-      await _prefs.setString(_userKey, jsonEncode(user.toJson()));
+      final prefs = await _prefs;
+      await prefs.setString(_userKey, jsonEncode(user.toJson()));
     } catch (_) {
       // Caching is best-effort
     }
   }
-  
+
   Future<void> requestPasswordReset(String email) async {
-    // TODO: Implement password reset when endpoint is available
-    throw UnimplementedError('Password reset not yet implemented');
+    await _apiService.requestPasswordReset(email);
   }
-  
+
   Future<void> _saveAuth(Map<String, dynamic> response) async {
     final token = response['token'] as String?;
     final refreshToken = response['refreshToken'] as String?;
     final userJson = response['user'];
-    
+
     if (token == null) {
       state = state.copyWith(
         isLoading: false,
@@ -216,21 +263,24 @@ class AuthNotifier extends StateNotifier<AuthState> {
       );
       return;
     }
-    
-    await _prefs.setString(_tokenKey, token);
+
+    _apiService.rotateAuthSession();
+
+    final prefs = await _prefs;
+    await prefs.setString(_tokenKey, token);
     if (refreshToken != null) {
-      await _prefs.setString(_refreshTokenKey, refreshToken);
+      await prefs.setString(_refreshTokenKey, refreshToken);
     } else {
-      await _prefs.remove(_refreshTokenKey);
+      await prefs.remove(_refreshTokenKey);
     }
-    
+
     final user = userJson is Map<String, dynamic>
         ? User.fromJson(userJson)
         : null;
     if (user != null) {
-      await _prefs.setString(_userKey, jsonEncode(user.toJson()));
+      await prefs.setString(_userKey, jsonEncode(user.toJson()));
     }
-    
+
     state = state.copyWith(
       isAuthenticated: true,
       user: user,
@@ -240,12 +290,15 @@ class AuthNotifier extends StateNotifier<AuthState> {
       error: null,
     );
   }
-  
+
   Future<void> _clearAuth() async {
-    await _prefs.remove(_tokenKey);
-    await _prefs.remove(_refreshTokenKey);
-    await _prefs.remove(_userKey);
-    
+    _apiService.rotateAuthSession();
+
+    final prefs = await _prefs;
+    await prefs.remove(_tokenKey);
+    await prefs.remove(_refreshTokenKey);
+    await prefs.remove(_userKey);
+
     state = AuthState();
   }
   

@@ -8,6 +8,8 @@ class FeedsTable extends Table {
   TextColumn get title => text()();
   TextColumn get description => text().nullable()();
   TextColumn get link => text().nullable()();
+  TextColumn get siteUrl => text().nullable()();
+  TextColumn get customTitle => text().nullable()();
   TextColumn get categoryId => text().nullable().references(CategoriesTable, #id)();
   TextColumn get faviconUrl => text().nullable()();
   DateTimeColumn get lastFetched => dateTime().nullable()();

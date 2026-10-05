@@ -61,3 +61,7 @@ web/uploads/
 .dart_tool/
 teploy.yml
 .teployignore
+
+# --- GPT-web audit working dir ---
+/_gpt-audit/
+/CHATGPT_AUDIT.md

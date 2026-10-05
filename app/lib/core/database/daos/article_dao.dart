@@ -385,6 +385,10 @@ class ArticleDao extends DatabaseAccessor<AppDatabase> with _$ArticleDaoMixin {
       aiTags: e.aiTags != null
           ? (jsonDecode(e.aiTags!) as List<dynamic>).cast<String>()
           : null,
+      perspectives: e.perspectivesJson != null
+          ? Map<String, dynamic>.from(jsonDecode(e.perspectivesJson!)
+              as Map<String, dynamic>)
+          : null,
       sentimentScore: e.sentimentScore,
       biasScore: e.biasScore,
       categories: e.categories != null
@@ -400,6 +404,12 @@ class ArticleDao extends DatabaseAccessor<AppDatabase> with _$ArticleDaoMixin {
       fullContentAvailable: e.fullContentAvailable,
       createdAt: e.createdAt,
       updatedAt: e.updatedAt,
+      enclosures: e.enclosures != null
+          ? (jsonDecode(e.enclosures!) as List<dynamic>)
+              .map((x) =>
+                  Enclosure.fromJson(Map<String, dynamic>.from(x as Map)))
+              .toList()
+          : null,
     );
   }
 
@@ -421,6 +431,8 @@ class ArticleDao extends DatabaseAccessor<AppDatabase> with _$ArticleDaoMixin {
       readTimeSeconds: a.readTimeSeconds,
       aiSummary: a.aiSummary,
       aiTags: a.aiTags != null ? jsonEncode(a.aiTags) : null,
+      perspectivesJson:
+          a.perspectives != null ? jsonEncode(a.perspectives) : null,
       sentimentScore: a.sentimentScore,
       biasScore: a.biasScore,
       categories: a.categories != null ? jsonEncode(a.categories) : null,
@@ -432,6 +444,9 @@ class ArticleDao extends DatabaseAccessor<AppDatabase> with _$ArticleDaoMixin {
       fullContentAvailable: a.fullContentAvailable,
       createdAt: a.createdAt,
       updatedAt: a.updatedAt,
+      enclosures: a.enclosures != null
+          ? jsonEncode(a.enclosures!.map((e) => e.toJson()).toList())
+          : null,
     );
   }
 }

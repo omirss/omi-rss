@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:collection/collection.dart';
 import 'package:dio/dio.dart';
 import 'package:xml/xml.dart' as xml;
 import 'package:html/parser.dart' as html_parser;
 import 'package:logger/logger.dart';
+import '../core/parsers/feed_dates.dart';
 
 final RegExp _imgSrcRegex =
     RegExp(r"""<img[^>]+src=["'](https?://[^"']+)["']""");
@@ -11,14 +13,9 @@ final RegExp _imgSrcRegex =
 class FeedParserService {
   final Dio _dio;
   final Logger _logger = Logger();
-  
-  // CORS proxy options for when direct fetch fails
-  final List<String> _corsProxies = [
-    'https://cors-anywhere.herokuapp.com/',
-    'https://api.allorigins.win/raw?url=',
-    'https://cors-proxy.htmldriven.com/?url=',
-  ];
-  int _currentProxyIndex = 0;
+
+  /// Feed responses larger than this are aborted before being buffered.
+  static const int maxFeedBytes = 5 * 1024 * 1024;
 
   FeedParserService({Dio? dio}) 
     : _dio = dio ?? Dio(BaseOptions(
@@ -66,56 +63,69 @@ class FeedParserService {
     }
   }
 
-  // Fetch feed with CORS handling
-  Future<Response> _fetchFeed(String url, {bool useCorsProxy = true}) async {
-    try {
-      // First try direct fetch
-      final response = await _dio.get(url);
-      
-      if (response.statusCode == 200) {
-        return response;
+  // Fetch feed content with a hard response-size ceiling. Feed URLs and
+  // contents are never sent to third-party services.
+  Future<Response<String>> _fetchFeed(String url) async {
+    final response = await _dio.get<ResponseBody>(
+      url,
+      options: Options(responseType: ResponseType.stream),
+    );
+
+    if (response.statusCode != 200) {
+      final body = response.data;
+      if (body != null) {
+        await body.stream.drain<void>().catchError((_) {});
       }
-      
       throw DioException(
         requestOptions: response.requestOptions,
-        response: response,
+        response: Response<ResponseBody>(
+          requestOptions: response.requestOptions,
+          statusCode: response.statusCode,
+          statusMessage: response.statusMessage,
+        ),
         message: 'HTTP ${response.statusCode}: ${response.statusMessage}',
       );
-    } on DioException catch (e) {
-      // If CORS error and proxy enabled, try with proxy
-      if (useCorsProxy && _isCorsError(e)) {
-        return _fetchWithProxy(url);
-      }
-      throw e;
     }
+
+    final body = await _readCapped(response.data!, url);
+    return Response<String>(
+      requestOptions: response.requestOptions,
+      statusCode: response.statusCode,
+      headers: response.headers,
+      data: body,
+    );
   }
 
-  // Check if error is likely CORS-related
-  bool _isCorsError(DioException error) {
-    return error.type == DioExceptionType.unknown ||
-           error.type == DioExceptionType.connectionError ||
-           (error.message?.contains('CORS') ?? false) ||
-           (error.message?.contains('XMLHttpRequest') ?? false);
-  }
-
-  // Fetch using CORS proxy
-  Future<Response> _fetchWithProxy(String url) async {
-    for (int i = 0; i < _corsProxies.length; i++) {
-      final proxyUrl = _corsProxies[_currentProxyIndex] + Uri.encodeComponent(url);
-      _currentProxyIndex = (_currentProxyIndex + 1) % _corsProxies.length;
-      
-      try {
-        final response = await _dio.get(proxyUrl);
-        
-        if (response.statusCode == 200) {
-          return response;
+  Future<String> _readCapped(ResponseBody body, String url) async {
+    final bytes = <int>[];
+    var received = 0;
+    final completer = Completer<String>();
+    late final StreamSubscription<List<int>> subscription;
+    subscription = body.stream.listen(
+      (chunk) {
+        received += chunk.length;
+        if (received > maxFeedBytes) {
+          subscription.cancel();
+          if (!completer.isCompleted) {
+            completer.completeError(FeedParseException(
+              'Feed response exceeds $maxFeedBytes bytes: $url',
+              url,
+            ));
+          }
+          return;
         }
-      } catch (e) {
-        _logger.w('Proxy ${i + 1} failed: ${e.toString()}');
-      }
-    }
-    
-    throw Exception('All CORS proxies failed. Please check the feed URL or try again later.');
+        bytes.addAll(chunk);
+      },
+      onDone: () {
+        if (!completer.isCompleted) {
+          completer.complete(utf8.decode(bytes, allowMalformed: true));
+        }
+      },
+      onError: (Object e) {
+        if (!completer.isCompleted) completer.completeError(e);
+      },
+    );
+    return completer.future;
   }
 
   // Parse XML feeds (RSS/Atom)
@@ -140,7 +150,7 @@ class FeedParserService {
     String? image;
     final imageEl = channel.findElements('image').firstOrNull;
     if (imageEl != null) {
-      image = _text(imageEl, 'url');
+      image = _resolveUrl(_text(imageEl, 'url'), feedUrl);
     }
 
     return ParsedFeed(
@@ -148,22 +158,22 @@ class FeedParserService {
       title: _text(channel, 'title') ?? 'Untitled Feed',
       description: _text(channel, 'description') ?? '',
       url: feedUrl,
-      siteUrl: _text(channel, 'link') ?? feedUrl,
+      siteUrl: _resolveUrl(_text(channel, 'link'), feedUrl) ?? feedUrl,
       language: _text(channel, 'language') ?? 'en',
-      lastUpdated: _parseDate(_text(channel, 'lastBuildDate') ?? _text(channel, 'pubDate')) ?? DateTime.now(),
+      lastUpdated: parseFeedDate(_text(channel, 'lastBuildDate') ?? _text(channel, 'pubDate')) ?? DateTime.now(),
       imageUrl: image,
       items: channel.findAllElements('item').map((item) => ParsedArticle(
         guid: _text(item, 'guid') ?? _text(item, 'link') ?? '',
         title: _text(item, 'title') ?? 'Untitled',
-        link: _text(item, 'link') ?? '',
+        link: _resolveUrl(_text(item, 'link'), feedUrl) ?? '',
         description: _stripHtml(_text(item, 'description') ?? ''),
         content: _text(item, 'content:encoded') ?? _text(item, 'description') ?? '',
-        publishedAt: _parseDate(_text(item, 'pubDate')) ?? DateTime.now(),
+        publishedAt: parseFeedDate(_text(item, 'pubDate')) ?? DateTime.now(),
         author: _text(item, 'author') ?? _text(item, 'dc:creator') ?? '',
         categories: [
           ...item.findElements('category').map((cat) => cat.innerText.trim()),
         ].where((cat) => cat.isNotEmpty).toList(),
-        thumbnail: _extractThumbnail(item),
+        thumbnail: _resolveUrl(_extractThumbnail(item), feedUrl),
       )).toList(),
     );
   }
@@ -175,7 +185,7 @@ class FeedParserService {
       if (link.getAttribute('rel') == 'alternate' || link.getAttribute('rel') == null) {
         final href = link.getAttribute('href');
         if (href != null && href.isNotEmpty) {
-          siteUrl = href;
+          siteUrl = _resolveUrl(href, feedUrl)!;
           break;
         }
       }
@@ -188,15 +198,15 @@ class FeedParserService {
       url: feedUrl,
       siteUrl: siteUrl,
       language: _text(feed, 'language') ?? 'en',
-      lastUpdated: _parseDate(_text(feed, 'updated')) ?? DateTime.now(),
-      imageUrl: _text(feed, 'logo'),
+      lastUpdated: parseFeedDate(_text(feed, 'updated')) ?? DateTime.now(),
+      imageUrl: _resolveUrl(_text(feed, 'logo'), feedUrl),
       items: feed.findElements('entry').map((entry) {
         String entryLink = '';
         for (final link in entry.findElements('link')) {
           if (link.getAttribute('rel') == 'alternate' || link.getAttribute('rel') == null) {
             final href = link.getAttribute('href');
             if (href != null && href.isNotEmpty) {
-              entryLink = href;
+              entryLink = _resolveUrl(href, feedUrl)!;
               break;
             }
           }
@@ -207,12 +217,12 @@ class FeedParserService {
           link: entryLink,
           description: _stripHtml(_text(entry, 'summary') ?? ''),
           content: _text(entry, 'content') ?? _text(entry, 'summary') ?? '',
-          publishedAt: _parseDate(_text(entry, 'published')) ?? _parseDate(_text(entry, 'updated')) ?? DateTime.now(),
+          publishedAt: parseFeedDate(_text(entry, 'published')) ?? parseFeedDate(_text(entry, 'updated')) ?? DateTime.now(),
           author: _text(entry, 'author') != null ? _text(entry, 'author')! : '',
           categories: [
             ...entry.findElements('category').map((cat) => cat.getAttribute('term') ?? ''),
           ].where((cat) => cat.isNotEmpty).toList(),
-          thumbnail: _extractAtomThumbnail(entry),
+          thumbnail: _resolveUrl(_extractAtomThumbnail(entry), feedUrl),
         );
       }).toList(),
     );
@@ -222,41 +232,78 @@ class FeedParserService {
   Future<ParsedFeed> _parseJSONFeed(String jsonText, String feedUrl) async {
     try {
       final Map<String, dynamic> data = json.decode(jsonText);
-      
+
       // Validate JSON Feed
       if (!data.containsKey('version') || !data['version'].toString().startsWith('https://jsonfeed.org')) {
         throw Exception('Not a valid JSON Feed');
       }
-      
+
       return ParsedFeed(
         type: FeedType.json,
         title: data['title'] ?? 'Untitled Feed',
         description: data['description'] ?? '',
         url: feedUrl,
-        siteUrl: data['home_page_url'] ?? feedUrl,
+        siteUrl: _resolveUrl(data['home_page_url'] as String?, feedUrl) ?? feedUrl,
         language: data['language'] ?? 'en',
         lastUpdated: DateTime.now(), // JSON Feed doesn't have a last updated field
-        imageUrl: data['icon'] ?? data['favicon'],
-        items: (data['items'] as List<dynamic>? ?? []).map((item) => ParsedArticle(
-          guid: item['id'] ?? item['url'] ?? '',
-          title: item['title'] ?? 'Untitled',
-          link: item['url'] ?? item['external_url'] ?? '',
-          description: _stripHtml(item['summary'] ?? ''),
-          content: item['content_html'] ?? item['content_text'] ?? '',
-          publishedAt: item['date_published'] != null 
-            ? DateTime.parse(item['date_published']) 
-            : DateTime.now(),
-          author: item['author']?['name'] ?? 
-                  (item['authors'] as List?)?.firstOrNull?['name'] ?? '',
-          categories: (item['tags'] as List<dynamic>? ?? [])
-            .map((tag) => tag.toString())
-            .toList(),
-          thumbnail: item['image'] ?? item['banner_image'],
-        )).toList(),
+        imageUrl: _resolveUrl(data['icon'] as String? ?? data['favicon'] as String?, feedUrl),
+        items: _parseJsonItems(data['items'] as List<dynamic>? ?? [], feedUrl),
       );
     } catch (e) {
       throw Exception('Invalid JSON Feed: ${e.toString()}');
     }
+  }
+
+  // Parse JSON Feed items independently so one malformed entry cannot
+  // abort the whole feed.
+  List<ParsedArticle> _parseJsonItems(List<dynamic> rawItems, String feedUrl) {
+    final items = <ParsedArticle>[];
+    for (final raw in rawItems) {
+      if (raw is! Map) continue;
+      try {
+        items.add(_parseJsonItem(Map<String, dynamic>.from(raw), feedUrl));
+      } catch (e) {
+        _logger.w('Skipping malformed JSON Feed item', error: e);
+      }
+    }
+    return items;
+  }
+
+  ParsedArticle _parseJsonItem(Map<String, dynamic> item, String feedUrl) {
+    return ParsedArticle(
+      guid: item['id']?.toString() ?? item['url']?.toString() ?? '',
+      title: item['title']?.toString() ?? 'Untitled',
+      link: _resolveUrl(
+              (item['url'] ?? item['external_url'])?.toString(), feedUrl) ??
+          '',
+      description: _stripHtml(item['summary']?.toString() ?? ''),
+      content: item['content_html']?.toString() ??
+          item['content_text']?.toString() ??
+          '',
+      publishedAt: parseFeedDate(item['date_published'] as String?) ??
+          parseFeedDate(item['date_modified'] as String?) ??
+          DateTime.now(),
+      author: _jsonAuthor(item),
+      categories: (item['tags'] as List<dynamic>? ?? [])
+          .map((tag) => tag.toString())
+          .toList(),
+      thumbnail: _resolveUrl(
+          (item['image'] ?? item['banner_image'])?.toString(), feedUrl),
+    );
+  }
+
+  String _jsonAuthor(Map<String, dynamic> item) {
+    final author = item['author'];
+    if (author is Map && author['name'] is String) {
+      return author['name'] as String;
+    }
+    final authors = item['authors'];
+    if (authors is List) {
+      for (final a in authors) {
+        if (a is Map && a['name'] is String) return a['name'] as String;
+      }
+    }
+    return '';
   }
 
   // Normalize and validate feed URL
@@ -289,10 +336,9 @@ class FeedParserService {
       
       // Clean and limit description
       if (item.description.isEmpty && item.content.isNotEmpty) {
-        item.description = _stripHtml(item.content).substring(
-          0, 
-          item.content.length > 500 ? 500 : item.content.length
-        );
+        final stripped = _stripHtml(item.content);
+        item.description =
+            stripped.length > 500 ? stripped.substring(0, 500) : stripped;
       }
       
       // Extract first image if no thumbnail
@@ -378,27 +424,14 @@ class FeedParserService {
     return el?.innerText.trim();
   }
 
-  static const _months = {
-    'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'may': 5, 'jun': 6,
-    'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12,
-  };
-
-  DateTime? _parseDate(String? raw) {
-    if (raw == null || raw.isEmpty) return null;
-    final iso = DateTime.tryParse(raw);
-    if (iso != null) return iso;
-    final match = RegExp(r'(\d{1,2})\s+([A-Za-z]{3})\w*\s+(\d{4})[\s,T]+(\d{1,2}):(\d{2})(?::(\d{2}))?').firstMatch(raw);
-    if (match == null) return null;
-    final month = _months[match.group(2)!.toLowerCase()];
-    if (month == null) return null;
-    return DateTime(
-      int.parse(match.group(3)!),
-      month,
-      int.parse(match.group(1)!),
-      int.parse(match.group(4)!),
-      int.parse(match.group(5)!),
-      match.group(6) != null ? int.parse(match.group(6)!) : 0,
-    );
+  // Resolve a possibly relative link against the feed document URL
+  String? _resolveUrl(String? value, String base) {
+    if (value == null || value.isEmpty) return value;
+    try {
+      return Uri.parse(base).resolve(value).toString();
+    } catch (_) {
+      return value;
+    }
   }
 
   // Test feed URL without fully parsing
@@ -464,9 +497,10 @@ class FeedParserService {
           // Continue to next URL
         }
       }
-      
-      // Use Google's favicon service as fallback
-      return 'https://www.google.com/s2/favicons?domain=${uri.host}&sz=32';
+
+      // No icon. Subscription domains are never disclosed to
+      // third-party favicon services.
+      return null;
     } catch (e) {
       return null;
     }

@@ -29,7 +29,7 @@ class AtomParser {
       for (final linkElement in links) {
         final rel = linkElement.getAttribute('rel') ?? 'alternate';
         if (rel == 'alternate') {
-          link = linkElement.getAttribute('href');
+          link = _resolveUrl(linkElement.getAttribute('href'), feedUrl);
           break;
         }
       }
@@ -75,7 +75,7 @@ class AtomParser {
   }
   
   /// Parse articles from Atom feed
-  Future<List<Article>> parseArticles(String xmlString, String feedId) async {
+  Future<List<Article>> parseArticles(String xmlString, String feedId, {String? feedUrl}) async {
     try {
       final document = XmlDocument.parse(xmlString);
       final entries = document.findAllElements('entry');
@@ -84,7 +84,7 @@ class AtomParser {
       
       for (final entry in entries) {
         try {
-          final article = _parseEntry(entry, feedId);
+          final article = _parseEntry(entry, feedId, feedUrl: feedUrl);
           if (article != null) {
             articles.add(article);
           }
@@ -101,7 +101,7 @@ class AtomParser {
   }
   
   /// Parse individual entry
-  Article? _parseEntry(XmlElement entry, String feedId) {
+  Article? _parseEntry(XmlElement entry, String feedId, {String? feedUrl}) {
     // Required fields
     final title = _getElementText(entry, 'title');
     if (title == null || title.isEmpty) {
@@ -121,7 +121,7 @@ class AtomParser {
         break;
       }
     }
-    url ??= '';
+    url = _resolveUrl(url, feedUrl) ?? '';
     
     // Parse content and summary
     final content = _parseContent(entry);
@@ -247,6 +247,18 @@ class AtomParser {
   String? _getElementText(XmlElement parent, String name) {
     return parent.findElements(name, namespace: atomNamespace).firstOrNull?.innerText.trim() ??
            parent.findElements(name).firstOrNull?.innerText.trim();
+  }
+
+  /// Resolve a possibly relative link against the feed document URL
+  String? _resolveUrl(String? value, String? base) {
+    if (value == null || value.isEmpty || base == null || base.isEmpty) {
+      return value;
+    }
+    try {
+      return Uri.parse(base).resolve(value).toString();
+    } catch (_) {
+      return value;
+    }
   }
   
   /// Parse Atom date format (RFC 3339)

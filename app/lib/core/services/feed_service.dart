@@ -422,44 +422,42 @@ class FeedService {
     return FeedType.unknown;
   }
   
-  /// Batch refresh multiple feeds
+  /// Batch refresh multiple feeds with a bounded worker pool
   Future<BatchRefreshResult> batchRefresh(List<Feed> feeds, {
     int concurrency = 3,
     bool continueOnError = true,
   }) async {
+    if (concurrency < 1) {
+      throw ArgumentError.value(concurrency, 'concurrency', 'must be >= 1');
+    }
+
     final results = <String, RefreshResult>{};
     final errors = <String, String>{};
-    int completed = 0;
-    
-    // Create a queue of feeds to process
+    var completed = 0;
+    var stopped = false;
+
     final queue = List<Feed>.from(feeds);
-    final active = <Future<void>>[];
-    
-    while (queue.isNotEmpty || active.isNotEmpty) {
-      // Start new tasks up to concurrency limit
-      while (active.length < concurrency && queue.isNotEmpty) {
+
+    Future<void> worker() async {
+      while (!stopped && queue.isNotEmpty) {
         final feed = queue.removeAt(0);
-        final task = _processFeedInBatch(feed, results, errors).then((_) {
-          completed++;
-          onBatchProgress?.call(completed, feeds.length);
-        });
-        active.add(task);
-      }
-      
-      // Wait for at least one task to complete
-      if (active.isNotEmpty) {
-        final completedHash = await Future.any(
-          active.map((task) => task.then((_) => task.hashCode)),
-        );
-        active.removeWhere((task) => task.hashCode == completedHash);
+        await _processFeedInBatch(feed, results, errors);
+        completed++;
+        onBatchProgress?.call(completed, feeds.length);
+        if (!continueOnError && errors.containsKey(feed.id)) {
+          stopped = true;
+        }
       }
     }
-    
+
+    final workerCount = feeds.isEmpty ? 0 : concurrency < feeds.length ? concurrency : feeds.length;
+    await Future.wait(List.generate(workerCount, (_) => worker()));
+
     return BatchRefreshResult(
       results: results,
       errors: errors,
       totalFeeds: feeds.length,
-      successfulFeeds: results.values.where((r) => r.wasModified || !r.wasModified && r.error == null).length,
+      successfulFeeds: results.values.where((r) => r.error == null).length,
       failedFeeds: errors.length,
     );
   }
@@ -586,15 +584,14 @@ class FeedService {
         .where((a) => a.publishedAt != null)
         .toList()
       ..sort((a, b) => a.publishedAt!.compareTo(b.publishedAt!));
-    if (datedArticles.isEmpty) return articles.length.toDouble();
+    if (datedArticles.isEmpty) return 0;
 
     final firstArticle = datedArticles.first;
     final lastArticle = datedArticles.last;
     final daysDiff =
         lastArticle.publishedAt!.difference(firstArticle.publishedAt!).inDays;
 
-    if (daysDiff == 0) return articles.length.toDouble();
-    return articles.length / daysDiff;
+    return datedArticles.length / (daysDiff > 0 ? daysDiff : 1);
   }
 
   List<int> _calculateMostActiveHours(List<Article> articles) {

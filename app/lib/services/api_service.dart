@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../core/models/feed.dart';
@@ -10,9 +11,24 @@ import '../core/models/folder.dart';
 import '../providers/auth_provider.dart';
 import '../config/api_config.dart';
 
+/// API error carrying the HTTP status so callers can distinguish auth
+/// rejections from transient network/server failures.
+class ApiException implements Exception {
+  final int? statusCode;
+  final String message;
+
+  const ApiException(this.message, {this.statusCode});
+
+  @override
+  String toString() => message;
+}
+
 class ApiService {
   late final Dio _dio;
   final Ref _ref;
+
+  int _authGeneration = 0;
+  Future<Map<String, dynamic>?>? _refreshInFlight;
 
   ApiService(this._ref) {
     _dio = Dio(BaseOptions(
@@ -27,14 +43,27 @@ class ApiService {
 
     // Add interceptors
     _dio.interceptors.add(AuthInterceptor(_ref));
-    _dio.interceptors.add(LogInterceptor(
-      requestBody: true,
-      responseBody: true,
-      error: true,
-    ));
+    if (kDebugMode) {
+      // Never log request/response bodies: they can contain passwords,
+      // tokens, and private payloads.
+      _dio.interceptors.add(LogInterceptor(
+        requestBody: false,
+        responseBody: false,
+        error: true,
+      ));
+    }
+  }
+
+  /// Invalidate outstanding auth work. Callers must rotate on login,
+  /// logout, credential changes, and server switches so a stale refresh
+  /// cannot resurrect or overwrite credentials.
+  void rotateAuthSession() {
+    _authGeneration++;
+    _refreshInFlight = null;
   }
 
   void updateBaseUrl(String url) {
+    rotateAuthSession();
     _dio.options.baseUrl = url.isEmpty ? '' : '${ApiConfig.normalizeUrl(url)}/api';
   }
 
@@ -57,16 +86,24 @@ class ApiService {
 
   Future<Map<String, dynamic>> register({
     required String username,
-    required String email,
+    String? email,
     required String password,
   }) async {
     try {
       final response = await _dio.post('/auth/register', data: {
         'username': username,
-        'email': email,
+        if (email != null && email.isNotEmpty) 'email': email,
         'password': password,
       });
       return response.data;
+    } on DioException catch (e) {
+      throw _handleError(e);
+    }
+  }
+
+  Future<void> requestPasswordReset(String email) async {
+    try {
+      await _dio.post('/auth/forgot-password', data: {'email': email});
     } on DioException catch (e) {
       throw _handleError(e);
     }
@@ -81,6 +118,49 @@ class ApiService {
     } on DioException catch (e) {
       throw _handleError(e);
     }
+  }
+
+  /// Refresh tokens once for all concurrent 401s. The result is written to
+  /// preferences only when the auth session, the stored refresh token, and
+  /// the base URL are all unchanged since the refresh started; otherwise
+  /// null is returned and nothing is written.
+  Future<Map<String, dynamic>?> refreshTokensSingleFlight(
+    String refreshToken,
+    String baseUrl,
+  ) {
+    final existing = _refreshInFlight;
+    if (existing != null) return existing;
+
+    final generation = _authGeneration;
+    late final Future<Map<String, dynamic>?> future;
+    future = _performTokenRefresh(refreshToken, baseUrl)
+        .then((tokens) async {
+      if (generation != _authGeneration) return null;
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getString('refresh_token') != refreshToken) return null;
+      await prefs.setString('access_token', tokens['token'] as String);
+      final newRefreshToken = tokens['refreshToken'];
+      if (newRefreshToken is String) {
+        await prefs.setString('refresh_token', newRefreshToken);
+      }
+      return tokens;
+    }).whenComplete(() {
+      if (identical(_refreshInFlight, future)) _refreshInFlight = null;
+    });
+    _refreshInFlight = future;
+    return future;
+  }
+
+  Future<Map<String, dynamic>> _performTokenRefresh(
+    String refreshToken,
+    String baseUrl,
+  ) async {
+    // Bare dio without interceptors to avoid a refresh loop.
+    final dio = Dio(BaseOptions(baseUrl: baseUrl));
+    final response = await dio.post('/auth/refresh', data: {
+      'refreshToken': refreshToken,
+    });
+    return response.data;
   }
 
   Future<void> logout() async {
@@ -352,38 +432,49 @@ class ApiService {
   }
 
   // Error handling
-  String _handleError(DioException error) {
+  ApiException _handleError(DioException error) {
     if (error.response != null) {
+      final statusCode = error.response!.statusCode;
       final data = error.response!.data;
-      if (data is Map && data.containsKey('message')) {
-        return data['message'];
+      if (data is Map) {
+        final serverError = data['error'] ?? data['message'];
+        if (serverError is String && serverError.isNotEmpty) {
+          return ApiException(serverError, statusCode: statusCode);
+        }
       }
 
-      switch (error.response!.statusCode) {
+      switch (statusCode) {
         case 400:
-          return 'Bad request. Please check your input.';
+          return ApiException('Bad request. Please check your input.',
+              statusCode: statusCode);
         case 401:
-          return 'Unauthorized. Please login again.';
+          return ApiException('Unauthorized. Please login again.',
+              statusCode: statusCode);
         case 403:
-          return 'Forbidden. You don\'t have permission to perform this action.';
+          return ApiException(
+              'Forbidden. You don\'t have permission to perform this action.',
+              statusCode: statusCode);
         case 404:
-          return 'Resource not found.';
+          return ApiException('Resource not found.', statusCode: statusCode);
         case 500:
-          return 'Server error. Please try again later.';
+          return ApiException('Server error. Please try again later.',
+              statusCode: statusCode);
         default:
-          return 'An error occurred. Please try again.';
+          return ApiException('An error occurred. Please try again.',
+              statusCode: statusCode);
       }
     }
 
     if (error.type == DioExceptionType.connectionTimeout) {
-      return 'Connection timeout. Please check your internet connection.';
+      return ApiException(
+          'Connection timeout. Please check your internet connection.');
     }
 
     if (error.type == DioExceptionType.receiveTimeout) {
-      return 'Server took too long to respond. Please try again.';
+      return ApiException('Server took too long to respond. Please try again.');
     }
 
-    return 'Network error. Please check your connection.';
+    return ApiException('Network error. Please check your connection.');
   }
 }
 
@@ -393,12 +484,15 @@ class AuthInterceptor extends Interceptor {
 
   AuthInterceptor(this.ref);
 
+  ApiService _api() => ref.read(apiServiceProvider);
+
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) async {
     // Skip auth for public auth endpoints
     if (options.path.contains('/auth/login') ||
         options.path.contains('/auth/register') ||
-        options.path.contains('/auth/refresh')) {
+        options.path.contains('/auth/refresh') ||
+        options.path.contains('/auth/forgot-password')) {
       return handler.next(options);
     }
 
@@ -415,34 +509,35 @@ class AuthInterceptor extends Interceptor {
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) async {
     if (err.response?.statusCode == 401 && !err.requestOptions.path.contains('/auth/')) {
-      // Token might be expired, try to refresh
+      // Token might be expired, try to refresh. The refresh is single-flight
+      // and bound to the session that started it: if the user logs out,
+      // logs in as someone else, or switches server origin while the
+      // refresh is in flight, its result is discarded instead of being
+      // written back to preferences.
+      final api = _api();
+      final generation = api._authGeneration;
       final prefs = await SharedPreferences.getInstance();
       final refreshToken = prefs.getString('refresh_token');
 
       if (refreshToken != null) {
         try {
-          // Create new Dio instance to avoid interceptor loop
-          final dio = Dio(BaseOptions(baseUrl: err.requestOptions.baseUrl));
-          final response = await dio.post('/auth/refresh', data: {
-            'refreshToken': refreshToken,
-          });
-
-          final newToken = response.data['token'];
-          final newRefreshToken = response.data['refreshToken'];
-
-          // Save new tokens
-          await prefs.setString('access_token', newToken as String);
-          if (newRefreshToken != null) {
-            await prefs.setString('refresh_token', newRefreshToken as String);
+          final tokens =
+              await api.refreshTokensSingleFlight(refreshToken, err.requestOptions.baseUrl);
+          if (tokens != null && generation == api._authGeneration) {
+            final newToken = tokens['token'] as String;
+            // Retry original request with new token
+            err.requestOptions.headers['Authorization'] = 'Bearer $newToken';
+            // Bare dio avoids the interceptor loop on retry.
+            final dio = Dio(BaseOptions(baseUrl: err.requestOptions.baseUrl));
+            final cloneReq = await dio.fetch(err.requestOptions);
+            return handler.resolve(cloneReq);
           }
-
-          // Retry original request with new token
-          err.requestOptions.headers['Authorization'] = 'Bearer $newToken';
-          final cloneReq = await dio.fetch(err.requestOptions);
-          return handler.resolve(cloneReq);
-        } catch (e) {
-          // Refresh failed, logout user
-          unawaited(ref.read(authProvider.notifier).logout());
+        } on DioException catch (e) {
+          if (e.response?.statusCode == 401 || e.response?.statusCode == 403) {
+            // Refresh token rejected: clear the session locally. Network
+          // and 5xx failures keep stored credentials.
+            unawaited(ref.read(authProvider.notifier).clearLocalSession());
+          }
         }
       }
     }

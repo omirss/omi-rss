@@ -88,7 +88,9 @@ class ApiConfig {
   }
 
   /// Set and persist the server URL. An empty value returns the app to
-  /// local-only mode.
+  /// local-only mode. A non-empty value must be a valid http(s) URL with
+  /// a host and no embedded credentials; otherwise a [FormatException] is
+  /// thrown and nothing is persisted.
   static Future<void> setServerUrl(String url) async {
     final prefs = await SharedPreferences.getInstance();
     final normalized = normalizeUrl(url);
@@ -96,8 +98,29 @@ class ApiConfig {
       _savedServerUrl = null;
       await prefs.remove(_serverUrlKey);
     } else {
+      _validateServerUrl(normalized);
       _savedServerUrl = normalized;
       await prefs.setString(_serverUrlKey, normalized);
+    }
+  }
+
+  static void _validateServerUrl(String url) {
+    final Uri uri;
+    try {
+      uri = Uri.parse(normalizeUrl(url));
+    } catch (_) {
+      throw FormatException('Invalid server URL: $url');
+    }
+    if (uri.scheme != 'http' && uri.scheme != 'https') {
+      throw FormatException(
+          'Server URL must start with http:// or https://: $url');
+    }
+    if (uri.host.isEmpty) {
+      throw FormatException('Server URL must include a host: $url');
+    }
+    if (uri.userInfo.isNotEmpty) {
+      throw FormatException(
+          'Server URL must not contain credentials (user:pass@host): $url');
     }
   }
 

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:xml/xml.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:logger/logger.dart';
+import 'package:uuid/uuid.dart';
 import 'dart:io' show File;
 import 'package:universal_html/html.dart' as html;
 import 'package:flutter/foundation.dart';
@@ -197,33 +198,39 @@ class OPMLService {
   void _parseOutline(XmlElement outline, String? parentFolderId, OPMLImportResult result) {
     final type = outline.getAttribute('type');
     final xmlUrl = outline.getAttribute('xmlUrl');
-    
-    if (type == 'rss' || xmlUrl != null) {
+    final hasChildren = outline.findElements('outline').isNotEmpty;
+
+    if (xmlUrl != null && xmlUrl.trim().isNotEmpty) {
       // This is a feed
       final feed = OPMLFeed(
         title: outline.getAttribute('text') ?? outline.getAttribute('title') ?? 'Untitled Feed',
-        xmlUrl: xmlUrl!,
+        xmlUrl: xmlUrl.trim(),
         htmlUrl: outline.getAttribute('htmlUrl'),
         description: outline.getAttribute('description'),
         folderId: parentFolderId,
       );
-      
+
       result.feeds.add(feed);
-    } else {
+    } else if (hasChildren || type != 'rss') {
       // This is a folder
       final folderName = outline.getAttribute('text') ?? outline.getAttribute('title') ?? 'Untitled Folder';
-      final folderId = DateTime.now().millisecondsSinceEpoch.toString();
-      
+      final folderId = const Uuid().v4();
+
       result.folders.add(OPMLFolder(
         id: folderId,
         name: folderName,
         parentId: parentFolderId,
       ));
-      
+
       // Parse nested outlines
       for (final child in outline.findElements('outline')) {
         _parseOutline(child, folderId, result);
       }
+    } else {
+      // A feed outline without a usable xmlUrl: skip it without
+      // invalidating the rest of the import.
+      result.errors.add(
+        'Skipped "${outline.getAttribute('text') ?? outline.getAttribute('title') ?? 'untitled'}": missing xmlUrl');
     }
   }
 }
@@ -232,7 +239,8 @@ class OPMLService {
 class OPMLImportResult {
   final List<OPMLFeed> feeds = [];
   final List<OPMLFolder> folders = [];
-  
+  final List<String> errors = [];
+
   int get totalFeeds => feeds.length;
   int get totalFolders => folders.length;
 }
