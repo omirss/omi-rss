@@ -480,6 +480,18 @@ class FeedSyncNotifier extends StateNotifier<FeedSyncState> {
       DateTime? baseline;
       try {
         baseline = (await _api.getFeed(feed.id)).lastFetched;
+      } on ApiException catch (e) {
+        if (e.statusCode == 404) {
+          // The feed does not exist on this server (legacy library, a
+          // signed-out creation, or an OPML import the server refused —
+          // e.g. host-gated LAN URLs). It is local-only BY DESIGN:
+          // fall through to the local publisher refresh so it keeps
+          // auto-updating while signed in, instead of the 404 being
+          // swallowed on every tick forever.
+          await _refreshLocalFeed(feed);
+          return;
+        }
+        // Baseline unknown; proceed with the queued refresh anyway.
       } catch (_) {
         // Baseline unknown; proceed with the queued refresh anyway.
       }
@@ -506,6 +518,16 @@ class FeedSyncNotifier extends StateNotifier<FeedSyncState> {
     } catch (_) {
       // Best-effort; retried on the next tick
     }
+  }
+
+  /// Refresh a local-only feed straight from its publisher — the same
+  /// path the tick uses while signed out. Used when the server answers
+  /// 404 for a feed (it never adopted it), so feeds the server refuses
+  /// still auto-refresh while signed in. The commit persists
+  /// lastFetched (even for a failed fetch attempt), matching the
+  /// signed-out tick behavior exactly.
+  Future<void> _refreshLocalFeed(Feed feed) async {
+    await ref.read(feedRefreshProvider.notifier).refreshFeed(feed.id);
   }
 
   Future<void> _waitForServerRefresh(String feedId, DateTime? baseline) async {

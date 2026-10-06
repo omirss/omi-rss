@@ -7,6 +7,7 @@ import 'package:rss_glassmorphism_reader/core/models/user.dart';
 import 'package:rss_glassmorphism_reader/providers/auth_provider.dart';
 import 'package:rss_glassmorphism_reader/services/api_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 
 class _FakeApiService extends ApiService {
   _FakeApiService(super.ref,
@@ -89,6 +90,79 @@ Future<ProviderContainer> _container({
   ]);
   await SharedPreferences.getInstance();
   return container;
+}
+
+/// In-memory preferences store whose next write or removal of a
+/// chosen key can be HELD until the test releases it, simulating a
+/// slow platform-channel round trip so auth interleavings land between
+/// an ownership check and the write it was supposed to guard.
+///
+/// Gates are one-shot: only the FIRST operation on the key parks, so
+/// the test can keep the flight suspended while other writers pass.
+class _GatedPrefsStore extends InMemorySharedPreferencesStore {
+  _GatedPrefsStore(super.data) : super.withData();
+
+  static const String _prefix = 'flutter.';
+  final Map<String, Completer<void>> _armedWrites = {};
+  final Map<String, Completer<void>> _parkedWrites = {};
+  final Map<String, Completer<void>> _armedRemoves = {};
+  final Map<String, Completer<void>> _parkedRemoves = {};
+
+  /// Hold the next setValue of [key] (unprefixed) until released.
+  void gateWrite(String key) =>
+      _armedWrites['$_prefix$key'] = Completer<void>();
+
+  /// Hold the next remove of [key] (unprefixed) until released.
+  void gateRemove(String key) =>
+      _armedRemoves['$_prefix$key'] = Completer<void>();
+
+  void releaseWrite(String key) {
+    final k = '$_prefix$key';
+    _parkedWrites.remove(k)?.complete();
+    _armedWrites.remove(k);
+  }
+
+  void releaseRemove(String key) {
+    final k = '$_prefix$key';
+    _parkedRemoves.remove(k)?.complete();
+    _armedRemoves.remove(k);
+  }
+
+  @override
+  Future<bool> setValue(String valueType, String key, Object value) async {
+    final armed = _armedWrites.remove(key);
+    if (armed != null) {
+      _parkedWrites[key] = armed;
+      await armed.future;
+    }
+    return super.setValue(valueType, key, value);
+  }
+
+  @override
+  Future<bool> remove(String key) async {
+    final armed = _armedRemoves.remove(key);
+    if (armed != null) {
+      _parkedRemoves[key] = armed;
+      await armed.future;
+    }
+    return super.remove(key);
+  }
+}
+
+/// Installs a gated store as the preferences backend.
+/// `SharedPreferences.setMockInitialValues` installs a plain store
+/// and resets the singleton, so this replaces it afterwards with the
+/// same initial data (store-level keys carry the `flutter.` prefix).
+Future<_GatedPrefsStore> _installGatedStore(
+    Map<String, Object> data) async {
+  SharedPreferences.setMockInitialValues(data);
+  final prefixed = <String, Object>{
+    for (final entry in data.entries)
+      'flutter.${entry.key}': entry.value,
+  };
+  final gated = _GatedPrefsStore(prefixed);
+  SharedPreferencesStorePlatform.instance = gated;
+  return gated;
 }
 
 void main() {
@@ -332,5 +406,90 @@ void main() {
     final state = container.read(authProvider);
     expect(state.isAuthenticated, isFalse);
     expect(state.error, contains('no token'));
+  });
+
+  test('F3: a login whose prefs writes land after logout stays logged out',
+      () async {
+    // Pause INSIDE _saveAuth's writes: the login passed its ownership
+    // check and its first setString is in flight when the logout runs.
+    final store = await _installGatedStore(const {});
+    final container = ProviderContainer(overrides: [
+      apiServiceProvider.overrideWith((ref) => _FakeApiService(ref,
+          loginResponse: {
+            'token': 'token-a',
+            'refreshToken': 'r-a',
+            'user': {'id': 'u1', 'email': 'a@b.c', 'username': 'a'},
+          })),
+    ]);
+    addTearDown(container.dispose);
+    final notifier = container.read(authProvider.notifier);
+
+    store.gateWrite('access_token');
+    final pending = notifier.login(emailOrUsername: 'a', password: 'pw');
+    await pumpEventQueue();
+
+    await notifier.logout();
+    expect(container.read(authProvider).isAuthenticated, isFalse);
+
+    store.releaseWrite('access_token');
+    await pending;
+    await pumpEventQueue();
+
+    final state = container.read(authProvider);
+    expect(state.isAuthenticated, isFalse,
+        reason: 'a delayed login completion must not resurrect a '
+            'cleared session');
+    expect(state.token, isNull);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString('access_token'), isNull,
+        reason: 'the credential write that landed after the logout is '
+            'rolled back');
+    expect(prefs.getString('refresh_token'), isNull);
+  });
+
+  test('F3: a logout completing after a newer login cannot wipe it',
+      () async {
+    // Pause INSIDE logout's removals: the logout passed its ownership
+    // check and is mid-removal when a new login completes.
+    final store = await _installGatedStore(const {
+      'access_token': 't-old',
+      'refresh_token': 'r-old',
+    });
+    final container = ProviderContainer(overrides: [
+      apiServiceProvider.overrideWith((ref) => _FakeApiService(ref,
+          loginResponse: {
+            'token': 'token-b',
+            'refreshToken': 'r-b',
+            'user': {'id': 'u2', 'email': 'b@b.c', 'username': 'b'},
+          })),
+    ]);
+    addTearDown(container.dispose);
+    final notifier = container.read(authProvider.notifier);
+    await pumpEventQueue();
+    expect(container.read(authProvider).isAuthenticated, isTrue,
+        reason: 'the stored session restores before the logout');
+
+    store.gateRemove('auth_user'); // logout's third removal
+    final loggingOut = notifier.logout();
+    await pumpEventQueue();
+
+    // A new login completes fully while the logout is suspended.
+    await notifier.login(emailOrUsername: 'b', password: 'pw');
+    expect(container.read(authProvider).token, 'token-b');
+
+    store.releaseRemove('auth_user');
+    await loggingOut;
+    await pumpEventQueue();
+
+    final state = container.read(authProvider);
+    expect(state.isAuthenticated, isTrue,
+        reason: 'the newer login owns the session; the delayed logout '
+            'must not reset its state');
+    expect(state.user?.id, 'u2');
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString('access_token'), 'token-b',
+        reason: "the newer login's credentials survive the logout's "
+            'delayed removals');
+    expect(prefs.getString('refresh_token'), 'r-b');
   });
 }

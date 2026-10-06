@@ -166,21 +166,50 @@ class ApiService {
       final prefs = await SharedPreferences.getInstance();
       if (prefs.getString('refresh_token') != refreshToken) return null;
       await prefs.setString('access_token', token);
+      // The guards above ran BEFORE this write; a logout or newer login
+      // may have interleaved on the platform-channel await and this
+      // write may have landed AFTER it cleared or replaced the key.
+      // Re-verify before issuing the second write, and roll this one
+      // back when ownership was lost: a stale refresh must never
+      // resurrect or overwrite credentials (rotateAuthSession's
+      // contract). The rollback removes the key only while it holds
+      // this flight's value or no value at all — a newer session's
+      // credential always survives.
+      if (generation != _authGeneration) {
+        final currentAccess = prefs.getString('access_token');
+        if (currentAccess == token || currentAccess == null) {
+          await prefs.remove('access_token');
+        }
+        return null;
+      }
       final newRefreshToken = tokens['refreshToken'];
       if (newRefreshToken is String) {
         await prefs.setString('refresh_token', newRefreshToken);
       }
-      if (generation == _authGeneration) {
-        // Publish the rotation to the in-memory auth state so
-        // getAuthHeaders() and the UI observe the new token before a
-        // restart. A stale notifier (disposed container) is skipped.
-        final notifier = _tryAuthNotifier();
-        if (notifier != null) {
-          notifier.applyRotatedTokens(
-            token: token,
-            refreshToken: newRefreshToken is String ? newRefreshToken : null,
-          );
+      // Same re-verification for the second write's await.
+      final ownedRefreshToken =
+          newRefreshToken is String ? newRefreshToken : refreshToken;
+      if (generation != _authGeneration ||
+          prefs.getString('refresh_token') != ownedRefreshToken) {
+        final currentAccess = prefs.getString('access_token');
+        if (currentAccess == token || currentAccess == null) {
+          await prefs.remove('access_token');
         }
+        final currentRefresh = prefs.getString('refresh_token');
+        if (currentRefresh == ownedRefreshToken || currentRefresh == null) {
+          await prefs.remove('refresh_token');
+        }
+        return null;
+      }
+      // Publish the rotation to the in-memory auth state so
+      // getAuthHeaders() and the UI observe the new token before a
+      // restart. A stale notifier (disposed container) is skipped.
+      final notifier = _tryAuthNotifier();
+      if (notifier != null) {
+        notifier.applyRotatedTokens(
+          token: token,
+          refreshToken: newRefreshToken is String ? newRefreshToken : null,
+        );
       }
       return tokens;
     }).whenComplete(() {

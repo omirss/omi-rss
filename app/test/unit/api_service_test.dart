@@ -9,6 +9,61 @@ import 'package:rss_glassmorphism_reader/core/models/article.dart';
 import 'package:rss_glassmorphism_reader/providers/auth_provider.dart';
 import 'package:rss_glassmorphism_reader/services/api_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
+
+/// In-memory preferences store whose next write of a chosen key can be
+/// HELD until the test releases it, so a logout/login can interleave
+/// between the refresh flight's ownership guard and its writes.
+/// `untilWriteArrives` lets tests await deterministically that the
+/// flight has passed its guard and is suspended inside the write.
+/// Gates are one-shot: only the FIRST write parks.
+class _GatedPrefsStore extends InMemorySharedPreferencesStore {
+  _GatedPrefsStore(super.data) : super.withData();
+
+  static const String _prefix = 'flutter.';
+  final Map<String, Completer<void>> _armedWrites = {};
+  final Map<String, Completer<void>> _parkedWrites = {};
+  final Map<String, Completer<void>> _arrivals = {};
+
+  void gateWrite(String key) {
+    final k = '$_prefix$key';
+    _armedWrites[k] = Completer<void>();
+    _arrivals[k] = Completer<void>();
+  }
+
+  Future<void> untilWriteArrives(String key) =>
+      _arrivals['$_prefix$key']!.future;
+
+  void releaseWrite(String key) {
+    final k = '$_prefix$key';
+    _parkedWrites.remove(k)?.complete();
+    _armedWrites.remove(k);
+  }
+
+  @override
+  Future<bool> setValue(String valueType, String key, Object value) async {
+    final armed = _armedWrites.remove(key);
+    if (armed != null) {
+      _parkedWrites[key] = armed;
+      final arrived = _arrivals[key];
+      if (arrived != null && !arrived.isCompleted) arrived.complete();
+      await armed.future;
+    }
+    return super.setValue(valueType, key, value);
+  }
+}
+
+Future<_GatedPrefsStore> _installGatedStore(
+    Map<String, Object> data) async {
+  SharedPreferences.setMockInitialValues(data);
+  final prefixed = <String, Object>{
+    for (final entry in data.entries)
+      'flutter.${entry.key}': entry.value,
+  };
+  final gated = _GatedPrefsStore(prefixed);
+  SharedPreferencesStorePlatform.instance = gated;
+  return gated;
+}
 
 Future<HttpServer> _jsonServer(Object? Function() body,
     {Duration delay = Duration.zero}) async {
@@ -403,5 +458,73 @@ void main() {
         reason: 'an old rejected refresh must not clear the newer login');
     expect(prefs.getString('refresh_token'), 'r-new');
     expect(container.read(authProvider).isAuthenticated, isTrue);
+  });
+
+  test('F4: a logout interleaving between guard and writes cannot '
+      're-persist cleared tokens', () async {
+    final server = await _jsonServer(
+        () => {'token': 'token-x', 'refreshToken': 'r2'});
+    addTearDown(server.close);
+
+    final store =
+        await _installGatedStore({'access_token': 'old', 'refresh_token': 'r'});
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final api = container.read(apiServiceProvider);
+
+    // The flight passes its guards (generation + stored refresh token)
+    // and suspends inside the first credential write.
+    store.gateWrite('access_token');
+    final flight = api.refreshTokensSingleFlight('r', _base(server));
+    await store.untilWriteArrives('access_token');
+
+    // Logout interleaves: rotation plus credential removal.
+    api.rotateAuthSession();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('access_token');
+    await prefs.remove('refresh_token');
+
+    store.releaseWrite('access_token');
+    expect(await flight, isNull,
+        reason: 'a stale refresh flight must not publish after rotation');
+
+    expect(prefs.getString('access_token'), isNull,
+        reason: 'the write that landed after the logout is rolled back');
+    expect(prefs.getString('refresh_token'), isNull,
+        reason: 'the second write must never be issued once ownership '
+            'was lost');
+  });
+
+  test('F4: the rollback never removes a newer login\'s credentials',
+      () async {
+    final server = await _jsonServer(
+        () => {'token': 'token-x', 'refreshToken': 'r2'});
+    addTearDown(server.close);
+
+    final store =
+        await _installGatedStore({'access_token': 'old', 'refresh_token': 'r'});
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final api = container.read(apiServiceProvider);
+
+    store.gateWrite('access_token');
+    final flight = api.refreshTokensSingleFlight('r', _base(server));
+    await store.untilWriteArrives('access_token');
+
+    // A newer login installs its own credentials and rotates.
+    api.rotateAuthSession();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('access_token', 'token-login');
+    await prefs.setString('refresh_token', 'r-login');
+
+    store.releaseWrite('access_token');
+    expect(await flight, isNull);
+
+    expect(prefs.getString('access_token'), 'token-login',
+        reason: 'the newer session\'s token must survive the stale '
+            'flight\'s rollback');
+    expect(prefs.getString('refresh_token'), 'r-login',
+        reason: 'the stale flight must not clobber the refresh token '
+            'with its own second write');
   });
 }

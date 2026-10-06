@@ -1231,8 +1231,8 @@ void main() {
         reason: 'server pulls are idempotent');
   });
 
-  test('R4-03: a server article id belonging to another feed is rejected '
-      'without partial writes', () async {
+  test('R4-03/F5: a server article id belonging to another feed is '
+      'skipped without partial writes, not fatal', () async {
     final db = AppDatabase.testing(NativeDatabase.memory());
     addTearDown(db.close);
 
@@ -1256,23 +1256,98 @@ void main() {
       ),
     ]);
 
-    await expectLater(
-      db.articleDao.upsertServerArticles([
-        Article(
-          id: 'taken', // already used by feed-b
-          feedId: 'feed-a',
-          guid: 'fresh-guid',
-          title: 'A article',
-          url: 'https://example.com/a/1',
-        ),
-      ]),
-      throwsA(isA<StateError>()),
-    );
+    final skipped = await db.articleDao.upsertServerArticles([
+      Article(
+        id: 'taken', // already used by feed-b
+        feedId: 'feed-a',
+        guid: 'fresh-guid',
+        title: 'A article',
+        url: 'https://example.com/a/1',
+      ),
+    ]);
 
+    expect(skipped.map((a) => a.id), ['taken'],
+        reason: 'the conflicting row is reported to the caller');
     expect(await db.getArticlesByFeed('feed-a'), isEmpty,
-        reason: 'the transaction must roll back');
+        reason: 'the conflicted row is not written');
     expect((await db.getArticlesByFeed('feed-b')).first.id, 'taken',
         reason: 'the pre-existing row is untouched');
+  });
+
+  test('F5: one identity-conflicted row no longer rolls back the whole '
+      'sync page', () async {
+    final db = AppDatabase.testing(NativeDatabase.memory());
+    addTearDown(db.close);
+
+    await db.feedDao.insertOrUpdateFeed(Feed(
+      id: 'feed-1',
+      url: 'https://example.com/feed.xml',
+      title: 'Example',
+    ));
+    await db.feedDao.insertOrUpdateFeed(Feed(
+      id: 'feed-2',
+      url: 'https://example.com/other.xml',
+      title: 'Other',
+    ));
+    // Cross-server data mixing: id X already exists under feed-2, so a
+    // page claiming X for feed-1 conflicts. Before the fix this threw
+    // StateError, rolled back up to 200 already-processed rows and
+    // permanently bricked article sync on the raw error.
+    await db.articleDao.insertArticles([
+      Article(
+        id: 'X',
+        feedId: 'feed-2',
+        guid: 'g2',
+        title: 'Foreign row',
+        url: 'https://example.com/other/2',
+      ),
+    ]);
+
+    final skipped = await db.articleDao.upsertServerArticles([
+      Article(
+        id: 'X',
+        feedId: 'feed-1',
+        guid: 'gx',
+        title: 'Conflicted',
+        url: 'https://example.com/1',
+      ),
+      Article(
+        id: 'Y',
+        feedId: 'feed-1',
+        guid: 'g3',
+        title: 'Healthy row in the same page',
+        url: 'https://example.com/2',
+      ),
+    ]);
+
+    expect(skipped.map((a) => a.id), ['X']);
+    final feed1 = await db.getArticlesByFeed('feed-1');
+    expect(feed1.map((a) => a.id), ['Y'],
+        reason: 'the rest of the page commits despite the conflict');
+    expect((await db.getArticlesByFeed('feed-2')).map((a) => a.id), ['X'],
+        reason: 'the row that owns the id is untouched');
+
+    // The next page (same persistent conflict) still succeeds.
+    final again = await db.articleDao.upsertServerArticles([
+      Article(
+        id: 'X',
+        feedId: 'feed-1',
+        guid: 'gx',
+        title: 'Conflicted',
+        url: 'https://example.com/1',
+      ),
+      Article(
+        id: 'Z',
+        feedId: 'feed-1',
+        guid: 'g4',
+        title: 'Next page row',
+        url: 'https://example.com/3',
+      ),
+    ]);
+    expect(again.map((a) => a.id), ['X']);
+    expect((await db.getArticlesByFeed('feed-1')).map((a) => a.id),
+        containsAll(['Y', 'Z']),
+        reason: 'a persistent conflict row must not brick the sync');
   });
 
   test('R4-03: server rows carry a real guid distinct from the url',

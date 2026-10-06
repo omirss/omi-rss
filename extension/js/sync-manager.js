@@ -20,10 +20,16 @@ class SyncManager {
   // the chrome.storage pieces. The timestamp is the persisted
   // settingsModifiedAt, not a fresh Date.now(), so an imported file's
   // settings can actually win the merge.
+  //
+  // Settings live in chrome.storage.local under the 'settings' key —
+  // the same store every settings reader/writer uses (config.js,
+  // background.js, popup.js). chrome.storage.sync is NOT read here:
+  // nothing in the extension ever wrote it, so merging it was an inert
+  // no-op and real settings never traveled.
   async getSyncData() {
-    const [snapshot, settings, readStatus, savedArticles, deviceId, modified] = await Promise.all([
+    const [snapshot, storedSettings, readStatus, savedArticles, deviceId, modified] = await Promise.all([
       storageService.exportAllData(),
-      chrome.storage.sync.get(null),
+      chrome.storage.local.get('settings'),
       chrome.storage.local.get('readArticles'),
       chrome.storage.local.get('savedArticles'),
       this.getDeviceId(),
@@ -38,7 +44,7 @@ class SyncManager {
         feeds: snapshot.feeds,
         articles: snapshot.articles,
         folders: snapshot.folders,
-        settings: settings || {},
+        settings: (storedSettings && storedSettings.settings) || {},
         readStatus: (readStatus && readStatus.readArticles) || {},
         savedArticles: (savedArticles && savedArticles.savedArticles) || []
       }
@@ -94,6 +100,13 @@ class SyncManager {
   //   import)
   // - read status union; saved pages deduped by URL
   // - settings by the REAL persisted settingsModifiedAt timestamps
+  //
+  // Surviving rows are annotated with profile-independent identities so
+  // the apply phase never resolves anything through a numeric source
+  // id: `_syncFeedUrl` (articles), `_syncOrigin`/`_syncFolderPath`
+  // (feeds) and `_syncPath` (folders). Ids are per-profile
+  // auto-increment counters, so the SAME numeric id names different
+  // rows on each side and any id-keyed map would silently clobber.
   mergeData(local, remote) {
     const merged = {
       version: '1.0',
@@ -102,14 +115,29 @@ class SyncManager {
       data: {}
     };
 
-    // Feeds by URL
+    // Per-side folder path maps (used to annotate feeds and folders).
+    const localPathsById = SyncManager.folderPathMap(local.data.folders);
+    const remotePathsById = SyncManager.folderPathMap(remote.data.folders);
+
+    // Feeds by URL. The winner carries its origin side and its
+    // folder's NAME PATH (or null for "no folder", undefined for a
+    // folderId that side's own folder list cannot resolve).
     const feedByUrl = new Map();
-    for (const feed of [...local.data.feeds, ...remote.data.feeds]) {
-      const existing = feedByUrl.get(feed.url);
-      if (!existing || String(feed.updatedAt || '') > String(existing.updatedAt || '')) {
-        feedByUrl.set(feed.url, feed);
+    const considerFeed = (feed, origin, pathsById) => {
+      const annotated = {
+        ...feed,
+        _syncOrigin: origin,
+        _syncFolderPath: feed.folderId === null || feed.folderId === undefined
+          ? null
+          : pathsById.get(feed.folderId)
+      };
+      const existing = feedByUrl.get(annotated.url);
+      if (!existing || String(annotated.updatedAt || '') > String(existing.updatedAt || '')) {
+        feedByUrl.set(annotated.url, annotated);
       }
-    }
+    };
+    for (const feed of local.data.feeds) considerFeed(feed, 'local', localPathsById);
+    for (const feed of remote.data.feeds) considerFeed(feed, 'remote', remotePathsById);
     merged.data.feeds = Array.from(feedByUrl.values());
 
     // Articles keyed by (source feed url, guid). Feed ids are
@@ -146,11 +174,16 @@ class SyncManager {
     for (const article of remote.data.articles) mergeArticle(article, feedUrlByRemoteId);
     merged.data.articles = Array.from(articleMap.values());
 
-    // Folders by name path
-    const localPaths = new Set(Array.from(SyncManager.folderPathMap(local.data.folders).values()));
-    const remotePaths = SyncManager.folderPathMap(remote.data.folders);
-    const remoteFoldersOnNewPaths = remote.data.folders.filter(folder => !localPaths.has(remotePaths.get(folder.id)));
-    merged.data.folders = [...local.data.folders, ...remoteFoldersOnNewPaths];
+    // Folders by name path. Each surviving folder carries its own
+    // side's resolved path (a remote child may hang under a remote
+    // parent that was dropped as a path-duplicate; its path is still
+    // the full remote path, not just its own name).
+    const localPaths = new Set(Array.from(localPathsById.values()));
+    const remoteFoldersOnNewPaths = remote.data.folders.filter(folder => !localPaths.has(remotePathsById.get(folder.id)));
+    merged.data.folders = [
+      ...local.data.folders.map(folder => ({ ...folder, _syncPath: localPathsById.get(folder.id) })),
+      ...remoteFoldersOnNewPaths.map(folder => ({ ...folder, _syncPath: remotePathsById.get(folder.id) }))
+    ];
 
     // Read status - union
     merged.data.readStatus = {
@@ -182,14 +215,17 @@ class SyncManager {
   // merged row. Content columns come from the winner — including the
   // disabled flag (a winning disable/enable must not be dropped) — and
   // the folder assignment: null when the winner has no folder (a
-  // removal must propagate), the remapped id when it has one, and
-  // "leave untouched" only when the winner's folder is unknown.
-  static feedApplyPatch(feed, folderIdBySourceId) {
+  // removal must propagate), the path-resolved local id when it has
+  // one, and "leave untouched" only when the winner's folder is
+  // unknown. [folderIdByPath] maps the winner's `_syncFolderPath`
+  // (its own side's name path) to a local folder id — never a numeric
+  // source id, which is per-profile and collides.
+  static feedApplyPatch(feed, folderIdByPath) {
     let folderId;
     if (feed.folderId === null || feed.folderId === undefined) {
       folderId = null;
     } else {
-      const mapped = folderIdBySourceId.get(feed.folderId);
+      const mapped = folderIdByPath.get(feed._syncFolderPath);
       folderId = mapped !== undefined ? mapped : undefined;
     }
     return {
@@ -206,11 +242,15 @@ class SyncManager {
   // Applies a merged bundle: folders by name path (ids remapped), feeds by
   // URL (local counters kept), articles as raw state-preserving upserts
   // keyed by (local feed id, guid) — never addFeed/addArticles, which mint
-  // new ids and force isRead/isSaved false.
+  // new ids and force isRead/isSaved false. Every identity is resolved by
+  // URL or name path (the profile-independent keys the merge phase
+  // annotated); numeric source ids are never used as map keys.
   async applyMergedData(merged) {
     await storageService.ensureReady();
 
-    // 1. Folders: match by path, create the missing ones (parents first).
+    // 1. Folders: identity is the name path. Ensure every merged path
+    // exists locally, creating missing ancestors first (a merged remote
+    // child can arrive with its parent dropped as a path-duplicate).
     const localFolders = await storageService.getAllFolders();
     const folderIdByPath = new Map();
     for (const [id, path] of SyncManager.folderPathMap(localFolders)) {
@@ -218,47 +258,43 @@ class SyncManager {
     }
 
     const mergedFolderById = new Map(merged.data.folders.map(folder => [folder.id, folder]));
-    const depthOf = (folder, seen = new Set()) => {
-      let depth = 0;
-      let parentId = folder.parentId;
-      while (parentId !== null && parentId !== undefined && !seen.has(parentId)) {
-        seen.add(parentId);
-        const parent = mergedFolderById.get(parentId);
-        if (!parent) break;
-        depth++;
-        parentId = parent.parentId;
-      }
-      return depth;
-    };
-    const sortedFolders = [...merged.data.folders].sort((a, b) => depthOf(a) - depthOf(b));
-
-    const folderIdBySourceId = new Map();
-    for (const folder of sortedFolders) {
-      const path = SyncManager.folderPath(folder, mergedFolderById);
+    const ensureFolderPath = async (path) => {
       const existing = folderIdByPath.get(path);
-      if (existing !== undefined) {
-        folderIdBySourceId.set(folder.id, existing);
-        continue;
-      }
-      const parentMapped = folder.parentId !== null && folder.parentId !== undefined
-        ? folderIdBySourceId.get(folder.parentId)
-        : undefined;
-      const created = await storageService.addFolder(folder.name, parentMapped !== undefined ? parentMapped : null);
+      if (existing !== undefined) return existing;
+      const segments = path.split('/');
+      const name = segments.pop();
+      const parentPath = segments.join('/');
+      const parentId = parentPath ? await ensureFolderPath(parentPath) : null;
+      const created = await storageService.addFolder(name, parentId);
       folderIdByPath.set(path, created.id);
-      folderIdBySourceId.set(folder.id, created.id);
+      return created.id;
+    };
+
+    // Fallback for callers that hand-build merged data without the
+    // merge phase's annotations: resolve the path against the merged
+    // folder graph (best-effort; ids may collide in that graph).
+    const pathOf = (folder) => typeof folder._syncPath === 'string'
+      ? folder._syncPath
+      : SyncManager.folderPath(folder, mergedFolderById);
+    const mergedPaths = merged.data.folders
+      .map(pathOf)
+      .filter(path => path.length > 0);
+    // Shallow paths first so parents exist before children.
+    mergedPaths.sort((a, b) =>
+      a.split('/').length - b.split('/').length || (a < b ? -1 : a > b ? 1 : 0));
+    for (const path of mergedPaths) {
+      await ensureFolderPath(path);
     }
 
     // 2. Feeds: upsert by URL — merged content columns (including the
     // disabled flag and folder assignment/removal), local counters.
-    const feedIdBySourceId = new Map();
+    const feedIdByUrl = new Map();
     for (const feed of merged.data.feeds) {
       const existing = feed.url ? await storageService.getFeedByUrl(feed.url).catch(() => null) : null;
+      const patch = SyncManager.feedApplyPatch(feed, folderIdByPath);
       if (existing) {
-        feedIdBySourceId.set(feed.id, existing.id);
-        await storageService.updateFeed(
-          existing.id,
-          SyncManager.feedApplyPatch(feed, folderIdBySourceId)
-        );
+        await storageService.updateFeed(existing.id, patch);
+        feedIdByUrl.set(feed.url, existing.id);
       } else {
         const newId = await storageService.addFeed({
           url: feed.url,
@@ -268,15 +304,11 @@ class SyncManager {
           favicon: feed.favicon,
           updateInterval: feed.updateInterval,
           disabled: !!feed.disabled,
-          folderId: (() => {
-            const patch = SyncManager.feedApplyPatch(feed, folderIdBySourceId);
-            return patch.folderId !== undefined ? patch.folderId : null;
-          })()
+          folderId: patch.folderId !== undefined ? patch.folderId : null
         });
-        feedIdBySourceId.set(feed.id, newId);
+        feedIdByUrl.set(feed.url, newId);
       }
     }
-    const feedIdByUrl = new Map(merged.data.feeds.map(feed => [feed.url, feedIdBySourceId.get(feed.id)]));
 
     // 3. Articles: raw state-preserving upserts in ONE transaction.
     await new Promise((resolve, reject) => {
@@ -294,9 +326,10 @@ class SyncManager {
           return;
         }
         const article = merged.data.articles[i];
-        const feedId = article._syncFeedUrl !== undefined
-          ? feedIdByUrl.get(article._syncFeedUrl)
-          : feedIdBySourceId.get(article.feedId);
+        // Resolve through the merge annotation only: the source
+        // feedId is a per-profile auto-increment id and cannot be
+        // mapped safely (colliding ids would re-attribute articles).
+        const feedId = feedIdByUrl.get(article._syncFeedUrl);
         if (feedId === undefined) {
           next(i + 1);
           return;
@@ -333,14 +366,24 @@ class SyncManager {
       tx.onabort = () => reject(tx.error || failure || new Error('article import aborted'));
     });
 
-    // 4. chrome.storage pieces.
+    // 4. chrome.storage pieces. Settings go back to the store the
+    // extension actually reads (chrome.storage.local under the
+    // 'settings' key), so a winning remote settings merge is live
+    // immediately.
     await Promise.all([
       chrome.storage.local.set({ readArticles: merged.data.readStatus }),
       chrome.storage.local.set({ savedArticles: merged.data.savedArticles })
     ]);
     if (merged.settingsFromRemote) {
-      await chrome.storage.sync.set(merged.data.settings);
-      await chrome.storage.local.set({ settingsModifiedAt: Date.now() });
+      // An empty winning settings object carries nothing to apply —
+      // legacy exports written while settings sync was inert carry
+      // exactly that, and applying it would blank real local settings.
+      const settings = merged.data.settings;
+      if (settings && typeof settings === 'object' &&
+          Object.keys(settings).length > 0) {
+        await chrome.storage.local.set({ settings });
+        await chrome.storage.local.set({ settingsModifiedAt: Date.now() });
+      }
     }
 
     chrome.runtime.sendMessage({ action: 'feeds-updated', feeds: merged.data.feeds }).catch(() => {});

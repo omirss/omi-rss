@@ -259,10 +259,20 @@ class AuthNotifier extends StateNotifier<AuthState> {
     final oldBaseUrl = _apiService.baseUrl;
     if (!_owns(session)) return;
 
+    // Each removal crosses a platform-channel await: a login that
+    // interleaved on one of them owns the newer session, and both its
+    // persisted credentials and its in-memory state must survive this
+    // logout (the round-4 ownership invariant).
     await prefs.remove(_tokenKey);
+    if (!_owns(session)) return;
     await prefs.remove(_refreshTokenKey);
+    if (!_owns(session)) return;
     await prefs.remove(_userKey);
-    if (!mounted) return;
+    if (!_owns(session)) return;
+    // Last-writer check: a newer session that already installed a
+    // token while these removals were in flight makes the stored token
+    // reappear — resetting the state then would wipe a fresh login.
+    if (prefs.getString(_tokenKey) != null) return;
     state = AuthState();
 
     // Best-effort server logout with the PREVIOUS session's token and
@@ -319,23 +329,55 @@ class AuthNotifier extends StateNotifier<AuthState> {
       throw const ApiException('Authentication failed: no token returned');
     }
 
+    final user =
+        userJson is Map<String, dynamic> ? User.fromJson(userJson) : null;
+
     final prefs = await _prefs;
     // A login that started before a newer login/logout/server switch
-    // must not install its credentials over the newer session.
-    if (!_owns(session)) return;
+    // must not install its credentials over the newer session. Every
+    // write below crosses a platform-channel await, so ownership is
+    // re-checked after each one (the round-4 invariant: a delayed
+    // completion may only write state or preferences while it still
+    // owns the newest session).
+    final written = <String, String>{};
+    var owned = _owns(session);
 
-    await prefs.setString(_tokenKey, token);
-    if (refreshToken != null) {
-      await prefs.setString(_refreshTokenKey, refreshToken);
-    } else {
-      await prefs.remove(_refreshTokenKey);
+    if (owned) {
+      await prefs.setString(_tokenKey, token);
+      written[_tokenKey] = token;
+      owned = _owns(session);
+    }
+    if (owned) {
+      if (refreshToken != null) {
+        await prefs.setString(_refreshTokenKey, refreshToken);
+        written[_refreshTokenKey] = refreshToken;
+      } else {
+        // Removing a stale refresh token matches what a concurrent
+        // logout/newer login would do anyway; nothing to roll back.
+        await prefs.remove(_refreshTokenKey);
+      }
+      owned = _owns(session);
+    }
+    if (owned && user != null) {
+      final encoded = jsonEncode(user.toJson());
+      await prefs.setString(_userKey, encoded);
+      written[_userKey] = encoded;
+      owned = _owns(session);
     }
 
-    final user = userJson is Map<String, dynamic>
-        ? User.fromJson(userJson)
-        : null;
-    if (user != null) {
-      await prefs.setString(_userKey, jsonEncode(user.toJson()));
+    if (!owned) {
+      // Ownership was lost mid-write (a logout or newer login
+      // interleaved on an await): undo what this call wrote. A key
+      // whose current value is neither ours nor absent belongs to the
+      // newer session and is left alone — the in-memory cache lags the
+      // platform store, so "absent" also counts as ours to undo.
+      for (final entry in written.entries) {
+        final current = prefs.getString(entry.key);
+        if (current == entry.value || current == null) {
+          await prefs.remove(entry.key);
+        }
+      }
+      return;
     }
 
     state = state.copyWith(

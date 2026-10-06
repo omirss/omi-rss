@@ -186,10 +186,15 @@ class ArticleDao extends DatabaseAccessor<AppDatabase> with _$ArticleDaoMixin {
   ///
   /// Matching by id AND by (feedId, guid), the surviving row is rekeyed
   /// to the canonical server id while client-owned state (read/starred,
-  /// full-content cache, AI fields) is preserved. An article id that
-  /// belongs to a different feed is rejected without partial writes.
-  Future<void> upsertServerArticles(List<Article> incoming) {
-    return transaction(() async {
+  /// full-content cache, AI fields) is preserved. A server article id
+  /// that already belongs to a DIFFERENT feed is an identity conflict
+  /// (e.g. a backup restored over a previously-synced database): that
+  /// row is skipped and returned so the caller can observe it, while
+  /// the rest of the batch commits — one poisoned row must not roll
+  /// back the whole page and brick the sync.
+  Future<List<Article>> upsertServerArticles(List<Article> incoming) async {
+    final skipped = <Article>[];
+    await transaction(() async {
       for (final server in incoming) {
         final byId = await (select(articlesTable)
               ..where((a) => a.id.equals(server.id)))
@@ -201,9 +206,9 @@ class ArticleDao extends DatabaseAccessor<AppDatabase> with _$ArticleDaoMixin {
             .getSingleOrNull();
 
         if (byId != null && byId.feedId != server.feedId) {
-          throw StateError(
-              'Article ${server.id} belongs to another feed '
-              '(${byId.feedId}, not ${server.feedId})');
+          // Single-row integrity conflict; the batch continues.
+          skipped.add(server);
+          continue;
         }
 
         final old = <Article>[
@@ -257,6 +262,7 @@ class ArticleDao extends DatabaseAccessor<AppDatabase> with _$ArticleDaoMixin {
         await into(articlesTable).insertOnConflictUpdate(_toEntry(merged));
       }
     });
+    return skipped;
   }
 
   /// Mark article as read

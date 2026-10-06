@@ -155,6 +155,53 @@ test('R4-14: colliding cross-profile feed ids never re-attribute articles', () =
   assert.equal(articleB._syncFeedUrl, 'https://b.example/feed');
 });
 
+test('F1: surviving feeds carry their origin and their own side\'s folder path', () => {
+  // Folder id 2 is "News" locally and "Tech" remotely: a bare folder id
+  // cannot identify the folder across profiles, so the merge annotates
+  // each winner with the PATH resolved against ITS side's folder list.
+  const local = snapshot({
+    folders: [{ id: 2, name: 'News', parentId: null }],
+    feeds: [{ id: 1, url: 'https://a.example/feed', folderId: 2, updatedAt: '2026-01-01' }]
+  });
+  const remote = snapshot({
+    folders: [{ id: 2, name: 'Tech', parentId: null }],
+    feeds: [{ id: 1, url: 'https://b.example/feed', folderId: 2, updatedAt: '2026-01-02' }]
+  });
+
+  const merged = merge(local, remote);
+  const feedA = merged.data.feeds.find(f => f.url === 'https://a.example/feed');
+  const feedB = merged.data.feeds.find(f => f.url === 'https://b.example/feed');
+  assert.equal(feedA._syncOrigin, 'local');
+  assert.equal(feedA._syncFolderPath, 'News');
+  assert.equal(feedB._syncOrigin, 'remote');
+  assert.equal(feedB._syncFolderPath, 'Tech');
+
+  // Surviving folders carry their own side's resolved path too.
+  const folderNews = merged.data.folders.find(f => f.name === 'News');
+  const folderTech = merged.data.folders.find(f => f.name === 'Tech');
+  assert.equal(folderNews._syncPath, 'News');
+  assert.equal(folderTech._syncPath, 'Tech');
+});
+
+test('F1: a winner without a folder annotates null; an unresolvable folderId annotates undefined', () => {
+  const merged = merge(
+    snapshot({
+      folders: [{ id: 3, name: 'News', parentId: null }],
+      feeds: [
+        { id: 1, url: 'https://a.example/feed', folderId: null, updatedAt: '2026-01-01' },
+        { id: 2, url: 'https://b.example/feed', folderId: 999, updatedAt: '2026-01-01' }
+      ]
+    }),
+    snapshot({})
+  );
+  const feedA = merged.data.feeds.find(f => f.url === 'https://a.example/feed');
+  const feedB = merged.data.feeds.find(f => f.url === 'https://b.example/feed');
+  assert.equal(feedA._syncFolderPath, null,
+    'folderId null means "no folder": the apply phase must clear the local folder');
+  assert.equal(feedB._syncFolderPath, undefined,
+    'a dangling folderId leaves the local assignment untouched');
+});
+
 test('R4-16: the winning feed patch carries the disabled flag', () => {
   const patch = SyncManager.feedApplyPatch(
     { title: 'T', description: 'D', siteUrl: 's', favicon: 'f', updateInterval: 30, disabled: true, folderId: null },
@@ -163,11 +210,11 @@ test('R4-16: the winning feed patch carries the disabled flag', () => {
   assert.equal(patch.disabled, true, 'a winning disable must apply');
 
   const enabled = SyncManager.feedApplyPatch(
-    { title: 'T', siteUrl: 's', updateInterval: 30, disabled: false, folderId: 5 },
-    new Map([[5, 50]])
+    { title: 'T', siteUrl: 's', updateInterval: 30, disabled: false, folderId: 5, _syncFolderPath: 'Tech' },
+    new Map([['Tech', 50]])
   );
   assert.equal(enabled.disabled, false);
-  assert.equal(enabled.folderId, 50, 'a winning folder move remaps to the local id');
+  assert.equal(enabled.folderId, 50, 'a winning folder move remaps through the folder name path');
 });
 
 test('R4-16: removing the folder on the winning row propagates as null', () => {
@@ -175,16 +222,24 @@ test('R4-16: removing the folder on the winning row propagates as null', () => {
   // not skip the key (skipping silently kept the old assignment).
   const patch = SyncManager.feedApplyPatch(
     { title: 'T', siteUrl: 's', updateInterval: 30, folderId: null },
-    new Map([[7, 70]])
+    new Map([['Tech', 70]])
   );
   assert.ok('folderId' in patch);
   assert.equal(patch.folderId, null);
 
-  // A folder reference that maps to nothing local leaves the local
-  // assignment untouched rather than corrupting it.
-  const unknown = SyncManager.feedApplyPatch(
+  // A folder reference that resolves to nothing local leaves the local
+  // assignment untouched rather than corrupting it: both a folder path
+  // the merge could not resolve (no annotation) and one that simply is
+  // not in the local path map.
+  const unannotated = SyncManager.feedApplyPatch(
     { title: 'T', siteUrl: 's', updateInterval: 30, folderId: 404 },
-    new Map([[7, 70]])
+    new Map([['Tech', 70]])
   );
-  assert.ok(!('folderId' in unknown));
+  assert.ok(!('folderId' in unannotated));
+
+  const unknownPath = SyncManager.feedApplyPatch(
+    { title: 'T', siteUrl: 's', updateInterval: 30, folderId: 404, _syncFolderPath: 'Gone' },
+    new Map([['Tech', 70]])
+  );
+  assert.ok(!('folderId' in unknownPath));
 });

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -309,6 +311,59 @@ void main() {
     expect(refreshed!.lastFetched, isNotNull,
         reason: 'the local fetch marker advances after the poll loop');
   });
+
+  test('F2: a local-only feed the server 404s still auto-refreshes from '
+      'its publisher while signed in', () async {
+    // The publisher serving the real feed XML on the loopback.
+    var publisherHits = 0;
+    final publisher = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(publisher.close);
+    publisher.listen((request) async {
+      publisherHits++;
+      final response = request.response;
+      response.headers.contentType =
+          ContentType('application', 'rss+xml', charset: 'utf-8');
+      response.write('<?xml version="1.0" encoding="UTF-8"?>'
+          '<rss version="2.0"><channel>'
+          '<title>Local-only</title>'
+          '<link>http://127.0.0.1:${publisher.port}/</link>'
+          '<item><guid>g-1</guid><title>One</title>'
+          '<link>http://127.0.0.1:${publisher.port}/1</link></item>'
+          '</channel></rss>');
+      await response.close();
+    });
+
+    final db = AppDatabase.testing(NativeDatabase.memory());
+    addTearDown(db.close);
+    // A feed the active account's server does not have (legacy
+    // library / refused OPML push): every server call for it 404s.
+    final feed = _localFeed(
+        'local-1', 'http://127.0.0.1:${publisher.port}/feed.xml');
+    await db.feedDao.insertOrUpdateFeed(feed);
+
+    final (container, api) = await _boot(_NotFoundFeedApi.new, db: db);
+    await container.read(feedSyncProvider.notifier).debugRefreshServerFeed(feed);
+
+    expect(publisherHits, greaterThanOrEqualTo(1),
+        reason: 'the local publisher refresh must run; before the fix '
+            'the 404 was swallowed and the feed never refreshed');
+    expect(api.refreshFeedCalls, 0,
+        reason: 'no server refresh is queued for a feed the server does not have');
+    final refreshed = await db.feedDao.getFeed('local-1');
+    expect(refreshed!.lastFetched, isNotNull,
+        reason: 'the fetch marker advances so the tick schedule resumes');
+    expect(await db.articleDao.getArticlesByFeed('local-1'), isNotEmpty,
+        reason: 'the fetched articles land in the local database');
+  });
+}
+
+/// Server that never adopted the local feed: every getFeed is a 404.
+class _NotFoundFeedApi extends _SyncApi {
+  _NotFoundFeedApi(super.ref);
+
+  @override
+  Future<Feed> getFeed(String feedId) async =>
+      throw const ApiException('Resource not found.', statusCode: 404);
 }
 
 /// API whose getFeeds fails on demand.

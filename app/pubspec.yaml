@@ -58,6 +58,9 @@ dev_dependencies:
   build_runner: ^2.4.7
   drift_dev: ^2.14.1
   sqlite3: ^2.4.2
+  # Direct dependency for tests that need to interleave with the
+  # preferences store (gated platform-channel round trips).
+  shared_preferences_platform_interface: ^2.4.1
 
 flutter:
   uses-material-design: true
