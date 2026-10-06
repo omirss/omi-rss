@@ -248,16 +248,15 @@ class FeedRefreshNotifier extends StateNotifier<AsyncValue<RefreshProgress>> {
       // Refresh all feeds
       final results = await feedService.batchRefresh(feeds);
       
-      // Save updated feeds and articles
+      // Save updated feeds and articles under the retention cap: the
+      // local batch path must enforce the same limit as server sync.
+      final limit = sanitizeArticleLimit(await persistedArticleLimit());
       for (final result in results.results.values) {
-        // Update feed
-        await database.feedDao.updateFeed(result.feed);
-
-        // Upsert articles so publisher corrections reach known guids
-        if (result.upsertArticles.isNotEmpty) {
-          await database.articleDao
-              .upsertPublisherArticles(result.upsertArticles);
-        }
+        await database.commitPublisherRefresh(
+          result.feed,
+          result.upsertArticles,
+          limit,
+        );
       }
       
       state = AsyncValue.data(RefreshProgress(
@@ -289,13 +288,13 @@ class FeedRefreshNotifier extends StateNotifier<AsyncValue<RefreshProgress>> {
       // Refresh feed
       final result = await feedService.refreshFeed(feed);
 
-      // Update feed
-      await database.feedDao.updateFeed(result.feed);
-
-      // Upsert articles so publisher corrections reach known guids
-      if (result.upsertArticles.isNotEmpty) {
-        await database.articleDao.upsertPublisherArticles(result.upsertArticles);
-      }
+      // Feed row, publisher articles and the retention cap commit
+      // together, matching the server-sync paths.
+      await database.commitPublisherRefresh(
+        result.feed,
+        result.upsertArticles,
+        sanitizeArticleLimit(await persistedArticleLimit()),
+      );
       
       state = AsyncValue.data(RefreshProgress(
         current: 1,

@@ -4,7 +4,9 @@ import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:rss_glassmorphism_reader/config/api_config.dart';
 import 'package:rss_glassmorphism_reader/core/models/article.dart';
+import 'package:rss_glassmorphism_reader/providers/auth_provider.dart';
 import 'package:rss_glassmorphism_reader/services/api_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -284,5 +286,122 @@ void main() {
     expect(requests, hasLength(2));
     expect(requests.first.queryParameters['limit'], '200');
     expect(requests.last.queryParameters['page'], '2');
+  });
+
+  test('R4-03: Article.fromJson prefers the real guid over the URL fallback',
+      () {
+    final article = Article.fromJson({
+      'id': 'a1',
+      'feedId': 'f1',
+      'guid': 'urn:uuid:real-publisher-guid',
+      'title': 'T',
+      'url': 'https://example.com/1',
+    });
+    expect(article.guid, 'urn:uuid:real-publisher-guid');
+    expect(article.guid, isNot(article.url));
+
+    final legacy = Article.fromJson({
+      'id': 'a2',
+      'feedId': 'f1',
+      'title': 'T',
+      'url': 'https://example.com/2',
+    });
+    expect(legacy.guid, 'https://example.com/2',
+        reason: 'older servers without the guid field fall back to the URL');
+  });
+
+  test('R4-04: a stale 401 from the old origin triggers no refresh after a '
+      'server switch', () async {
+    var refreshHits = 0;
+    final serverA = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(serverA.close);
+    serverA.listen((request) async {
+      if (request.method == 'POST' && request.uri.path == '/api/auth/refresh') {
+        refreshHits++;
+      }
+      // The 401 lands only after the client has already switched origin.
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      final response = request.response;
+      response.headers.contentType = ContentType.json;
+      response.statusCode = 401;
+      response.write(jsonEncode({'error': 'Token expired'}));
+      await response.close();
+    });
+
+    await ApiConfig.setServerUrl(_base(serverA));
+    addTearDown(() => ApiConfig.setServerUrl(''));
+    SharedPreferences.setMockInitialValues(
+        {'access_token': 'a-old', 'refresh_token': 'r-old'});
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final api = container.read(apiServiceProvider);
+
+    final stale = api.getArticles();
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    // Switch origin while the request is in flight: the session (and
+    // the dio base URL) rotate before the old origin answers.
+    api.updateBaseUrl('http://127.0.0.1:9');
+    await expectLater(stale, throwsA(isA<ApiException>()));
+
+    expect(refreshHits, 0,
+        reason: 'the captured origin/session snapshot is stale; the '
+            'interceptor must surface the 401 instead of refreshing');
+  });
+
+  test('R4-04/R4-05: a refresh rejection racing a newer login never clears '
+      'the newer session', () async {
+    var loginHits = 0;
+    var refreshHits = 0;
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(server.close);
+    late StreamSubscription<HttpRequest> sub;
+    sub = server.listen((request) async {
+      final response = request.response;
+      response.headers.contentType = ContentType.json;
+      if (request.method == 'POST' && request.uri.path == '/api/auth/login') {
+        loginHits++;
+        response.write(jsonEncode({
+          'token': 'token-new',
+          'refreshToken': 'r-new',
+          'user': {'id': 'u2', 'email': 'b@b.c', 'username': 'b'},
+        }));
+      } else if (request.method == 'POST' &&
+          request.uri.path == '/api/auth/refresh') {
+        refreshHits++;
+        // Rejection arrives after the newer login completed.
+        await Future<void>.delayed(const Duration(milliseconds: 300));
+        response.statusCode = 401;
+        response.write(jsonEncode({'error': 'Invalid refresh token'}));
+      } else {
+        response.statusCode = 401;
+        response.write(jsonEncode({'error': 'Token expired'}));
+      }
+      await response.close();
+    });
+    addTearDown(() async => sub.cancel());
+
+    await ApiConfig.setServerUrl(_base(server));
+    addTearDown(() => ApiConfig.setServerUrl(''));
+    SharedPreferences.setMockInitialValues(
+        {'access_token': 'a-old', 'refresh_token': 'r-old'});
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+    final api = container.read(apiServiceProvider);
+    final auth = container.read(authProvider.notifier);
+
+    // The stale request 401s immediately; its refresh is still pending
+    // when the newer login lands and rotates the session.
+    final stale = api.getArticles();
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    await auth.login(emailOrUsername: 'b', password: 'pw');
+    await expectLater(stale, throwsA(isA<ApiException>()));
+
+    expect(refreshHits, 1);
+    expect(loginHits, 1);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString('access_token'), 'token-new',
+        reason: 'an old rejected refresh must not clear the newer login');
+    expect(prefs.getString('refresh_token'), 'r-new');
+    expect(container.read(authProvider).isAuthenticated, isTrue);
   });
 }

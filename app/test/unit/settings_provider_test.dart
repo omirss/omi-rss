@@ -59,7 +59,8 @@ void main() {
     expect(prefs.getString('refresh_token'), isNull);
   });
 
-  test('C14: corrupt retention/interval preferences are clamped', () async {
+  test('C14/R4-02: corrupt retention falls back to 50, typed values clamp',
+      () async {
     SharedPreferences.setMockInitialValues(
         {'articlesPerFeed': -1, 'updateInterval': 99999});
     final container = ProviderContainer();
@@ -68,15 +69,34 @@ void main() {
     await pumpEventQueue(); // let _loadSettings settle
 
     var settings = container.read(settingsProvider);
-    expect(settings.articlesPerFeed, 1,
-        reason: 'a corrupt cap must never become a wipe-all retention');
+    expect(settings.articlesPerFeed, 50,
+        reason: 'a corrupt persisted cap recovers to the safe default, '
+            'not a destructive "keep 1"');
     expect(settings.updateInterval, 1440);
 
+    // Values the user just typed are clamped, not defaulted.
     notifier.setArticlesPerFeed(0);
     notifier.setUpdateInterval(1);
     await pumpEventQueue();
     settings = container.read(settingsProvider);
     expect(settings.articlesPerFeed, 1);
     expect(settings.updateInterval, 5);
+  });
+
+  test('R4-02: persistedArticleLimit recovers corrupt stored values to 50',
+      () async {
+    SharedPreferences.setMockInitialValues({});
+    expect(await persistedArticleLimit(), 50,
+        reason: 'unset preference uses the default');
+
+    for (final corrupt in [-1, 0, 10001, -9999]) {
+      SharedPreferences.setMockInitialValues({'articlesPerFeed': corrupt});
+      expect(await persistedArticleLimit(), 50,
+          reason: 'corrupt value $corrupt must recover to 50, not clamp');
+    }
+
+    SharedPreferences.setMockInitialValues({'articlesPerFeed': 137});
+    expect(await persistedArticleLimit(), 137,
+        reason: 'valid stored values pass through');
   });
 }

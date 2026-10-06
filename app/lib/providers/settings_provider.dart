@@ -1,5 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../config/api_config.dart';
+import '../config/api_config.dart';
 import '../services/api_service.dart';
 import 'auth_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -11,9 +11,27 @@ final settingsProvider = StateNotifierProvider<SettingsNotifier, AppSettings>((r
 
 /// Retention and interval preferences can be corrupted on disk or by
 /// older builds; clamp them so an invalid value can never wipe data.
+/// Use for values the user just typed in the UI.
 int sanitizeArticleLimit(int n) => n.clamp(1, 10000);
 
 int sanitizeUpdateInterval(int n) => n.clamp(5, 1440);
+
+/// Restore a persisted retention preference. Corrupt out-of-range
+/// values fall back to the 50 default instead of being clamped: a
+/// stored -1 must not become a destructive "keep 1" cap.
+int restorePersistedArticleLimit(int? stored) =>
+    (stored == null || stored < 1 || stored > 10000) ? 50 : stored;
+
+/// The persisted articlesPerFeed retention setting, with corrupt
+/// values recovered to the default.
+Future<int> persistedArticleLimit() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    return restorePersistedArticleLimit(prefs.getInt('articlesPerFeed'));
+  } catch (_) {
+    return 50;
+  }
+}
 
 class AppSettings {
   final bool autoUpdateFeeds;
@@ -68,7 +86,7 @@ class SettingsNotifier extends StateNotifier<AppSettings> {
       enableSync: prefs.getBool('enableSync') ?? true,
       showReadArticles: prefs.getBool('showReadArticles') ?? true,
       articlesPerFeed:
-          sanitizeArticleLimit(prefs.getInt('articlesPerFeed') ?? 50),
+          restorePersistedArticleLimit(prefs.getInt('articlesPerFeed')),
       serverUrl: ApiConfig.baseUrl,
     );
   }

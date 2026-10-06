@@ -25,6 +25,9 @@ What the JSON payloads actually expose to clients:
 - `GET /api/articles` (list — the route the Flutter client syncs against):
   `isRead`, `isStarred`, `readAt`. **No `starredAt`, no `updatedAt`.**
 - `GET /api/articles/:id`: same set.
+- Update 2026-10-06 (round-4 audit fixes): both routes additionally
+  expose `guid` (the publisher GUID from `articles.guid`), so clients
+  key identity on `(feedId, guid)` instead of substituting the URL.
 - `PATCH /api/articles/:id/state`, `POST /api/articles/batch-update`,
   `POST /api/articles/mark-all-read`: return `{message}` / `{message,
   updatedCount}` only — no state echo, no timestamps.
@@ -37,9 +40,17 @@ Flutter client current behavior (for context):
 - `Article.fromJson` ignores the server `readAt`; local `updatedAt`
   defaults to parse-time `DateTime.now()`. The model's `readAt`/`starredAt`
   getters are approximations off that local `updatedAt`.
-- Sync pull (`sync_provider.dart` → `articleDao.insertArticles`) uses
-  `insertAllOnConflictUpdate`: full-row clobber, server flags overwrite
-  local flags on every sync.
+- Sync pull (`sync_provider.dart` → `articleDao.upsertServerArticles`,
+  as of the round-4 fixes) reconciles identities: a local row with the
+  same `(feedId, guid)` but a different id is rekeyed to the server id
+  and local read/star state survives that one-time merge. Repeat pulls
+  are full-row upserts of server-owned columns, so a local flag change
+  is still overwritten by the next pull — durable two-way state sync
+  remains the design below, not current behavior.
+- Subscription push is provenance-gated (`LibraryOwner` in
+  `sync_provider.dart`): only feed URLs the active account created
+  locally (pending creates) are uploaded; legacy/unassigned libraries
+  and other accounts' pulled rows never push.
 - Push (`article_actions_provider.dart`) is fire-and-forget best-effort
   `updateArticleState`; failures are dropped, and the next pull clobbers
   the local state that failed to push.

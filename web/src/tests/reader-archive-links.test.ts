@@ -11,6 +11,7 @@ import type { ArticleListItem } from "../lib/api-types.js";
 const article: ArticleListItem = {
   id: "a1",
   feedId: "f1",
+  guid: "publisher-guid-1",
   title: "Title",
   url: "https://example.com/post/1",
   summary: null,

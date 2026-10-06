@@ -112,8 +112,10 @@ void main() {
     expect(feed.items, hasLength(2),
         reason: 'malformed-typed item must be skipped, siblings kept');
     expect(feed.items.map((i) => i.guid), unorderedEquals(['1', '3']));
-    // The item with an unparsable date is still kept with a fallback date.
-    expect(feed.items.last.publishedAt, isNotNull);
+    // The item with an unparsable date is kept as undated (null); the
+    // database preserves its first-seen date instead of re-dating it
+    // on every refresh.
+    expect(feed.items.last.publishedAt, isNull);
   });
 
   test('A15: relative RSS links resolve against the feed URL', () async {
@@ -269,5 +271,120 @@ void main() {
 
     final feed = await service.parseFeed('https://example.com/blog/feed.xml');
     expect(feed.items.first.thumbnail, 'https://example.com/blog/images/y.png');
+  });
+
+  ResponseBody byteResponse(
+    List<int> bytes, {
+    String contentType = 'application/xml',
+  }) {
+    return ResponseBody.fromBytes(
+      bytes,
+      200,
+      headers: {
+        Headers.contentTypeHeader: [contentType],
+      },
+    );
+  }
+
+  test('R4-08: a decoder failure rejects the parse future instead of '
+      'hanging', () async {
+    // Declared charset the decoder does not support: _decodeFeedBytes
+    // throws inside the stream's onDone callback. The completer must
+    // surface that error; awaiting parseFeed used to never resolve.
+    final bytes = ascii.encode(
+        '<rss version="1.0"?><rss version="2.0"><channel><title>T</title>'
+        '<item><title>One</title><guid>g1</guid></item></channel></rss>');
+    final (_, dio) = _dioFor((o) => byteResponse(bytes,
+        contentType: 'application/xml; charset=iso-8859-5'));
+    final service = FeedParserService(dio: dio);
+
+    await expectLater(
+      service.parseFeed('https://example.com/feed.xml').timeout(
+        const Duration(seconds: 5),
+      ),
+      throwsA(isA<FeedParseException>()),
+    );
+  });
+
+  test('R4-09: Windows-1252 high bytes decode to punctuation, not C1 '
+      'controls', () async {
+    final bytes = <int>[
+      ...ascii.encode(
+          '<rss version="2.0"><channel><title>T</title><item><title>It'),
+      0x92, // cp1252 RIGHT SINGLE QUOTATION MARK
+      ...ascii.encode(
+          's</title><guid>g1</guid></item></channel></rss>'),
+    ];
+    final (_, dio) = _dioFor((o) => byteResponse(bytes,
+        contentType: 'application/xml; charset=windows-1252'));
+    final service = FeedParserService(dio: dio);
+
+    final feed = await service.parseFeed('https://example.com/feed.xml');
+    expect(feed.items.first.title, 'It’s');
+  });
+
+  test('R4-09: quoted charset parameters are honored', () async {
+    const rss = '<rss version="2.0"><channel><title>T</title>'
+        '<item><title>One</title><guid>g1</guid></item></channel></rss>';
+    final (_, dio) = _dioFor((o) => byteResponse(ascii.encode(rss),
+        contentType: 'application/xml; charset="utf-8"'));
+    final service = FeedParserService(dio: dio);
+
+    final feed = await service.parseFeed('https://example.com/feed.xml');
+    expect(feed.items, hasLength(1));
+  });
+
+  test('R4-09: a UTF-8 BOM outranks a lying Content-Type charset',
+      () async {
+    const body = '<rss version="2.0"><channel><title>café</title>'
+        '<item><title>One</title><guid>g1</guid></item></channel></rss>';
+    final bytes = <int>[
+      0xEF, 0xBB, 0xBF, // UTF-8 BOM
+      ...utf8.encode(body),
+    ];
+    // The header claims latin-1; force-decoding the UTF-8 bytes as
+    // latin-1 would corrupt "café" into "cafÃ©".
+    final (_, dio) = _dioFor((o) => byteResponse(bytes,
+        contentType: 'application/xml; charset=iso-8859-1'));
+    final service = FeedParserService(dio: dio);
+
+    final feed = await service.parseFeed('https://example.com/feed.xml');
+    expect(feed.title, 'café');
+  });
+
+  test('R4-09: true ISO-8859-1 content still decodes as latin-1',
+      () async {
+    final bytes = <int>[
+      ...ascii.encode(
+          '<rss version="2.0"><channel><title>caf'),
+      0xE9, // é in ISO-8859-1
+      ...ascii.encode(
+          '</title><item><title>One</title><guid>g1</guid></item>'
+          '</channel></rss>'),
+    ];
+    final (_, dio) = _dioFor((o) => byteResponse(bytes,
+        contentType: 'application/xml; charset=iso-8859-1'));
+    final service = FeedParserService(dio: dio);
+
+    final feed = await service.parseFeed('https://example.com/feed.xml');
+    expect(feed.title, 'café');
+  });
+
+  test('R4-09: a UTF-16 BOM decodes the document instead of throwing',
+      () async {
+    const body = '<rss version="2.0"><channel><title>café</title>'
+        '<item><title>One</title><guid>g1</guid></item></channel></rss>';
+    // UTF-16LE with BOM: each code unit becomes two little-endian bytes.
+    final units = body.codeUnits;
+    final bytes = <int>[
+      0xFF, 0xFE,
+      for (final unit in units) ...[unit & 0xFF, (unit >> 8) & 0xFF],
+    ];
+    final (_, dio) = _dioFor((o) => byteResponse(bytes));
+    final service = FeedParserService(dio: dio);
+
+    final feed = await service.parseFeed('https://example.com/feed.xml');
+    expect(feed.title, 'café');
+    expect(feed.items, hasLength(1));
   });
 }

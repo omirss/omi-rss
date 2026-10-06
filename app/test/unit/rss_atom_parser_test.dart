@@ -55,12 +55,12 @@ void main() {
     expect(articles, hasLength(1));
     expect(parsed.items, hasLength(1));
     expect(
-      parsed.items.first.publishedAt.toUtc(),
+      parsed.items.first.publishedAt!.toUtc(),
       articles.first.publishedAt!.toUtc(),
       reason: 'both parser paths must normalize offsets to the same '
           'UTC instant',
     );
-    expect(parsed.items.first.publishedAt.toUtc(),
+    expect(parsed.items.first.publishedAt!.toUtc(),
         DateTime.utc(2026, 10, 4, 10, 0, 0));
   });
 

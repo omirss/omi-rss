@@ -132,3 +132,59 @@ test('read status is a union of both sides', () => {
   );
   assert.deepEqual(merged.data.readStatus, { a: true, b: true });
 });
+
+test('R4-14: colliding cross-profile feed ids never re-attribute articles', () => {
+  // Local feed id 1 is url A; REMOTE feed id 1 is a DIFFERENT feed (url
+  // B). A single shared id->url map resolved local articles against
+  // whichever side was inserted last, silently moving them to the
+  // wrong feed.
+  const local = snapshot({
+    feeds: [{ id: 1, url: 'https://a.example/feed', updatedAt: '2026-01-01' }],
+    articles: [{ id: 10, feedId: 1, guid: 'x', title: 'Belongs to A', updatedAt: '2026-01-01' }]
+  });
+  const remote = snapshot({
+    feeds: [{ id: 1, url: 'https://b.example/feed', updatedAt: '2026-01-02' }],
+    articles: [{ id: 20, feedId: 1, guid: 'y', title: 'Belongs to B', updatedAt: '2026-01-02' }]
+  });
+
+  const merged = merge(local, remote);
+  assert.equal(merged.data.articles.length, 2);
+  const articleA = merged.data.articles.find(a => a.guid === 'x');
+  const articleB = merged.data.articles.find(a => a.guid === 'y');
+  assert.equal(articleA._syncFeedUrl, 'https://a.example/feed');
+  assert.equal(articleB._syncFeedUrl, 'https://b.example/feed');
+});
+
+test('R4-16: the winning feed patch carries the disabled flag', () => {
+  const patch = SyncManager.feedApplyPatch(
+    { title: 'T', description: 'D', siteUrl: 's', favicon: 'f', updateInterval: 30, disabled: true, folderId: null },
+    new Map()
+  );
+  assert.equal(patch.disabled, true, 'a winning disable must apply');
+
+  const enabled = SyncManager.feedApplyPatch(
+    { title: 'T', siteUrl: 's', updateInterval: 30, disabled: false, folderId: 5 },
+    new Map([[5, 50]])
+  );
+  assert.equal(enabled.disabled, false);
+  assert.equal(enabled.folderId, 50, 'a winning folder move remaps to the local id');
+});
+
+test('R4-16: removing the folder on the winning row propagates as null', () => {
+  // The winner has no folder; the patch must CLEAR the local folder,
+  // not skip the key (skipping silently kept the old assignment).
+  const patch = SyncManager.feedApplyPatch(
+    { title: 'T', siteUrl: 's', updateInterval: 30, folderId: null },
+    new Map([[7, 70]])
+  );
+  assert.ok('folderId' in patch);
+  assert.equal(patch.folderId, null);
+
+  // A folder reference that maps to nothing local leaves the local
+  // assignment untouched rather than corrupting it.
+  const unknown = SyncManager.feedApplyPatch(
+    { title: 'T', siteUrl: 's', updateInterval: 30, folderId: 404 },
+    new Map([[7, 70]])
+  );
+  assert.ok(!('folderId' in unknown));
+});

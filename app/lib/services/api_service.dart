@@ -60,7 +60,7 @@ class ApiService {
     ));
 
     // Add interceptors
-    _dio.interceptors.add(AuthInterceptor(_ref));
+    _dio.interceptors.add(AuthInterceptor(_ref, api: this));
     if (kDebugMode) {
       // Never log request/response bodies: they can contain passwords,
       // tokens, and private payloads.
@@ -170,6 +170,18 @@ class ApiService {
       if (newRefreshToken is String) {
         await prefs.setString('refresh_token', newRefreshToken);
       }
+      if (generation == _authGeneration) {
+        // Publish the rotation to the in-memory auth state so
+        // getAuthHeaders() and the UI observe the new token before a
+        // restart. A stale notifier (disposed container) is skipped.
+        final notifier = _tryAuthNotifier();
+        if (notifier != null) {
+          notifier.applyRotatedTokens(
+            token: token,
+            refreshToken: newRefreshToken is String ? newRefreshToken : null,
+          );
+        }
+      }
       return tokens;
     }).whenComplete(() {
       if (identical(_refreshFlight?.future, future)) _refreshFlight = null;
@@ -183,20 +195,39 @@ class ApiService {
     return future;
   }
 
+  AuthNotifier? _tryAuthNotifier() {
+    try {
+      return _ref.read(authProvider.notifier);
+    } catch (_) {
+      // The provider (or its container) is gone; nothing to publish to.
+      return null;
+    }
+  }
+
   Future<Map<String, dynamic>> _performTokenRefresh(
     String refreshToken,
     String baseUrl,
   ) async {
-    // Bare dio without interceptors to avoid a refresh loop.
-    final dio = Dio(BaseOptions(baseUrl: baseUrl));
-    final response = await dio.post('/auth/refresh', data: {
-      'refreshToken': refreshToken,
-    });
-    final data = response.data;
-    if (data is! Map<String, dynamic>) {
-      throw const ApiException('Invalid refresh response');
+    // Bare dio without interceptors to avoid a refresh loop. Timeouts
+    // keep a hung server from pinning the flight forever, and the
+    // client is always closed so sockets do not leak per rotation.
+    final dio = Dio(BaseOptions(
+      baseUrl: baseUrl,
+      connectTimeout: ApiConfig.connectionTimeout,
+      receiveTimeout: ApiConfig.receiveTimeout,
+    ));
+    try {
+      final response = await dio.post('/auth/refresh', data: {
+        'refreshToken': refreshToken,
+      });
+      final data = response.data;
+      if (data is! Map<String, dynamic>) {
+        throw const ApiException('Invalid refresh response');
+      }
+      return data;
+    } finally {
+      dio.close();
     }
-    return data;
   }
 
   Future<void> logout() async {
@@ -204,6 +235,26 @@ class ApiService {
       await _dio.post('/auth/logout');
     } on DioException catch (_) {
       // Logout is a no-op server-side; stored auth is cleared regardless
+    }
+  }
+
+  /// Best-effort server logout for credentials captured before the
+  /// local session was rotated. Uses exactly the captured token and
+  /// origin so clearing a session can never invalidate a newer one.
+  Future<void> logoutWithToken(String token, String baseUrl) async {
+    if (token.isEmpty || baseUrl.isEmpty) return;
+    final dio = Dio(BaseOptions(
+      baseUrl: baseUrl,
+      connectTimeout: ApiConfig.connectionTimeout,
+      receiveTimeout: ApiConfig.receiveTimeout,
+    ));
+    try {
+      await dio.post('/auth/logout',
+          options: Options(headers: {'Authorization': 'Bearer $token'}));
+    } on DioException catch (_) {
+      // Server-side logout is best-effort by design.
+    } finally {
+      dio.close();
     }
   }
 
@@ -577,9 +628,14 @@ class ApiService {
 class AuthInterceptor extends Interceptor {
   final Ref ref;
 
-  AuthInterceptor(this.ref);
+  /// The ApiService that owns the Dio instance this interceptor is
+  /// attached to. Resolving it through [ref] would read the provider
+  /// from its own Ref ("a provider cannot depend on itself"), so the
+  /// instance is bound directly at construction — including to test
+  /// subclasses.
+  final ApiService api;
 
-  ApiService _api() => ref.read(apiServiceProvider);
+  AuthInterceptor(this.ref, {required this.api});
 
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) async {
@@ -588,14 +644,26 @@ class AuthInterceptor extends Interceptor {
         options.path.contains('/auth/register') ||
         options.path.contains('/auth/refresh') ||
         options.path.contains('/auth/forgot-password')) {
-      return handler.next(options);
+      handler.next(options);
+      return;
     }
 
+    // One snapshot of the session at dispatch time: generation, origin
+    // and both tokens are read together and travel with the request.
+    // The 401 handler may only act inside this snapshot — a response
+    // that lands after a login/logout/server switch must never send
+    // the CURRENT session's credentials to the OLD origin.
     final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('access_token');
+    final snapshot = (
+      generation: api._authGeneration,
+      baseUrl: options.baseUrl,
+      token: prefs.getString('access_token'),
+      refreshToken: prefs.getString('refresh_token'),
+    );
+    options.extra['authDispatch'] = snapshot;
 
-    if (token != null) {
-      options.headers['Authorization'] = 'Bearer $token';
+    if (snapshot.token != null) {
+      options.headers['Authorization'] = 'Bearer ${snapshot.token}';
     }
 
     handler.next(options);
@@ -603,39 +671,82 @@ class AuthInterceptor extends Interceptor {
 
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) async {
-    if (err.response?.statusCode == 401 && !err.requestOptions.path.contains('/auth/')) {
-      // Token might be expired, try to refresh. The refresh is single-flight
-      // and bound to the session that started it: if the user logs out,
-      // logs in as someone else, or switches server origin while the
-      // refresh is in flight, its result is discarded instead of being
-      // written back to preferences.
-      final api = _api();
-      final generation = api._authGeneration;
+    final snapshot = err.requestOptions.extra['authDispatch'];
+    if (err.response?.statusCode == 401 &&
+        !err.requestOptions.path.contains('/auth/') &&
+        snapshot is ({
+          int generation,
+          String baseUrl,
+          String? token,
+          String? refreshToken,
+        })) {
+      // Checks BEFORE issuing a refresh: the session that dispatched
+      // this request must still be the current one, and its refresh
+      // token must still be the stored one. Otherwise the request is
+      // stale and surfacing the 401 is the only safe action.
       final prefs = await SharedPreferences.getInstance();
-      final refreshToken = prefs.getString('refresh_token');
+      final stillCurrent = api._authGeneration == snapshot.generation &&
+          snapshot.refreshToken != null &&
+          prefs.getString('refresh_token') == snapshot.refreshToken &&
+          snapshot.baseUrl == api._dio.options.baseUrl;
 
-      if (refreshToken != null) {
+      if (stillCurrent) {
+        Map<String, dynamic>? tokens;
+        var refreshRejected = false;
         try {
-          final tokens =
-              await api.refreshTokensSingleFlight(refreshToken, err.requestOptions.baseUrl);
-          if (tokens != null && generation == api._authGeneration) {
-            final newToken = tokens['token'] as String;
-            // Retry original request with new token
-            err.requestOptions.headers['Authorization'] = 'Bearer $newToken';
-            // Bare dio avoids the interceptor loop on retry.
-            final dio = Dio(BaseOptions(baseUrl: err.requestOptions.baseUrl));
-            final cloneReq = await dio.fetch(err.requestOptions);
-            return handler.resolve(cloneReq);
-          }
+          // Refresh posts only to the captured origin with the
+          // captured credential.
+          tokens = await api.refreshTokensSingleFlight(
+              snapshot.refreshToken!, snapshot.baseUrl);
         } on DioException catch (e) {
           if (e.response?.statusCode == 401 || e.response?.statusCode == 403) {
-            // Refresh token rejected: clear the session locally. Network
-            // and 5xx failures keep stored credentials.
+            refreshRejected = true;
+          }
+          // Network and 5xx failures keep stored credentials.
+        } on ApiException {
+          // Malformed refresh payload: surface the original 401 and
+          // keep stored credentials.
+        }
+
+        if (refreshRejected) {
+          // The refresh credential was definitively rejected — but it
+          // may have been rotated while the refresh was in flight, so
+          // only clear when this snapshot still owns the session.
+          final stillOwner = api._authGeneration == snapshot.generation &&
+              prefs.getString('refresh_token') == snapshot.refreshToken;
+          if (stillOwner) {
             unawaited(ref.read(authProvider.notifier).clearLocalSession());
           }
-        } on ApiException {
-          // Malformed refresh payload: surface the original 401 and keep
-          // stored credentials.
+          return handler.next(err);
+        }
+
+        final newToken = tokens?['token'];
+        if (tokens != null &&
+            newToken is String &&
+            newToken.isNotEmpty &&
+            api._authGeneration == snapshot.generation &&
+            prefs.getString('refresh_token') ==
+                (tokens['refreshToken'] is String
+                    ? tokens['refreshToken']
+                    : snapshot.refreshToken)) {
+          err.requestOptions.extra['authRetried'] = true;
+          err.requestOptions.headers['Authorization'] = 'Bearer $newToken';
+          // The retry runs OUTSIDE the refresh-rejection handling: a
+          // resource-level 403 here is a permission answer, not proof
+          // that the refresh credential was rejected.
+          final dio = Dio(BaseOptions(
+            baseUrl: snapshot.baseUrl,
+            connectTimeout: ApiConfig.connectionTimeout,
+            receiveTimeout: ApiConfig.receiveTimeout,
+          ));
+          try {
+            final cloneReq = await dio.fetch(err.requestOptions);
+            return handler.resolve(cloneReq);
+          } on DioException catch (retryError) {
+            return handler.next(retryError);
+          } finally {
+            dio.close();
+          }
         }
       }
     }

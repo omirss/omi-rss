@@ -197,6 +197,25 @@ class AppDatabase extends _$AppDatabase {
     );
   }
   
+  /// Commit the result of a local (direct publisher) feed refresh in one
+  /// transaction: publisher feed columns, publisher article upserts, and
+  /// the per-feed retention cap land together. Every local ingest path
+  /// must go through this so the cap is applied consistently with the
+  /// server-sync paths.
+  Future<void> commitPublisherRefresh(
+    Feed refreshedFeed,
+    List<Article> publisherArticles,
+    int retentionLimit,
+  ) {
+    return transaction(() async {
+      await feedDao.applyPublisherRefresh(refreshedFeed);
+      if (publisherArticles.isNotEmpty) {
+        await articleDao.upsertPublisherArticles(publisherArticles);
+      }
+      await articleDao.enforcePerFeedLimit(retentionLimit);
+    });
+  }
+
   /// Delete all data (useful for testing)
   Future<void> deleteEverything() async {
     await transaction(() async {
@@ -219,25 +238,33 @@ class AppDatabase extends _$AppDatabase {
     // The importer rejects backups with more than one sync metadata row;
     // tolerated legacy multi-row state must not be exported as-is.
     await _canonicalizeSyncMetadata();
-    final feeds = await select(feedsTable).get();
-    final articles = await select(articlesTable).get();
-    final categories = await select(categoriesTable).get();
-    final settings = await select(settingsTable).get();
-    final folders = await select(foldersTable).get();
-    final folderFeeds = await select(folderFeedsTable).get();
-    final syncMetadata = await select(syncMetadataTable).get();
+    // One transaction = one consistent SQLite snapshot. Reading each
+    // table in its own query would let a concurrent refresh commit
+    // between reads and produce a torn backup (articles keyed to feeds
+    // that were re-keyed mid-export).
+    final s = await transaction(() async {
+      return (
+        await select(feedsTable).get(),
+        await select(articlesTable).get(),
+        await select(categoriesTable).get(),
+        await select(settingsTable).get(),
+        await select(foldersTable).get(),
+        await select(folderFeedsTable).get(),
+        await select(syncMetadataTable).get(),
+      );
+    });
 
     return {
       'format': 'omi-rss-backup',
       'version': schemaVersion,
       'exportedAt': DateTime.now().toIso8601String(),
-      'feeds': feeds.map((f) => f.toJson()).toList(),
-      'articles': articles.map((a) => a.toJson()).toList(),
-      'categories': categories.map((c) => c.toJson()).toList(),
-      'settings': settings.map((s) => s.toJson()).toList(),
-      'folders': folders.map((f) => f.toJson()).toList(),
-      'folderFeeds': folderFeeds.map((f) => f.toJson()).toList(),
-      'syncMetadata': syncMetadata.map((s) => s.toJson()).toList(),
+      'feeds': s.$1.map((f) => f.toJson()).toList(),
+      'articles': s.$2.map((a) => a.toJson()).toList(),
+      'categories': s.$3.map((c) => c.toJson()).toList(),
+      'settings': s.$4.map((x) => x.toJson()).toList(),
+      'folders': s.$5.map((f) => f.toJson()).toList(),
+      'folderFeeds': s.$6.map((f) => f.toJson()).toList(),
+      'syncMetadata': s.$7.map((x) => x.toJson()).toList(),
     };
   }
   /// Import database from JSON. The payload is fully parsed and validated
@@ -357,6 +384,26 @@ class AppDatabase extends _$AppDatabase {
     final normalized = Map<String, dynamic>.from(data);
     normalized['format'] = 'omi-rss-backup';
     normalized['version'] = version;
+
+    // A missing table key is not an empty table. Treating it as one
+    // would replace the whole database with empty tables when a
+    // truncated or hand-assembled envelope is imported; every backup
+    // this app ever wrote carries all seven keys, so requiring them
+    // cannot reject a legitimate export.
+    for (final key in const [
+      'feeds',
+      'articles',
+      'categories',
+      'folders',
+      'folderFeeds',
+      'settings',
+      'syncMetadata',
+    ]) {
+      if (normalized[key] is! List) {
+        throw ArgumentError(
+            'Incomplete backup: missing table "$key"');
+      }
+    }
 
     if (version < 4) {
       final feeds = normalized['feeds'];

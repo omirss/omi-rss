@@ -112,13 +112,16 @@ class SyncManager {
     }
     merged.data.feeds = Array.from(feedByUrl.values());
 
-    // Articles keyed by (source feed url, guid)
-    const feedUrlById = new Map([
-      ...local.data.feeds.map(feed => [feed.id, feed.url]),
-      ...remote.data.feeds.map(feed => [feed.id, feed.url])
-    ]);
+    // Articles keyed by (source feed url, guid). Feed ids are
+    // per-profile auto-increment counters, so the SAME numeric id can
+    // name different feeds on each side: each side's articles must be
+    // resolved against THAT side's id->url map. A single shared map
+    // would let a colliding remote id silently re-attribute local
+    // articles to the wrong feed.
+    const feedUrlByLocalId = new Map(local.data.feeds.map(feed => [feed.id, feed.url]));
+    const feedUrlByRemoteId = new Map(remote.data.feeds.map(feed => [feed.id, feed.url]));
     const articleMap = new Map();
-    const mergeArticle = (article) => {
+    const mergeArticle = (article, feedUrlById) => {
       const feedUrl = feedUrlById.get(article.feedId);
       if (feedUrl === undefined) return; // references a feed neither side has
       const key = `${feedUrl}\u0000${article.guid || article.link || article.id}`;
@@ -139,8 +142,8 @@ class SyncManager {
         _syncFeedUrl: feedUrl
       });
     };
-    for (const article of local.data.articles) mergeArticle(article);
-    for (const article of remote.data.articles) mergeArticle(article);
+    for (const article of local.data.articles) mergeArticle(article, feedUrlByLocalId);
+    for (const article of remote.data.articles) mergeArticle(article, feedUrlByRemoteId);
     merged.data.articles = Array.from(articleMap.values());
 
     // Folders by name path
@@ -173,6 +176,31 @@ class SyncManager {
       : local.data.settings;
 
     return merged;
+  }
+
+  // The update patch applied to an EXISTING local feed for a winning
+  // merged row. Content columns come from the winner — including the
+  // disabled flag (a winning disable/enable must not be dropped) — and
+  // the folder assignment: null when the winner has no folder (a
+  // removal must propagate), the remapped id when it has one, and
+  // "leave untouched" only when the winner's folder is unknown.
+  static feedApplyPatch(feed, folderIdBySourceId) {
+    let folderId;
+    if (feed.folderId === null || feed.folderId === undefined) {
+      folderId = null;
+    } else {
+      const mapped = folderIdBySourceId.get(feed.folderId);
+      folderId = mapped !== undefined ? mapped : undefined;
+    }
+    return {
+      title: feed.title,
+      description: feed.description,
+      siteUrl: feed.siteUrl,
+      favicon: feed.favicon,
+      updateInterval: feed.updateInterval,
+      disabled: !!feed.disabled,
+      ...(folderId !== undefined ? { folderId } : {})
+    };
   }
 
   // Applies a merged bundle: folders by name path (ids remapped), feeds by
@@ -220,21 +248,17 @@ class SyncManager {
       folderIdBySourceId.set(folder.id, created.id);
     }
 
-    // 2. Feeds: upsert by URL — merged content columns, local counters.
+    // 2. Feeds: upsert by URL — merged content columns (including the
+    // disabled flag and folder assignment/removal), local counters.
     const feedIdBySourceId = new Map();
     for (const feed of merged.data.feeds) {
       const existing = feed.url ? await storageService.getFeedByUrl(feed.url).catch(() => null) : null;
-      const folderId = folderIdBySourceId.get(feed.folderId);
       if (existing) {
         feedIdBySourceId.set(feed.id, existing.id);
-        await storageService.updateFeed(existing.id, {
-          title: feed.title,
-          description: feed.description,
-          siteUrl: feed.siteUrl,
-          favicon: feed.favicon,
-          updateInterval: feed.updateInterval,
-          ...(folderId !== undefined ? { folderId } : {})
-        });
+        await storageService.updateFeed(
+          existing.id,
+          SyncManager.feedApplyPatch(feed, folderIdBySourceId)
+        );
       } else {
         const newId = await storageService.addFeed({
           url: feed.url,
@@ -244,7 +268,10 @@ class SyncManager {
           favicon: feed.favicon,
           updateInterval: feed.updateInterval,
           disabled: !!feed.disabled,
-          folderId: folderId !== undefined ? folderId : null
+          folderId: (() => {
+            const patch = SyncManager.feedApplyPatch(feed, folderIdBySourceId);
+            return patch.folderId !== undefined ? patch.folderId : null;
+          })()
         });
         feedIdBySourceId.set(feed.id, newId);
       }

@@ -494,10 +494,19 @@ void main() {
     final base = {
       'format': 'omi-rss-backup',
       'version': db.schemaVersion,
+      'articles': <String>[],
+      'categories': <String>[],
+      'folderFeeds': <String>[],
+      'settings': <String>[],
+      'syncMetadata': <String>[],
     };
 
     await expectLater(
-      db.importFromJson({...base, 'feeds': [feedRow], 'folders': [folderRow]}),
+      db.importFromJson({
+        ...base,
+        'feeds': [feedRow],
+        'folders': [folderRow],
+      }),
       throwsArgumentError,
     );
     await expectLater(
@@ -790,6 +799,12 @@ void main() {
         legacyFeedRow('feed-3600', 3600),
         legacyFeedRow('feed-30', 30),
       ],
+      'articles': <String>[],
+      'categories': <String>[],
+      'folders': <String>[],
+      'folderFeeds': <String>[],
+      'settings': <String>[],
+      'syncMetadata': <String>[],
     });
 
     final frequencies = {
@@ -823,10 +838,20 @@ void main() {
           'updatedAt': '2026-10-04T00:00:00.000',
         };
 
+    final cycleBase = {
+      'format': 'omi-rss-backup',
+      'version': db.schemaVersion,
+      'feeds': <String>[],
+      'articles': <String>[],
+      'categories': <String>[],
+      'folderFeeds': <String>[],
+      'settings': <String>[],
+      'syncMetadata': <String>[],
+    };
+
     await expectLater(
       db.importFromJson({
-        'format': 'omi-rss-backup',
-        'version': db.schemaVersion,
+        ...cycleBase,
         'folders': [
           folderRow('a', 'b'),
           folderRow('b', 'a'),
@@ -837,8 +862,7 @@ void main() {
     );
     await expectLater(
       db.importFromJson({
-        'format': 'omi-rss-backup',
-        'version': db.schemaVersion,
+        ...cycleBase,
         'folders': [folderRow('self', 'self')],
       }),
       throwsArgumentError,
@@ -946,5 +970,537 @@ void main() {
 
     expect(await db.getArticlesByFeed('feed-1'), hasLength(1),
         reason: 'an invalid limit must never wipe articles');
+  });
+
+  test('R4-02: retention works on an empty database (real table name)',
+      () async {
+    final db = AppDatabase.testing(NativeDatabase.memory());
+    addTearDown(db.close);
+
+    expect(await db.articleDao.enforcePerFeedLimit(50), 0,
+        reason: 'the old SQL targeted a nonexistent "articles" table and '
+            'threw on every call');
+  });
+
+  test('R4-02: retention caps per feed, keeps starred and NULL-dated rows '
+      'ranked by created_at', () async {
+    final db = AppDatabase.testing(NativeDatabase.memory());
+    addTearDown(db.close);
+
+    for (final feedId in ['feed-a', 'feed-b']) {
+      await db.feedDao.insertOrUpdateFeed(Feed(
+        id: feedId,
+        url: 'https://example.com/$feedId.xml',
+        title: feedId,
+      ));
+    }
+
+    final created = DateTime(2026, 1, 1);
+    final articles = <Article>[
+      // feed-a: 4 dated articles sharing one timestamp (id tiebreak
+      // decides), 1 undated, 1 old-but-starred.
+      for (var i = 0; i < 4; i++)
+        Article(
+          id: 'a-dated-$i',
+          feedId: 'feed-a',
+          guid: 'a-dated-$i',
+          title: 'dated $i',
+          url: 'https://example.com/a/$i',
+          publishedAt: created,
+          createdAt: created,
+        ),
+      Article(
+        id: 'a-undated',
+        feedId: 'feed-a',
+        guid: 'a-undated',
+        title: 'undated',
+        url: 'https://example.com/a/undated',
+        publishedAt: null,
+        createdAt: created.add(const Duration(days: 1)),
+      ),
+      Article(
+        id: 'a-starred-old',
+        feedId: 'feed-a',
+        guid: 'a-starred-old',
+        title: 'starred',
+        url: 'https://example.com/a/starred',
+        publishedAt: created.subtract(const Duration(days: 365)),
+        createdAt: created.subtract(const Duration(days: 365)),
+        isStarred: true,
+      ),
+      // feed-b: one article — a global or per-wrong-feed cap would eat it.
+      Article(
+        id: 'b-only',
+        feedId: 'feed-b',
+        guid: 'b-only',
+        title: 'b',
+        url: 'https://example.com/b',
+        publishedAt: created,
+        createdAt: created,
+      ),
+    ];
+    await db.articleDao.insertArticles(articles);
+
+    final deleted = await db.articleDao.enforcePerFeedLimit(2);
+
+    expect(deleted, 3, reason: '3 of feed-a\'s 6 rows fall outside the cap');
+    final keptA = await db.getArticlesByFeed('feed-a');
+    // Ranking: COALESCE(published_at, created_at) DESC, id DESC —
+    // position 1 is the undated row (newest created_at), position 2 is
+    // a-dated-3 (the id tiebreak inside the equal-timestamp group), and
+    // the starred row is exempt regardless of age.
+    expect(keptA.map((a) => a.id), unorderedEquals([
+      'a-undated',
+      'a-dated-3',
+      'a-starred-old',
+    ]));
+    expect(await db.getArticlesByFeed('feed-b'), hasLength(1),
+        reason: 'the cap is per feed');
+  });
+
+  test('R4-02: retention deletions reach drift article streams', () async {
+    final db = AppDatabase.testing(NativeDatabase.memory());
+    addTearDown(db.close);
+
+    await db.feedDao.insertOrUpdateFeed(Feed(
+      id: 'feed-1',
+      url: 'https://example.com/feed.xml',
+      title: 'Example',
+    ));
+    final created = DateTime(2026, 1, 1);
+    await db.articleDao.insertArticles([
+      for (var i = 0; i < 5; i++)
+        Article(
+          id: 'a-$i',
+          feedId: 'feed-1',
+          guid: 'g$i',
+          title: 'T$i',
+          url: 'https://example.com/$i',
+          publishedAt: created,
+          createdAt: created,
+        ),
+    ]);
+
+    final emitted = <List<Article>>[];
+    final sub = db.articleDao.watchAllArticles().listen(emitted.add);
+    addTearDown(sub.cancel);
+    await Future<void>.delayed(Duration.zero);
+    emitted.clear();
+
+    await db.articleDao.enforcePerFeedLimit(1);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(emitted, isNotEmpty,
+        reason: 'customUpdate must declare updates: {articles_table} so '
+            'article-only watchers observe the deletions');
+    expect(emitted.last, hasLength(1));
+  });
+
+  test('R4-02: commitPublisherRefresh lands feed, articles and cap together '
+      'and preserves user-owned feed columns', () async {
+    final db = AppDatabase.testing(NativeDatabase.memory());
+    addTearDown(db.close);
+
+    await db.feedDao.insertOrUpdateFeed(Feed(
+      id: 'feed-1',
+      url: 'https://example.com/feed.xml',
+      title: 'Publisher title',
+      customTitle: 'My custom name',
+      updateFrequency: 15,
+      isActive: false,
+    ));
+
+    // A refresh that started before the user's edits would carry the
+    // stale pre-edit row; only publisher columns may be applied.
+    final refreshed = (await db.feedDao.getFeed('feed-1'))!.copyWith(
+      title: 'New publisher title',
+      successfulFetches: 5,
+      lastFetched: DateTime(2026, 10, 6),
+    );
+    await db.commitPublisherRefresh(
+      refreshed,
+      [
+        Article(
+          feedId: 'feed-1',
+          guid: 'g1',
+          title: 'One',
+          url: 'https://example.com/1',
+          publishedAt: DateTime(2026, 10, 1),
+        ),
+        Article(
+          feedId: 'feed-1',
+          guid: 'g2',
+          title: 'Two',
+          url: 'https://example.com/2',
+          publishedAt: DateTime(2026, 10, 2),
+        ),
+        Article(
+          feedId: 'feed-1',
+          guid: 'g3',
+          title: 'Three',
+          url: 'https://example.com/3',
+          publishedAt: DateTime(2026, 10, 3),
+        ),
+      ],
+      2,
+    );
+
+    final feed = await db.feedDao.getFeed('feed-1');
+    expect(feed!.title, 'New publisher title');
+    expect(feed.successfulFetches, 5);
+    expect(feed.customTitle, 'My custom name',
+        reason: 'a network refresh must not clobber user edits');
+    expect(feed.updateFrequency, 15);
+    expect(feed.isActive, isFalse);
+
+    final kept =
+        (await db.getArticlesByFeed('feed-1')).map((a) => a.guid).toSet();
+    expect(kept, {'g2', 'g3'},
+        reason: 'the retention cap is applied by the same commit');
+  });
+
+  test('R4-03: local-first sync order — server rows rekey local identities '
+      'without UNIQUE(feed_id, guid) failures', () async {
+    final db = AppDatabase.testing(NativeDatabase.memory());
+    addTearDown(db.close);
+
+    // The real pipeline order: local subscription exists first...
+    await db.feedDao.insertOrUpdateFeed(Feed(
+      id: 'feed-local',
+      url: 'https://example.com/feed.xml',
+      title: 'Local',
+    ));
+    await db.articleDao.insertArticles([
+      Article(
+        id: 'local-article',
+        feedId: 'feed-local',
+        guid: 'g1',
+        title: 'Old title',
+        url: 'https://example.com/1',
+        isRead: true,
+        isStarred: true,
+        fullContent: 'cached extraction',
+        fullContentFetchedAt: DateTime(2026, 10, 1),
+      ),
+    ]);
+
+    // ...then the server feed arrives and identities merge...
+    await db.feedDao.insertOrUpdateFeed(Feed(
+      id: 'feed-server',
+      url: 'https://example.com/feed.xml',
+      title: 'Server',
+    ));
+    await db.feedDao.mergeFeedIdentity('feed-local', 'feed-server');
+
+    // ...and only THEN are server article pages pulled. The moved local
+    // row still carries its local id; the server row for the same item
+    // has a different one.
+    await db.articleDao.upsertServerArticles([
+      Article(
+        id: 'server-article',
+        feedId: 'feed-server',
+        guid: 'g1',
+        title: 'Server title',
+        url: 'https://example.com/1',
+      ),
+    ]);
+
+    final articles = await db.getArticlesByFeed('feed-server');
+    expect(articles, hasLength(1), reason: 'one item, one row');
+    final row = articles.first;
+    expect(row.id, 'server-article',
+        reason: 'the canonical server id wins');
+    expect(row.title, 'Server title');
+    expect(row.isRead, isTrue, reason: 'rekeying preserves local read state');
+    expect(row.isStarred, isTrue,
+        reason: 'rekeying preserves local starred state');
+    expect(row.fullContent, 'cached extraction',
+        reason: 'the local full-content cache survives the rekey');
+
+    // Pulling the same page again changes nothing.
+    await db.articleDao.upsertServerArticles([
+      Article(
+        id: 'server-article',
+        feedId: 'feed-server',
+        guid: 'g1',
+        title: 'Server title',
+        url: 'https://example.com/1',
+      ),
+    ]);
+    expect(await db.getArticlesByFeed('feed-server'), hasLength(1),
+        reason: 'server pulls are idempotent');
+  });
+
+  test('R4-03: a server article id belonging to another feed is rejected '
+      'without partial writes', () async {
+    final db = AppDatabase.testing(NativeDatabase.memory());
+    addTearDown(db.close);
+
+    await db.feedDao.insertOrUpdateFeed(Feed(
+      id: 'feed-a',
+      url: 'https://example.com/a.xml',
+      title: 'A',
+    ));
+    await db.feedDao.insertOrUpdateFeed(Feed(
+      id: 'feed-b',
+      url: 'https://example.com/b.xml',
+      title: 'B',
+    ));
+    await db.articleDao.insertArticles([
+      Article(
+        id: 'taken',
+        feedId: 'feed-b',
+        guid: 'other',
+        title: 'B article',
+        url: 'https://example.com/b/1',
+      ),
+    ]);
+
+    await expectLater(
+      db.articleDao.upsertServerArticles([
+        Article(
+          id: 'taken', // already used by feed-b
+          feedId: 'feed-a',
+          guid: 'fresh-guid',
+          title: 'A article',
+          url: 'https://example.com/a/1',
+        ),
+      ]),
+      throwsA(isA<StateError>()),
+    );
+
+    expect(await db.getArticlesByFeed('feed-a'), isEmpty,
+        reason: 'the transaction must roll back');
+    expect((await db.getArticlesByFeed('feed-b')).first.id, 'taken',
+        reason: 'the pre-existing row is untouched');
+  });
+
+  test('R4-03: server rows carry a real guid distinct from the url',
+      () async {
+    final db = AppDatabase.testing(NativeDatabase.memory());
+    addTearDown(db.close);
+
+    await db.feedDao.insertOrUpdateFeed(Feed(
+      id: 'feed-1',
+      url: 'https://example.com/feed.xml',
+      title: 'Example',
+    ));
+
+    // A client that previously stored the URL-fallback guid and now
+    // receives the real publisher guid keeps ONE row keyed by the real
+    // guid once the server id lands.
+    await db.articleDao.upsertServerArticles([
+      Article(
+        id: 'server-1',
+        feedId: 'feed-1',
+        guid: 'https://example.com/1', // legacy URL fallback
+        title: 'One',
+        url: 'https://example.com/1',
+      ),
+    ]);
+    await db.articleDao.upsertServerArticles([
+      Article(
+        id: 'server-1',
+        feedId: 'feed-1',
+        guid: 'urn:uuid:real-guid',
+        title: 'One',
+        url: 'https://example.com/1',
+      ),
+    ]);
+
+    final rows = await db.getArticlesByFeed('feed-1');
+    expect(rows, hasLength(1),
+        reason: 'the same server id maps to one row; the guid is '
+            'corrected in place');
+    expect(rows.first.guid, 'urn:uuid:real-guid');
+  });
+
+  test('R4-03: mergeFeedIdentity invalidates article streams', () async {
+    final db = AppDatabase.testing(NativeDatabase.memory());
+    addTearDown(db.close);
+
+    await db.feedDao.insertOrUpdateFeed(Feed(
+      id: 'feed-local',
+      url: 'https://example.com/feed.xml',
+      title: 'Local',
+    ));
+    await db.articleDao.insertArticles([
+      Article(
+        feedId: 'feed-local',
+        guid: 'g1',
+        title: 'T',
+        url: 'https://example.com/1',
+      ),
+    ]);
+
+    final emitted = <List<Article>>[];
+    final sub = db.articleDao.watchAllArticles().listen(emitted.add);
+    addTearDown(sub.cancel);
+    await Future<void>.delayed(Duration.zero);
+    emitted.clear();
+
+    await db.feedDao.insertOrUpdateFeed(Feed(
+      id: 'feed-server',
+      url: 'https://example.com/feed.xml',
+      title: 'Server',
+    ));
+    await db.feedDao.mergeFeedIdentity('feed-local', 'feed-server');
+    await Future<void>.delayed(Duration.zero);
+
+    expect(emitted, isNotEmpty,
+        reason: 'raw article UPDATE/DELETE must declare table updates so '
+            'article-only watchers see the re-keyed rows');
+    expect(emitted.last.first.feedId, 'feed-server');
+  });
+
+  test('R4-10: a refresh without enclosure data keeps stored enclosures',
+      () async {
+    final db = AppDatabase.testing(NativeDatabase.memory());
+    addTearDown(db.close);
+
+    await db.feedDao.insertOrUpdateFeed(Feed(
+      id: 'feed-1',
+      url: 'https://example.com/feed.xml',
+      title: 'Example',
+    ));
+    await db.articleDao.insertArticles([
+      Article(
+        feedId: 'feed-1',
+        guid: 'g1',
+        title: 'With media',
+        url: 'https://example.com/1',
+        enclosures: [
+          const Enclosure(
+            url: 'https://example.com/audio.mp3',
+            type: 'audio/mpeg',
+          ),
+        ],
+      ),
+    ]);
+
+    // The active refresh parser does not carry enclosures at all.
+    await db.articleDao.upsertPublisherArticles([
+      Article(
+        feedId: 'feed-1',
+        guid: 'g1',
+        title: 'With media, refreshed',
+        url: 'https://example.com/1',
+        publishedAt: DateTime(2026, 10, 1),
+        enclosures: null,
+      ),
+    ]);
+
+    final row = (await db.getArticlesByFeed('feed-1')).first;
+    expect(row.title, 'With media, refreshed');
+    expect(row.enclosures, isNotNull,
+        reason: 'a parser that never read enclosures must not erase them');
+    expect(row.enclosures!.first.url, 'https://example.com/audio.mp3');
+  });
+
+  test('R4-11: refreshing an undated article keeps its stored date',
+      () async {
+    final db = AppDatabase.testing(NativeDatabase.memory());
+    addTearDown(db.close);
+
+    await db.feedDao.insertOrUpdateFeed(Feed(
+      id: 'feed-1',
+      url: 'https://example.com/feed.xml',
+      title: 'Example',
+    ));
+    final firstSeen = DateTime(2026, 9, 1);
+    await db.articleDao.insertArticles([
+      Article(
+        feedId: 'feed-1',
+        guid: 'g1',
+        title: 'Undated',
+        url: 'https://example.com/1',
+        publishedAt: firstSeen,
+        createdAt: firstSeen,
+      ),
+    ]);
+
+    // A later refresh where the publisher still supplies no date must
+    // not move the publication date to "now".
+    await db.articleDao.upsertPublisherArticles([
+      Article(
+        feedId: 'feed-1',
+        guid: 'g1',
+        title: 'Undated',
+        url: 'https://example.com/1',
+        publishedAt: null,
+      ),
+    ]);
+
+    final row = (await db.getArticlesByFeed('feed-1')).first;
+    expect(row.publishedAt, firstSeen);
+
+    // A real publisher date still overwrites.
+    await db.articleDao.upsertPublisherArticles([
+      Article(
+        feedId: 'feed-1',
+        guid: 'g1',
+        title: 'Undated',
+        url: 'https://example.com/1',
+        publishedAt: DateTime(2026, 10, 5, 12),
+      ),
+    ]);
+    expect((await db.getArticlesByFeed('feed-1')).first.publishedAt,
+        DateTime(2026, 10, 5, 12));
+  });
+
+  test('R4-12: an incomplete backup envelope is rejected, not imported as '
+      'empty tables', () async {
+    final db = AppDatabase.testing(NativeDatabase.memory());
+    addTearDown(db.close);
+
+    await db.feedDao.insertOrUpdateFeed(Feed(
+      id: 'feed-1',
+      url: 'https://example.com/feed.xml',
+      title: 'Example',
+    ));
+
+    final full = Map<String, dynamic>.from(await db.exportToJson());
+    for (final missing in ['feeds', 'articles', 'folders', 'syncMetadata']) {
+      final truncated = Map<String, dynamic>.from(full)..remove(missing);
+      await expectLater(
+        db.importFromJson(truncated),
+        throwsArgumentError,
+        reason: 'a missing "$missing" key must not read as an empty table',
+      );
+    }
+
+    expect(await db.getAllFeeds(), hasLength(1),
+        reason: 'the existing database survives every rejected import');
+  });
+
+  test('R4-13: export reads one consistent snapshot', () async {
+    final db = AppDatabase.testing(NativeDatabase.memory());
+    addTearDown(db.close);
+
+    await db.feedDao.insertOrUpdateFeed(Feed(
+      id: 'feed-1',
+      url: 'https://example.com/feed.xml',
+      title: 'Example',
+    ));
+    await db.articleDao.insertArticles([
+      Article(
+        feedId: 'feed-1',
+        guid: 'g1',
+        title: 'One',
+        url: 'https://example.com/1',
+      ),
+    ]);
+
+    final export = await db.exportToJson();
+    expect(export['feeds'], hasLength(1));
+    expect(export['articles'], hasLength(1));
+    // Every exported article's feed id resolves inside the same export:
+    // the tables were read inside one transaction, so a concurrent
+    // re-key can never split the snapshot.
+    final feedIds =
+        (export['feeds'] as List).map((f) => (f as Map)['id']).toSet();
+    for (final article in export['articles'] as List) {
+      expect(feedIds, contains((article as Map)['feedId']));
+    }
   });
 }

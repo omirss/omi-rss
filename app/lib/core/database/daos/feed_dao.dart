@@ -77,6 +77,35 @@ class FeedDao extends DatabaseAccessor<AppDatabase> with _$FeedDaoMixin {
   Future<bool> updateFeed(Feed feed) =>
       update(feedsTable).replace(_toEntry(feed));
 
+  /// Apply only the publisher/fetch-health columns of a refreshed feed.
+  /// User-owned columns — customTitle, categoryId, updateFrequency,
+  /// isActive, custom metadata — are left untouched so a network
+  /// refresh that started before an edit cannot clobber it.
+  Future<void> applyPublisherRefresh(Feed refreshed) {
+    return (update(feedsTable)..where((f) => f.id.equals(refreshed.id)))
+        .write(FeedsTableCompanion(
+      title: Value(refreshed.title),
+      description: Value(refreshed.description),
+      link: Value(refreshed.link),
+      siteUrl: Value(refreshed.siteUrl),
+      faviconUrl: Value(refreshed.faviconUrl),
+      imageUrl: Value(refreshed.imageUrl),
+      language: Value(refreshed.language),
+      copyright: Value(refreshed.copyright),
+      generator: Value(refreshed.generator),
+      type: Value(refreshed.type.name),
+      lastFetched: Value(refreshed.lastFetched),
+      etag: Value(refreshed.etag),
+      lastModified: Value(refreshed.lastModified),
+      successfulFetches: Value(refreshed.successfulFetches),
+      failedFetches: Value(refreshed.failedFetches),
+      successRate: Value(refreshed.successRate),
+      lastError: Value(refreshed.lastError),
+      lastErrorAt: Value(refreshed.lastErrorAt),
+      updatedAt: Value(DateTime.now()),
+    ));
+  }
+
   /// Delete feed and its articles
   Future<void> deleteFeed(String feedId) async {
     await transaction(() async {
@@ -126,6 +155,8 @@ class FeedDao extends DatabaseAccessor<AppDatabase> with _$FeedDaoMixin {
           Variable.withString(newFeedId),
           Variable.withString(oldFeedId),
         ],
+        updates: {articlesTable},
+        updateKind: UpdateKind.update,
       );
       await customUpdate(
         'DELETE FROM articles_table WHERE feed_id = ? AND guid IN '
@@ -134,6 +165,8 @@ class FeedDao extends DatabaseAccessor<AppDatabase> with _$FeedDaoMixin {
           Variable.withString(oldFeedId),
           Variable.withString(newFeedId),
         ],
+        updates: {articlesTable},
+        updateKind: UpdateKind.delete,
       );
       await customUpdate(
         'UPDATE articles_table SET feed_id = ? WHERE feed_id = ?',
@@ -141,6 +174,8 @@ class FeedDao extends DatabaseAccessor<AppDatabase> with _$FeedDaoMixin {
           Variable.withString(newFeedId),
           Variable.withString(oldFeedId),
         ],
+        updates: {articlesTable},
+        updateKind: UpdateKind.update,
       );
 
       final memberships = await (select(attachedDatabase.folderFeedsTable)

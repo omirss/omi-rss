@@ -86,6 +86,7 @@ export async function loader({ request, context }: { request: Request; context: 
       .select({
         id: articles.id,
         feedId: articles.feedId,
+        guid: articles.guid,
         title: articles.title,
         url: articles.url,
         summary: articles.summary,

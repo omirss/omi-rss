@@ -4,6 +4,9 @@ import '../core/models/feed.dart';
 import '../core/models/folder.dart';
 import 'database_provider.dart';
 import 'feed_provider.dart';
+import 'settings_provider.dart'
+    show sanitizeArticleLimit, persistedArticleLimit;
+import 'sync_provider.dart' show LibraryOwner, activeLibraryOwner;
 
 /// OPML service provider
 final opmlServiceProvider = Provider<OPMLService>((ref) {
@@ -127,6 +130,14 @@ class OPMLImportNotifier extends StateNotifier<OPMLImportState> {
               feed = feed.copyWith(customTitle: opmlFeed.title);
             }
             await database.feedDao.insertFeed(feed);
+            // Provenance: locally imported URLs may later be pushed by
+            // the account that is actively signed in (if any). Without
+            // this record the sync engine treats them like legacy
+            // local-only rows and never uploads them.
+            final owner = await activeLibraryOwner(ref);
+            if (owner != null) {
+              await LibraryOwner.addPendingCreate(owner, opmlFeed.xmlUrl);
+            }
           } else {
             feed = existingFeed;
             final effectiveTitle = feed.customTitle ?? feed.title;
@@ -151,14 +162,14 @@ class OPMLImportNotifier extends StateNotifier<OPMLImportState> {
           importedCount++;
           state = state.copyWith(importedFeeds: importedCount);
 
-          // Fetch initial articles; persist the refreshed feed before
-          // its articles.
+          // Fetch initial articles; persist the refreshed feed, its
+          // articles and the retention cap together.
           final refreshResult = await feedService.refreshFeed(feed);
-          await database.feedDao.updateFeed(refreshResult.feed);
-          if (refreshResult.upsertArticles.isNotEmpty) {
-            await database.articleDao
-                .upsertPublisherArticles(refreshResult.upsertArticles);
-          }
+          await database.commitPublisherRefresh(
+            refreshResult.feed,
+            refreshResult.upsertArticles,
+            sanitizeArticleLimit(await persistedArticleLimit()),
+          );
         } catch (e) {
           failedCount++;
           errors.add('${opmlFeed.title}: ${e.toString()}');

@@ -100,6 +100,9 @@ export interface FeedDetail {
 export interface ArticleListItem {
   id: string;
   feedId: string;
+  // Publisher GUID. Identity for clients is (feedId, guid); a URL is
+  // NOT a safe substitute when the publisher assigns real GUIDs.
+  guid: string;
   title: string;
   url: string;
   summary: string | null;

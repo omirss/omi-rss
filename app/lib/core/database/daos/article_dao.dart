@@ -160,13 +160,101 @@ class ArticleDao extends DatabaseAccessor<AppDatabase> with _$ArticleDaoMixin {
           content: Value(article.content),
           summary: Value(article.summary),
           author: Value(article.author),
-          publishedAt: Value(article.publishedAt),
+          // An undated refresh must not keep moving the article's
+          // publication date: only a real publisher date overwrites.
+          publishedAt: article.publishedAt == null
+              ? const Value.absent()
+              : Value(article.publishedAt),
           url: Value(article.url),
           imageUrl: Value(article.imageUrl),
           categories: Value(_encodeCategories(article.categories)),
-          enclosures: Value(_encodeEnclosures(article.enclosures)),
+          // Not every parser carries enclosures; a refresh without
+          // enclosure data must not erase enclosures stored earlier.
+          enclosures: article.enclosures == null
+              ? const Value.absent()
+              : Value(_encodeEnclosures(article.enclosures)),
           updatedAt: Value(DateTime.now()),
         ));
+      }
+    });
+  }
+
+  /// Upsert rows that arrived from the server. Server rows are keyed by
+  /// the server's article id, but the schema also enforces
+  /// UNIQUE(feed_id, guid): a locally-created row for the same item has
+  /// a different id and must be reconciled, not blindly inserted.
+  ///
+  /// Matching by id AND by (feedId, guid), the surviving row is rekeyed
+  /// to the canonical server id while client-owned state (read/starred,
+  /// full-content cache, AI fields) is preserved. An article id that
+  /// belongs to a different feed is rejected without partial writes.
+  Future<void> upsertServerArticles(List<Article> incoming) {
+    return transaction(() async {
+      for (final server in incoming) {
+        final byId = await (select(articlesTable)
+              ..where((a) => a.id.equals(server.id)))
+            .getSingleOrNull();
+        final byGuid = await (select(articlesTable)
+              ..where((a) =>
+                  a.feedId.equals(server.feedId) &
+                  a.guid.equals(server.guid)))
+            .getSingleOrNull();
+
+        if (byId != null && byId.feedId != server.feedId) {
+          throw StateError(
+              'Article ${server.id} belongs to another feed '
+              '(${byId.feedId}, not ${server.feedId})');
+        }
+
+        final old = <Article>[
+          if (byId != null) _toModel(byId),
+          if (byGuid != null && byGuid.id != byId?.id) _toModel(byGuid),
+        ];
+        final rekeying = byGuid != null && byGuid.id != server.id;
+        Article? cacheOwner;
+        for (final row in old) {
+          if (row.fullContent != null &&
+              (cacheOwner == null ||
+                  (row.fullContentFetchedAt ?? row.createdAt).isAfter(
+                    cacheOwner.fullContentFetchedAt ?? cacheOwner.createdAt,
+                  ))) {
+            cacheOwner = row;
+          }
+        }
+        final local = old.isEmpty ? null : old.first;
+        final merged = server.copyWith(
+          // One-time identity-merge policy on rekey: local read/star
+          // state survives the id change. This is NOT durable two-way
+          // read/star synchronization.
+          isRead: server.isRead || (rekeying && old.any((a) => a.isRead)),
+          isStarred:
+              server.isStarred || (rekeying && old.any((a) => a.isStarred)),
+          isArchived: server.isArchived || old.any((a) => a.isArchived),
+          createdAt: local?.createdAt ?? server.createdAt,
+          readTimeSeconds: local?.readTimeSeconds ?? server.readTimeSeconds,
+          fullContent: cacheOwner?.fullContent ?? server.fullContent,
+          fullContentFetchedAt:
+              cacheOwner?.fullContentFetchedAt ?? server.fullContentFetchedAt,
+          fullContentAvailable:
+              cacheOwner != null ? true : server.fullContentAvailable,
+          aiSummary: local?.aiSummary ?? server.aiSummary,
+          aiTags: local?.aiTags ?? server.aiTags,
+          perspectives: local?.perspectives ?? server.perspectives,
+          sentimentScore: local?.sentimentScore ?? server.sentimentScore,
+          biasScore: local?.biasScore ?? server.biasScore,
+          customFields: local?.customFields ?? server.customFields,
+          language: local?.language ?? server.language,
+          rights: local?.rights ?? server.rights,
+        );
+
+        // Free the (feed_id, guid) unique key before writing the
+        // canonical id. The schema has no child table referencing
+        // article ids, so the delete cannot orphan anything.
+        if (rekeying) {
+          await (delete(articlesTable)..where((a) => a.id.equals(byGuid.id)))
+              .go();
+        }
+        await into(articlesTable).insertOnConflictUpdate(_toEntry(merged));
       }
     });
   }
@@ -325,16 +413,33 @@ class ArticleDao extends DatabaseAccessor<AppDatabase> with _$ArticleDaoMixin {
   /// feed (starred articles are always kept). Returns rows deleted.
   /// A non-positive limit would delete every unstarred article and is
   /// rejected outright.
+  ///
+  /// Ranking is total — `COALESCE(published_at, created_at)` with an id
+  /// tiebreak — so undated articles are capped too, and Drift stream
+  /// invalidation is declared so article watchers observe the deletions.
   Future<int> enforcePerFeedLimit(int limit) {
     if (limit < 1) {
       throw ArgumentError.value(limit, 'limit', 'must be at least 1');
     }
     return customUpdate(
-      'DELETE FROM articles WHERE is_starred = 0 AND feed_id IS NOT NULL AND '
-      '(SELECT COUNT(*) FROM articles a2 WHERE a2.feed_id = articles.feed_id '
-      'AND (a2.published_at > articles.published_at OR '
-      '(a2.published_at = articles.published_at AND a2.id > articles.id))) >= ?',
+      '''
+      DELETE FROM articles_table
+      WHERE is_starred = 0
+        AND id IN (
+          SELECT id FROM (
+            SELECT id,
+                   ROW_NUMBER() OVER (
+                     PARTITION BY feed_id
+                     ORDER BY COALESCE(published_at, created_at) DESC, id DESC
+                   ) AS position
+            FROM articles_table
+          ) AS ranked
+          WHERE position > ?
+        )
+      ''',
       variables: [Variable.withInt(limit)],
+      updates: {articlesTable},
+      updateKind: UpdateKind.delete,
     );
   }
 
@@ -402,11 +507,17 @@ class ArticleDao extends DatabaseAccessor<AppDatabase> with _$ArticleDaoMixin {
     if (where != null) {
       query.where(where);
     }
+    // Total ordering: undated articles fall back to created_at and the
+    // id tiebreak keeps equal-timestamp groups deterministic (matching
+    // the retention ranking).
     query.orderBy([
       (a) => OrderingTerm(
-            expression: a.publishedAt,
+            expression: CustomExpression<DateTime>(
+              'COALESCE(${a.publishedAt.name}, ${a.createdAt.name})',
+            ),
             mode: OrderingMode.desc,
           ),
+      (a) => OrderingTerm.desc(a.id),
     ]);
     return query;
   }

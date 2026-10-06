@@ -11,6 +11,7 @@ export const middleware = requireAuth;
 const articleColumns = {
   id: articles.id,
   feedId: articles.feedId,
+  guid: articles.guid,
   title: articles.title,
   url: articles.url,
   summary: articles.summary,

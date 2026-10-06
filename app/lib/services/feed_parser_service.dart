@@ -117,7 +117,14 @@ class FeedParserService {
       },
       onDone: () {
         if (!completer.isCompleted) {
-          completer.complete(_decodeFeedBytes(bytes, contentTypeHeader, url));
+          try {
+            completer.complete(_decodeFeedBytes(bytes, contentTypeHeader, url));
+          } catch (e, s) {
+            // A decoder failure (unsupported charset, malformed bytes)
+            // must fail the read future, not vanish as an uncaught zone
+            // error while the caller awaits forever.
+            completer.completeError(e, s);
+          }
         }
       },
       onError: (Object e) {
@@ -127,33 +134,53 @@ class FeedParserService {
     return completer.future;
   }
 
-  /// Decode feed bytes honoring the declared encoding: BOM first, then
-  /// the HTTP Content-Type charset, then the XML declaration. Feeds
-  /// are not always UTF-8; force-decoding ISO-8859-1 content as UTF-8
-  /// silently corrupts it.
+  /// Decode feed bytes honoring the declared encoding. Precedence:
+  /// BOM first (a byte-order mark is authoritative and many servers
+  /// mislabel the charset), then the HTTP Content-Type charset, then
+  /// the XML declaration. Feeds are not always UTF-8; force-decoding
+  /// ISO-8859-1 content as UTF-8 silently corrupts it, and decoding
+  /// Windows-1252 bytes as strict ISO-8859-1 turns curly quotes and
+  /// dashes into C1 control characters.
   String _decodeFeedBytes(List<int> bytes, String? contentType, String url) {
+    // A UTF-16 BOM wins outright: the document is UTF-16 code units.
     if (bytes.length >= 2 &&
         ((bytes[0] == 0xFF && bytes[1] == 0xFE) ||
             (bytes[0] == 0xFE && bytes[1] == 0xFF))) {
-      throw FeedParseException('Unsupported feed encoding (UTF-16): $url', url);
+      final littleEndian = bytes[0] == 0xFF;
+      final units = List<int>.generate(
+        bytes.length ~/ 2,
+        (i) => littleEndian
+            ? bytes[2 * i] | (bytes[2 * i + 1] << 8)
+            : (bytes[2 * i] << 8) | bytes[2 * i + 1],
+      );
+      // Dart strings are UTF-16 internally, so surrogate pairs pass
+      // through unchanged.
+      return String.fromCharCodes(units);
     }
     var offset = 0;
-    if (bytes.length >= 3 &&
+    final hasUtf8Bom = bytes.length >= 3 &&
         bytes[0] == 0xEF &&
         bytes[1] == 0xBB &&
-        bytes[2] == 0xBF) {
+        bytes[2] == 0xBF;
+    if (hasUtf8Bom) {
       offset = 3;
+    }
+
+    // A UTF-8 BOM outranks any declared charset (headers routinely lie).
+    if (hasUtf8Bom) {
+      return utf8.decode(bytes.sublist(offset), allowMalformed: true);
     }
 
     final charset = _headerCharset(contentType) ?? _xmlDeclarationCharset(bytes);
     final normalized = charset?.toLowerCase().replaceAll('_', '-');
+    if (normalized == 'windows-1252' || normalized == 'cp1252') {
+      return _decodeWindows1252(bytes);
+    }
     if (normalized == 'iso-8859-1' ||
         normalized == 'iso8859-1' ||
         normalized == 'latin-1' ||
-        normalized == 'latin1' ||
-        normalized == 'windows-1252' ||
-        normalized == 'cp1252') {
-      return latin1.decode(bytes.sublist(offset));
+        normalized == 'latin1') {
+      return latin1.decode(bytes);
     }
     if (normalized != null &&
         normalized != 'utf-8' &&
@@ -161,14 +188,39 @@ class FeedParserService {
         normalized != 'us-ascii') {
       throw FeedParseException('Unsupported feed encoding "$charset": $url', url);
     }
-    return utf8.decode(bytes.sublist(offset), allowMalformed: true);
+    return utf8.decode(bytes, allowMalformed: true);
   }
 
   String? _headerCharset(String? contentType) {
     if (contentType == null) return null;
-    final match = RegExp(r'charset=([\w.\-]+)', caseSensitive: false)
-        .firstMatch(contentType);
+    // Charset values may be quoted: charset="utf-8" / charset='latin-1'.
+    final match = RegExp(
+      'charset=["\']?([\\w.\\-]+)',
+      caseSensitive: false,
+    ).firstMatch(contentType);
     return match?.group(1);
+  }
+
+  /// Windows-1252 high bytes (0x80-0x9F). Strict ISO-8859-1 renders
+  /// these as C1 control characters; cp1252 assigns punctuation.
+  /// Unassigned positions (0x81, 0x8D, 0x8F, 0x90, 0x9D) fall back to
+  /// the identity code point, matching the WHATWG table.
+  static const List<int> _windows1252HighBytes = [
+    0x20AC, 0x0081, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021, //
+    0x02C6, 0x2030, 0x0160, 0x2039, 0x0152, 0x008D, 0x017D, 0x008F, //
+    0x0090, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014, //
+    0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0x009D, 0x017E, 0x0178, //
+  ];
+
+  static String _decodeWindows1252(List<int> bytes) {
+    final units = List<int>.generate(bytes.length, (i) {
+      final byte = bytes[i];
+      if (byte >= 0x80 && byte <= 0x9F) {
+        return _windows1252HighBytes[byte - 0x80];
+      }
+      return byte;
+    });
+    return String.fromCharCodes(units);
   }
 
   /// The XML declaration itself is ASCII, so it can be read from the
@@ -220,7 +272,7 @@ class FeedParserService {
         link: _resolveUrl(_text(item, 'link'), feedUrl) ?? '',
         description: _stripHtml(_text(item, 'description') ?? ''),
         content: _text(item, 'content:encoded') ?? _text(item, 'description') ?? '',
-        publishedAt: parseFeedDate(_text(item, 'pubDate')) ?? DateTime.now(),
+        publishedAt: parseFeedDate(_text(item, 'pubDate')),
         author: _text(item, 'author') ?? _text(item, 'dc:creator') ?? '',
         categories: [
           ...item.findElements('category').map((cat) => cat.innerText.trim()),
@@ -269,7 +321,8 @@ class FeedParserService {
           link: entryLink,
           description: _stripHtml(_text(entry, 'summary') ?? ''),
           content: _text(entry, 'content') ?? _text(entry, 'summary') ?? '',
-          publishedAt: parseFeedDate(_text(entry, 'published')) ?? parseFeedDate(_text(entry, 'updated')) ?? DateTime.now(),
+          publishedAt: parseFeedDate(_text(entry, 'published')) ??
+              parseFeedDate(_text(entry, 'updated')),
           author: _text(entry, 'author') != null ? _text(entry, 'author')! : '',
           categories: [
             ...entry.findElements('category').map((cat) => cat.getAttribute('term') ?? ''),
@@ -333,8 +386,7 @@ class FeedParserService {
           item['content_text']?.toString() ??
           '',
       publishedAt: parseFeedDate(item['date_published'] as String?) ??
-          parseFeedDate(item['date_modified'] as String?) ??
-          DateTime.now(),
+          parseFeedDate(item['date_modified'] as String?),
       author: _jsonAuthor(item),
       categories: (item['tags'] as List<dynamic>? ?? [])
           .map((tag) => tag.toString())
@@ -404,8 +456,15 @@ class FeedParserService {
       return item;
     }).toList();
     
-    // Sort items by date (newest first)
-    feed.items.sort((a, b) => b.publishedAt.compareTo(a.publishedAt));
+    // Sort items by date (newest first; undated items sort last).
+    feed.items.sort((a, b) {
+      final aDate = a.publishedAt;
+      final bDate = b.publishedAt;
+      if (aDate == null && bDate == null) return 0;
+      if (aDate == null) return 1;
+      if (bDate == null) return -1;
+      return bDate.compareTo(aDate);
+    });
     
     return feed;
   }
@@ -595,7 +654,11 @@ class ParsedArticle {
   String link;
   String description;
   String content;
-  DateTime publishedAt;
+
+  /// Null when the publisher supplied no usable date. Undated articles
+  /// keep their first-seen date in the database instead of being
+  /// re-dated to "now" on every refresh.
+  DateTime? publishedAt;
   String author;
   List<String> categories;
   String? thumbnail;

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -102,6 +103,14 @@ class AuthNotifier extends StateNotifier<AuthState> {
   static const String _refreshTokenKey = 'refresh_token';
   static const String _userKey = 'auth_user';
 
+  /// Monotonic session counter. Every auth entry point captures the
+  /// current value and re-checks it after each await: a delayed
+  /// completion (login, restore, logout, refresh) may only write state
+  /// or preferences while it still owns the newest session. This is
+  /// what stops an old network result from overwriting or clearing a
+  /// newer login.
+  int _session = 0;
+
   AuthNotifier(this.ref) : super(AuthState()) {
     _apiService = ref.read(apiServiceProvider);
     _initialize();
@@ -109,8 +118,12 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   Future<SharedPreferences> get _prefs => _prefsFuture;
 
+  bool _owns(int session) => mounted && _session == session;
+
   Future<void> _initialize() async {
+    final session = _session;
     final prefs = await _prefs;
+    if (!_owns(session)) return;
 
     // Check for stored auth
     final token = prefs.getString(_tokenKey);
@@ -120,6 +133,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       // Try to restore session
       try {
         final user = await _apiService.getCurrentUser();
+        if (!_owns(session)) return;
         state = state.copyWith(
           isAuthenticated: true,
           user: user,
@@ -127,16 +141,19 @@ class AuthNotifier extends StateNotifier<AuthState> {
           refreshToken: refreshToken,
         );
       } catch (e) {
+        if (!_owns(session)) return;
         if (refreshToken != null) {
           // Token expired, try refresh
           try {
             final response = await _apiService.refreshToken(refreshToken);
-            await _saveRefreshedAuth(response);
+            if (!_owns(session)) return;
+            await _saveRefreshedAuth(response, session);
           } catch (e) {
-            await _handleRestoreFailure(e, prefs, token, refreshToken);
+            if (!_owns(session)) return;
+            await _handleRestoreFailure(e, prefs, token, refreshToken, session);
           }
         } else {
-          await _handleRestoreFailure(e, prefs, token, refreshToken);
+          await _handleRestoreFailure(e, prefs, token, refreshToken, session);
         }
       }
     }
@@ -151,10 +168,12 @@ class AuthNotifier extends StateNotifier<AuthState> {
     SharedPreferences prefs,
     String token,
     String? refreshToken,
+    int session,
   ) async {
+    if (!_owns(session)) return;
     if (error is ApiException &&
         (error.statusCode == 401 || error.statusCode == 403)) {
-      await _clearAuth();
+      await _clearAuth(session);
       return;
     }
     final cachedUser = _loadCachedUser(prefs);
@@ -183,6 +202,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
     required String password,
     String? username,
   }) async {
+    // Rotate up front: an in-flight refresh or restore from any
+    // previous session must not observe or overwrite this one.
+    final session = ++_session;
+    _apiService.rotateAuthSession();
     state = state.copyWith(isLoading: true, error: null);
 
     try {
@@ -192,8 +215,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
         password: password,
       );
 
-      await _saveAuth(response);
+      await _saveAuth(response, session);
     } catch (e) {
+      if (!_owns(session)) rethrow;
       state = state.copyWith(
         isLoading: false,
         error: e.toString(),
@@ -206,13 +230,16 @@ class AuthNotifier extends StateNotifier<AuthState> {
     required String emailOrUsername,
     required String password,
   }) async {
+    final session = ++_session;
+    _apiService.rotateAuthSession();
     state = state.copyWith(isLoading: true, error: null);
 
     try {
       final response = await _apiService.login(emailOrUsername, password);
 
-      await _saveAuth(response);
+      await _saveAuth(response, session);
     } catch (e) {
+      if (!_owns(session)) rethrow;
       state = state.copyWith(
         isLoading: false,
         error: e.toString(),
@@ -222,18 +249,47 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
 
   Future<void> logout() async {
-    try {
-      await _apiService.logout();
-    } catch (e) {
-      // Ignore logout errors
+    // Clear the local session BEFORE awaiting the network: a slow or
+    // hung server call must not delay rotation, and a concurrent new
+    // login must never be cleared by this logout's completion.
+    final session = ++_session;
+    _apiService.rotateAuthSession();
+    final prefs = await _prefs;
+    final oldToken = prefs.getString(_tokenKey);
+    final oldBaseUrl = _apiService.baseUrl;
+    if (!_owns(session)) return;
+
+    await prefs.remove(_tokenKey);
+    await prefs.remove(_refreshTokenKey);
+    await prefs.remove(_userKey);
+    if (!mounted) return;
+    state = AuthState();
+
+    // Best-effort server logout with the PREVIOUS session's token and
+    // origin; failures are ignored by design.
+    if (oldToken != null && oldBaseUrl.isNotEmpty) {
+      unawaited(_apiService.logoutWithToken(oldToken, oldBaseUrl));
     }
-    await _clearAuth();
   }
 
   /// Clear stored credentials locally without contacting the server. Used
   /// on server switches and rejected refreshes.
   Future<void> clearLocalSession() async {
-    await _clearAuth();
+    final session = ++_session;
+    _apiService.rotateAuthSession();
+    await _clearAuth(session);
+  }
+
+  /// Publish rotated tokens (from the API layer's refresh flight) to the
+  /// in-memory state so header builders and the UI see the current
+  /// access token without a restart. Preference writes were already
+  /// done by the flight under its own ownership checks.
+  void applyRotatedTokens({required String token, String? refreshToken}) {
+    if (!mounted || !state.isAuthenticated) return;
+    state = state.copyWith(
+      token: token,
+      refreshToken: refreshToken ?? state.refreshToken,
+    );
   }
 
   /// Replace the cached user after a profile update and persist it.
@@ -251,7 +307,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     await _apiService.requestPasswordReset(email);
   }
 
-  Future<void> _saveAuth(Map<String, dynamic> response) async {
+  Future<void> _saveAuth(Map<String, dynamic> response, int session) async {
     final token = response['token'] as String?;
     final refreshToken = response['refreshToken'] as String?;
     final userJson = response['user'];
@@ -263,9 +319,11 @@ class AuthNotifier extends StateNotifier<AuthState> {
       throw const ApiException('Authentication failed: no token returned');
     }
 
-    _apiService.rotateAuthSession();
-
     final prefs = await _prefs;
+    // A login that started before a newer login/logout/server switch
+    // must not install its credentials over the newer session.
+    if (!_owns(session)) return;
+
     await prefs.setString(_tokenKey, token);
     if (refreshToken != null) {
       await prefs.setString(_refreshTokenKey, refreshToken);
@@ -293,7 +351,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
   /// Persist rotated credentials from a token-only refresh response.
   /// Refresh payloads carry no user; keep the current or cached user
   /// instead of storing an authenticated state with no user.
-  Future<void> _saveRefreshedAuth(Map<String, dynamic> response) async {
+  Future<void> _saveRefreshedAuth(
+      Map<String, dynamic> response, int session) async {
     final token = response['token'] as String?;
     final refreshToken = response['refreshToken'] as String?;
 
@@ -302,6 +361,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
 
     final prefs = await _prefs;
+    if (!_owns(session)) return;
     await prefs.setString(_tokenKey, token);
     if (refreshToken != null) {
       await prefs.setString(_refreshTokenKey, refreshToken);
@@ -310,6 +370,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     final user = state.user ??
         _loadCachedUser(prefs) ??
         await _apiService.getCurrentUser();
+    if (!_owns(session)) return;
     state = state.copyWith(
       isAuthenticated: true,
       user: user,
@@ -320,15 +381,18 @@ class AuthNotifier extends StateNotifier<AuthState> {
     );
   }
 
-  Future<void> _clearAuth() async {
-    _apiService.rotateAuthSession();
+  Future<void> _clearAuth([int? session]) async {
+    if (session != null && !_owns(session)) return;
 
     final prefs = await _prefs;
+    if (session != null && !_owns(session)) return;
     await prefs.remove(_tokenKey);
     await prefs.remove(_refreshTokenKey);
     await prefs.remove(_userKey);
 
-    state = AuthState();
+    if (mounted) {
+      state = AuthState();
+    }
   }
   
   /// Get auth headers for API requests

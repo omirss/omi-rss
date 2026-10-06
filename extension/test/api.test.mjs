@@ -160,3 +160,106 @@ test('login rotates the session and stores the tokens under the lock', async () 
     globalThis.fetch = originalFetch;
   }
 });
+
+test('R4-15: origin, credentials and session are captured together — a mid-request server switch never sends the new token to the old origin', async () => {
+  const chromeStub = makeChrome();
+  chromeStub._storage.set('settings', { apiUrl: 'http://old.example' });
+  chromeStub._storage.set('access_token', 'old-token');
+  chromeStub._storage.set('refresh_token', 'old-refresh');
+  chromeStub._storage.set('auth_session', 's1');
+  const api = loadApi(chromeStub);
+  const originalFetch = globalThis.fetch;
+
+  const seen = [];
+  globalThis.fetch = async (url, init) => {
+    seen.push({ url: String(url), auth: init.headers.Authorization });
+    if (String(url).startsWith('http://old.example')) {
+      // The server switch (new origin + new account) lands while the
+      // request is still in flight.
+      chromeStub._storage.set('settings', { apiUrl: 'http://new.example' });
+      chromeStub._storage.set('access_token', 'new-token');
+      chromeStub._storage.set('refresh_token', 'new-refresh');
+      chromeStub._storage.set('auth_session', 's2');
+      return jsonResponse({ error: 'Token expired' }, 401);
+    }
+    throw new Error('nothing may be sent to the new origin');
+  };
+
+  try {
+    await assert.rejects(() => api.getFeeds(), /Session changed/);
+    assert.equal(seen.length, 1, 'no refresh, no retry: the snapshot is stale');
+    assert.equal(seen[0].auth, 'Bearer old-token',
+      'the request carried the credentials captured at dispatch');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('R4-15: a 401 refresh posts to the captured origin with the captured credential', async () => {
+  const chromeStub = makeChrome();
+  chromeStub._storage.set('settings', { apiUrl: 'http://a.example' });
+  chromeStub._storage.set('access_token', 'a-token');
+  chromeStub._storage.set('refresh_token', 'a-refresh');
+  chromeStub._storage.set('auth_session', 's1');
+  const api = loadApi(chromeStub);
+  const originalFetch = globalThis.fetch;
+
+  const refreshCalls = [];
+  globalThis.fetch = async (url, init) => {
+    const target = String(url);
+    if (target.includes('/auth/refresh')) {
+      refreshCalls.push({ url: target, body: JSON.parse(init.body) });
+      // The origin switches while the refresh POST to A is in flight.
+      chromeStub._storage.set('settings', { apiUrl: 'http://b.example' });
+      return jsonResponse({ token: 'rotated', refreshToken: 'a-refresh-2' });
+    }
+    if (target.startsWith('http://a.example')) {
+      return jsonResponse({ error: 'Token expired' }, 401);
+    }
+    return jsonResponse({ feeds: [] });
+  };
+
+  try {
+    await assert.rejects(() => api.getFeeds(), /Session changed/);
+    assert.equal(refreshCalls.length, 1);
+    assert.ok(refreshCalls[0].url.startsWith('http://a.example'),
+      'the refresh must target the origin the request was dispatched to');
+    assert.equal(refreshCalls[0].body.refreshToken, 'a-refresh',
+      'and the credential captured at dispatch');
+    // The rotation raced the origin switch: nothing may be written.
+    assert.equal(chromeStub._storage.get('access_token'), 'a-token');
+    assert.equal(chromeStub._storage.get('refresh_token'), 'a-refresh');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('R4-15: a late 401 retries once with an already-rotated token before starting another rotation', async () => {
+  const chromeStub = makeChrome();
+  chromeStub._storage.set('settings', { apiUrl: 'http://localhost:3000' });
+  chromeStub._storage.set('access_token', 'stale');
+  chromeStub._storage.set('refresh_token', 'r');
+  chromeStub._storage.set('auth_session', 's1');
+  const api = loadApi(chromeStub);
+  const originalFetch = globalThis.fetch;
+
+  const requests = [];
+  globalThis.fetch = async (url) => {
+    requests.push(String(url));
+    if (requests.length === 1) {
+      // A concurrent refresh already rotated the access token under
+      // the same session and refresh credential.
+      chromeStub._storage.set('access_token', 'fresh');
+      return jsonResponse({ error: 'Token expired' }, 401);
+    }
+    return jsonResponse({ feeds: [] });
+  };
+
+  try {
+    const result = await api.getFeeds();
+    assert.deepEqual(result, { feeds: [] });
+    assert.equal(requests.length, 2, 'one retry, zero rotations');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

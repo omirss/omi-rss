@@ -18,8 +18,39 @@ class ApiService {
     return root.replace(/\/+$/, '').replace(/\/api$/, '') + '/api';
   }
 
+  // ONE consistent snapshot of {baseUrl, token, refreshToken, session},
+  // read from a single chrome.storage.local.get call. Origin,
+  // credentials and session must be captured together: reading them in
+  // separate awaits let a server switch or login in between send the
+  // NEW account's token to the OLD origin, or refresh a stale request
+  // against a server it was never dispatched to.
+  async captureSession() {
+    const stored = await chrome.storage.local.get(['settings', 'access_token', 'refresh_token', 'auth_session']);
+    const settings = stored.settings || {};
+    const root = (settings && settings.apiUrl) || DEFAULT_SERVER_URL || 'http://localhost:3000';
+    const normalized = (typeof normalizeServerUrl === 'function')
+      ? (normalizeServerUrl(root) || root)
+      : String(root).replace(/\/+$/, '').replace(/\/api$/, '');
+    return {
+      baseUrl: normalized + '/api',
+      token: stored.access_token || null,
+      refreshToken: stored.refresh_token || null,
+      session: stored.auth_session || null
+    };
+  }
+
+  // A snapshot may still drive a refresh/retry only while the session
+  // generation, the origin, and the refresh credential it captured are
+  // all still the current ones. (The access token alone may differ — a
+  // concurrent refresh under the same session rotates it.)
+  async snapshotStillCurrent(snapshot) {
+    const current = await this.captureSession();
+    return current.session === snapshot.session &&
+      current.baseUrl === snapshot.baseUrl &&
+      current.refreshToken === snapshot.refreshToken;
+  }
+
   async request(endpoint, options = {}) {
-    const url = `${await this.getBaseUrl()}${endpoint}`;
     const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
     const headers = isFormData ? { ...options.headers } : { 'Content-Type': 'application/json', ...options.headers };
 
@@ -27,9 +58,10 @@ class ApiService {
       endpoint.startsWith('/auth/register') ||
       endpoint.startsWith('/auth/refresh');
 
-    const { token, refreshToken } = await this.getAuthTokens();
-    if (token && !isAuthFree) {
-      headers['Authorization'] = `Bearer ${token}`;
+    const snapshot = await this.captureSession();
+    const url = `${snapshot.baseUrl}${endpoint}`;
+    if (snapshot.token && !isAuthFree) {
+      headers['Authorization'] = `Bearer ${snapshot.token}`;
     }
 
     const buildInit = () => ({
@@ -40,28 +72,39 @@ class ApiService {
         : (isFormData ? options.body : JSON.stringify(options.body))
     });
 
-    const sessionAtStart = await getAuthSession();
     let response = await fetch(url, buildInit());
 
-    if (response.status === 401 && refreshToken && !isAuthFree && !options.skipRefresh) {
-      // Transient refresh failures (network, 5xx) throw with credentials
-      // left intact; only a definitive 401/403 clears them (inside
-      // refreshAccessToken). The retry is abandoned when a login/logout
-      // rotated the session mid-flight — replaying the body under
-      // whichever credentials are stored now could hit the wrong account.
-      let refreshed = false;
-      try {
-        refreshed = await this.refreshAccessToken();
-      } catch (refreshError) {
-        throw refreshError;
-      }
-      if (await getAuthSession() !== sessionAtStart) {
+    if (response.status === 401 && !isAuthFree && !options.skipRefresh) {
+      // Everything below acts only inside the captured snapshot: the
+      // session that dispatched this request must still be current on
+      // the same origin with the same refresh credential. Replaying the
+      // body under whichever credentials are stored NOW could hit the
+      // wrong account; a definitive rejection clears nothing but this
+      // snapshot's credentials.
+      const current = await this.captureSession();
+      const sameSession = current.session === snapshot.session &&
+        current.baseUrl === snapshot.baseUrl;
+      if (!sameSession) {
         const error = new Error('Session changed during request');
         error.status = 401;
         throw error;
       }
-      if (refreshed) {
-        const { token: newToken } = await this.getAuthTokens();
+      if (current.token && current.token !== snapshot.token &&
+          current.refreshToken === snapshot.refreshToken) {
+        // A concurrent refresh already rotated the access token under
+        // the same session: retry once with it before rotating again.
+        headers['Authorization'] = `Bearer ${current.token}`;
+        response = await fetch(url, buildInit());
+      } else if (snapshot.refreshToken && current.refreshToken === snapshot.refreshToken) {
+        // Transient refresh failures (network, 5xx) throw with
+        // credentials left intact; only a definitive 401/403 clears
+        // them (inside refreshAccessToken).
+        const newToken = await this.refreshAccessToken(snapshot);
+        if (!await this.snapshotStillCurrent(snapshot)) {
+          const error = new Error('Session changed during request');
+          error.status = 401;
+          throw error;
+        }
         if (newToken) {
           headers['Authorization'] = `Bearer ${newToken}`;
           response = await fetch(url, buildInit());
@@ -100,19 +143,21 @@ class ApiService {
     return text.trim() ? JSON.parse(text) : null;
   }
 
-  // Refresh binds to the {session, refreshToken, baseUrl} it started with
-  // and only writes when all three are still current — a refresh racing a
-  // logout (tokens cleared) or a login (another account stored) can never
-  // resurrect or overwrite credentials. Only a definitive 401/403 clears
-  // tokens; any other failure propagates with credentials intact.
-  async refreshAccessToken() {
-    const { refreshToken } = await this.getAuthTokens();
+  // Refresh binds to the {session, refreshToken, baseUrl} snapshot it
+  // started with — captured by the caller or fresh — and only writes
+  // when all three are still current: a refresh racing a logout
+  // (tokens cleared) or a login (another account stored) can never
+  // resurrect or overwrite credentials, and the POST goes to the origin
+  // the request was actually dispatched to. Only a definitive 401/403
+  // clears tokens; any other failure propagates with credentials
+  // intact. Returns the new access token, or false when no refresh
+  // happened.
+  async refreshAccessToken(snapshotProvided) {
+    const snapshot = snapshotProvided || await this.captureSession();
+    const { refreshToken, baseUrl, session } = snapshot;
     if (!refreshToken) {
       return false;
     }
-
-    const baseUrl = await this.getBaseUrl();
-    const session = await getAuthSession();
 
     let response;
     try {
@@ -132,9 +177,10 @@ class ApiService {
 
     if (response.status === 401 || response.status === 403) {
       await withAuthLock(async () => {
-        if (await getAuthSession() !== session) return;
-        const tokens = await this.getAuthTokens();
-        if (tokens.refreshToken !== refreshToken) return;
+        const current = await this.captureSession();
+        if (current.session !== session) return;
+        if (current.refreshToken !== refreshToken) return;
+        if (current.baseUrl !== baseUrl) return;
         await chrome.storage.local.remove(['access_token', 'refresh_token']);
       });
       return false;
@@ -153,15 +199,16 @@ class ApiService {
     }
 
     await withAuthLock(async () => {
-      if (await getAuthSession() !== session) return;
-      const tokens = await this.getAuthTokens();
-      if (tokens.refreshToken !== refreshToken) return;
+      const current = await this.captureSession();
+      if (current.session !== session) return;
+      if (current.refreshToken !== refreshToken) return;
+      if (current.baseUrl !== baseUrl) return;
       await chrome.storage.local.set({
         access_token: token,
         refresh_token: data.refreshToken || refreshToken
       });
     });
-    return true;
+    return token;
   }
 
   // Auth methods
