@@ -89,8 +89,6 @@ class GestureDetectorWrapper extends ConsumerStatefulWidget {
 }
 
 class _GestureDetectorWrapperState extends ConsumerState<GestureDetectorWrapper> {
-  double _startX = 0;
-  double _startY = 0;
   double _lastScale = 1.0;
   double _currentScale = 1.0;
 
@@ -131,7 +129,6 @@ class _GestureDetectorWrapperState extends ConsumerState<GestureDetectorWrapper>
   }
 
   void _onHorizontalDragStart(DragStartDetails details) {
-    _startX = details.globalPosition.dx;
   }
 
   void _onHorizontalDragUpdate(DragUpdateDetails details) {
@@ -160,7 +157,6 @@ class _GestureDetectorWrapperState extends ConsumerState<GestureDetectorWrapper>
   }
 
   void _onVerticalDragStart(DragStartDetails details) {
-    _startY = details.globalPosition.dy;
   }
 
   void _onVerticalDragUpdate(DragUpdateDetails details) {

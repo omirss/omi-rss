@@ -1,9 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/models/article.dart';
-import '../../providers/feed_provider.dart';
 import '../../providers/database_provider.dart';
 import '../../providers/offline_provider.dart';
-import 'offline_storage.dart';
 
 class OfflineSyncService {
   final Ref ref;

@@ -93,7 +93,6 @@ class FeedDiscoveryService {
   Future<DiscoveredFeed?> _getFeedInfo(String url) async {
     try {
       final response = await _dio.get(url);
-      final contentType = response.headers.value('content-type') ?? '';
       final data = response.data;
       
       // Determine feed type

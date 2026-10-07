@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../glass_theme.dart';
 
 class LoadingAnimation extends StatelessWidget {
   final String? message;

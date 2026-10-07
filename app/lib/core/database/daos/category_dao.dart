@@ -99,7 +99,6 @@ class CategoryDao extends DatabaseAccessor<AppDatabase> with _$CategoryDaoMixin 
   /// Get category tree
   Future<List<CategoryNode>> getCategoryTree() async {
     final allCategories = await getAllCategories();
-    final categoryMap = {for (var cat in allCategories) cat.id: cat};
     final rootNodes = <CategoryNode>[];
     final nodeMap = <String, CategoryNode>{};
     

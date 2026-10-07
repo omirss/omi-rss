@@ -15,7 +15,7 @@ final databaseProvider = Provider<AppDatabase>((ref) {
 
 /// Database initialization provider
 final databaseInitializationProvider = FutureProvider<bool>((ref) async {
-  final database = ref.watch(databaseProvider);
+  ref.watch(databaseProvider);
   
   // Database is initialized in the constructor
   // This provider is just to ensure it's ready

@@ -29,10 +29,9 @@ class JsonFeedParser {
       final language = json['language'] as String?;
       
       // Author
-      String? authorName;
       final author = json['author'] as Map<String, dynamic>?;
       if (author != null) {
-        authorName = author['name'] as String?;
+        author['name'] as String?;
       }
       
       // Hub for real-time updates

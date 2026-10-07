@@ -1,6 +1,5 @@
 import 'package:xml/xml.dart';
 import 'package:html/parser.dart' as html_parser;
-import 'package:html/dom.dart' as html_dom;
 import '../models/feed.dart';
 import '../models/article.dart';
 import 'feed_dates.dart';
@@ -49,11 +48,10 @@ class RssParser {
       imageUrl = _resolveUrl(imageUrl, feedUrl);
       
       // Parse last build date
-      DateTime? lastBuildDate;
       final lastBuildDateStr = _getElementText(channel, 'lastBuildDate') ??
           _getElementText(channel, 'pubDate');
       if (lastBuildDateStr != null) {
-        lastBuildDate = _parseDate(lastBuildDateStr);
+        _parseDate(lastBuildDateStr);
       }
       
       return Feed(

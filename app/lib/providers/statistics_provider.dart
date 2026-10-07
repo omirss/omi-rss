@@ -1,6 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/models/reading_statistics.dart';
-import '../core/models/article.dart';
 import '../core/models/feed.dart';
 import '../core/models/feed_statistics.dart';
 import '../core/services/statistics_service.dart';
@@ -48,7 +47,7 @@ final readingStatisticsProvider = FutureProvider<ReadingStatistics>((ref) async 
     final dayEnd = dayStart.add(const Duration(days: 1));
     
     return readArticles.where((article) {
-      final readAt = article.updatedAt ?? article.createdAt;
+      final readAt = article.updatedAt;
       return readAt.isAfter(dayStart) && readAt.isBefore(dayEnd);
     }).length;
   });
@@ -84,38 +83,37 @@ final readingStatisticsProvider = FutureProvider<ReadingStatistics>((ref) async 
   final sourceStats = <String, SourceStatistics>{};
   for (final article in readArticles) {
     final feedId = article.feedId;
-    if (feedId != null) {
-      if (!sourceStats.containsKey(feedId)) {
-        final feed = feeds.firstWhere(
-          (f) => f.id == feedId,
-          orElse: () => Feed(
-            id: feedId,
-            title: 'Unknown Feed',
-            url: '',
-            createdAt: DateTime.now(),
-            updatedAt: DateTime.now(),
-          ),
-        );
-        sourceStats[feedId] = SourceStatistics(
-          feedId: feedId,
-          feedTitle: feed.title,
-          articlesRead: 0,
-          readingTime: 0,
-          percentage: 0,
-        );
-      }
-      
-      final stats = sourceStats[feedId]!;
+    if (!sourceStats.containsKey(feedId)) {
+      final feed = feeds.firstWhere(
+        (f) => f.id == feedId,
+        orElse: () => Feed(
+          id: feedId,
+          title: 'Unknown Feed',
+          url: '',
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+        ),
+      );
       sourceStats[feedId] = SourceStatistics(
-        feedId: stats.feedId,
-        feedTitle: stats.feedTitle,
-        articlesRead: stats.articlesRead + 1,
-        readingTime: stats.readingTime + article.estimatedReadTime,
+        feedId: feedId,
+        feedTitle: feed.title,
+        articlesRead: 0,
+        readingTime: 0,
         percentage: 0,
       );
     }
+
+    final stats = sourceStats[feedId]!;
+    sourceStats[feedId] = SourceStatistics(
+      feedId: stats.feedId,
+      feedTitle: stats.feedTitle,
+      articlesRead: stats.articlesRead + 1,
+      readingTime: stats.readingTime + article.estimatedReadTime,
+      percentage: 0,
+    );
   }
-  
+
+
   // Calculate percentages and sort
   final topSources = sourceStats.values.toList();
   for (final source in topSources) {
@@ -138,7 +136,7 @@ final readingStatisticsProvider = FutureProvider<ReadingStatistics>((ref) async 
   };
   
   for (final article in readArticles) {
-    final hour = (article.updatedAt ?? article.createdAt).hour;
+    final hour = article.updatedAt.hour;
     if (hour >= 6 && hour < 12) {
       timeDistribution['Morning'] = timeDistribution['Morning']! + 1;
     } else if (hour >= 12 && hour < 18) {
@@ -170,7 +168,7 @@ final readingStatisticsProvider = FutureProvider<ReadingStatistics>((ref) async 
   
   final weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
   for (final article in readArticles) {
-    final weekday = (article.updatedAt ?? article.createdAt).weekday;
+    final weekday = article.updatedAt.weekday;
     final dayName = weekdays[weekday - 1];
     dayActivity[dayName] = dayActivity[dayName]! + 1;
   }
@@ -182,7 +180,7 @@ final readingStatisticsProvider = FutureProvider<ReadingStatistics>((ref) async 
   // Calculate peak reading time
   final hourActivity = List.filled(24, 0);
   for (final article in readArticles) {
-    final hour = (article.updatedAt ?? article.createdAt).hour;
+    final hour = article.updatedAt.hour;
     hourActivity[hour]++;
   }
   

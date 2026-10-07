@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:rss_glassmorphism_reader/providers/theme_settings_provider.dart';
 import 'package:rss_glassmorphism_reader/ui/screens/glass_screen.dart';
 import 'package:rss_glassmorphism_reader/ui/tokens/glass_presets.dart';
 import 'package:shared_preferences/shared_preferences.dart';

@@ -4,7 +4,6 @@ import 'dart:typed_data';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
 import '../../core/models/article.dart';
-import '../../core/models/feed.dart';
 
 class OfflineStorage {
   static const String _articlesDir = 'offline_articles';
@@ -53,7 +52,7 @@ class OfflineStorage {
         'url': article.url,
         'author': article.author,
         'publishedAt': article.publishedAt?.toIso8601String(),
-        'updatedAt': article.updatedAt?.toIso8601String(),
+        'updatedAt': article.updatedAt.toIso8601String(),
         'feedId': article.feedId,
         'feedTitle': article.feedTitle,
         'isRead': article.isRead,

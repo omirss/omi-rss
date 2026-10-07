@@ -407,6 +407,11 @@ void main() {
       'the newer session', () async {
     var loginHits = 0;
     var refreshHits = 0;
+    final refreshStarted = Completer<void>();
+    final releaseRefresh = Completer<void>();
+    addTearDown(() {
+      if (!releaseRefresh.isCompleted) releaseRefresh.complete();
+    });
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     addTearDown(server.close);
     late StreamSubscription<HttpRequest> sub;
@@ -424,7 +429,8 @@ void main() {
           request.uri.path == '/api/auth/refresh') {
         refreshHits++;
         // Rejection arrives after the newer login completed.
-        await Future<void>.delayed(const Duration(milliseconds: 300));
+        refreshStarted.complete();
+        await releaseRefresh.future;
         response.statusCode = 401;
         response.write(jsonEncode({'error': 'Invalid refresh token'}));
       } else {
@@ -446,10 +452,11 @@ void main() {
 
     // The stale request 401s immediately; its refresh is still pending
     // when the newer login lands and rotates the session.
-    final stale = api.getArticles();
-    await Future<void>.delayed(const Duration(milliseconds: 100));
+    final stale = expectLater(api.getArticles(), throwsA(isA<ApiException>()));
+    await refreshStarted.future.timeout(const Duration(seconds: 30));
     await auth.login(emailOrUsername: 'b', password: 'pw');
-    await expectLater(stale, throwsA(isA<ApiException>()));
+    releaseRefresh.complete();
+    await stale;
 
     expect(refreshHits, 1);
     expect(loginHits, 1);

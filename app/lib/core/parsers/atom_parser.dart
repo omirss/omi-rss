@@ -36,7 +36,7 @@ class AtomParser {
       }
       
       // Parse other metadata
-      final id = _getElementText(feed, 'id');
+      _getElementText(feed, 'id');
       final rights = _getElementText(feed, 'rights');
       final generator = _getElementText(feed, 'generator');
       
@@ -46,17 +46,15 @@ class AtomParser {
       final imageUrl = _resolveUrl(logo ?? icon, feedUrl);
       
       // Parse updated date
-      DateTime? updated;
       final updatedStr = _getElementText(feed, 'updated');
       if (updatedStr != null) {
-        updated = _parseAtomDate(updatedStr);
+        _parseAtomDate(updatedStr);
       }
       
       // Parse author
-      String? author;
       final authorElement = feed.findElements('author', namespace: atomNamespace).firstOrNull;
       if (authorElement != null) {
-        author = _getElementText(authorElement, 'name');
+        _getElementText(authorElement, 'name');
       }
       
       return Feed(

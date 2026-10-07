@@ -66,7 +66,6 @@ class ThreeColumnLayout extends StatefulWidget {
 class _ThreeColumnLayoutState extends State<ThreeColumnLayout>
     with TickerProviderStateMixin {
   late double _leftWidth;
-  late double _middleWidth;
   late double _rightWidth;
   
   bool _leftCollapsed = false;
@@ -83,7 +82,6 @@ class _ThreeColumnLayoutState extends State<ThreeColumnLayout>
   bool _isDraggingRight = false;
   double _dragStartX = 0;
   double _startLeftWidth = 0;
-  double _startMiddleWidth = 0;
   double _startRightWidth = 0;
 
   @override
@@ -91,7 +89,6 @@ class _ThreeColumnLayoutState extends State<ThreeColumnLayout>
     super.initState();
     
     _leftWidth = widget.leftConfig.initialWidth;
-    _middleWidth = widget.middleConfig.initialWidth;
     _rightWidth = widget.rightConfig.initialWidth;
     
     // Initialize animation controllers
@@ -138,7 +135,6 @@ class _ThreeColumnLayoutState extends State<ThreeColumnLayout>
   @override
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
-    final theme = GlassTheme.of(context);
     
     // Calculate actual widths
     final actualLeftWidth = (_leftCollapsed ? 60 : _leftWidth).toDouble();
@@ -353,7 +349,6 @@ class _ThreeColumnLayoutState extends State<ThreeColumnLayout>
       _isDraggingLeft = true;
       _dragStartX = details.globalPosition.dx;
       _startLeftWidth = leftWidth;
-      _startMiddleWidth = middleWidth;
     });
     HapticFeedback.selectionClick();
   }
@@ -381,7 +376,6 @@ class _ThreeColumnLayoutState extends State<ThreeColumnLayout>
     setState(() {
       _isDraggingRight = true;
       _dragStartX = details.globalPosition.dx;
-      _startMiddleWidth = middleWidth;
       _startRightWidth = rightWidth;
     });
     HapticFeedback.selectionClick();

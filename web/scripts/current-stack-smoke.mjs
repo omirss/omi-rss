@@ -16,6 +16,7 @@ assert(evidence?.startsWith("/"), "Pass an existing absolute evidence directory"
 const runId = `omi-smoke-${Date.now()}`;
 const image = `${runId}:test`;
 let checks = 0;
+let imageBuilt = false;
 function pass(message) { console.log(`PASS ${++checks}: ${message}`); }
 function docker(args, options = {}) {
   return execFileSync("docker", args, { cwd: root, encoding: "utf8", timeout: 900000,
@@ -42,6 +43,7 @@ async function until(check, timeout = 30000) {
 
 try {
   docker(["build", "-t", image, "-f", resolve(web, "Dockerfile"), web], { stdio: "inherit" });
+  imageBuilt = true;
   for (const variant of ["default", "production"]) {
     const project = `${runId}-${variant}`;
     const filename = variant === "default" ? "docker-compose.yml" : "docker-compose.prod.yml";
@@ -178,5 +180,5 @@ try {
   }
   console.log(`All ${checks} isolated Compose/API checks passed.`);
 } finally {
-  docker(["image", "rm", image], { stdio: "inherit" });
+  if (imageBuilt) docker(["image", "rm", image], { stdio: "inherit" });
 }

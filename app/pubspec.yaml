@@ -49,6 +49,7 @@ dependencies:
   # Web Support
   universal_html: ^2.2.4
 
+  meta: ^1.19.0
 dev_dependencies:
   flutter_test:
     sdk: flutter
