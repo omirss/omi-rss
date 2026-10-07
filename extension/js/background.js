@@ -617,8 +617,10 @@ async function markArticleReadOnServer(articleId) {
 }
 
 async function updateSettings(settings) {
-  const { settings: current = {} } = await chrome.storage.local.get('settings');
-  await chrome.storage.local.set({ settings: { ...current, ...settings } });
+  // writeSettings stamps settingsModifiedAt so the sync merge clock
+  // ticks on every local settings change — without it remote settings
+  // can never win the LWW merge (see config.js).
+  await writeSettings(current => ({ ...current, ...settings }));
   return { success: true };
 }
 

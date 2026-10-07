@@ -56,6 +56,31 @@ async function getAuthSession() {
   return auth_session || null;
 }
 
+// The only sanctioned way to mutate the settings object: a locked
+// read-modify-write that advances the LWW merge clock
+// (settingsModifiedAt) in the SAME storage write. The settings-sync
+// merge (sync-manager.js) is last-writer-wins on that clock, so a
+// local mutation that does not stamp it leaves the clock at 0 — and
+// `remote.timestamp > local.timestamp` is then `x > 0` at best, `0 >
+// 0` between two real profiles: remote settings can never apply. The
+// clock must tick on every local write or the feature is inert.
+//
+// The auth lock serializes these mutations with each other and with
+// setServerConnection (which rewrites settings under the same lock),
+// so concurrent writers — the popup's update-settings hop, the
+// background handler, a server switch — cannot lose each other's keys.
+async function writeSettings(mutate) {
+  return withAuthLock(async () => {
+    const { settings: current = {} } = await chrome.storage.local.get('settings');
+    const next = mutate({ ...current });
+    await chrome.storage.local.set({
+      settings: next,
+      settingsModifiedAt: Date.now()
+    });
+    return next;
+  });
+}
+
 // The only sanctioned way to change the server: validates the origin and,
 // when it actually changes, drops the previous server's tokens/user and
 // cached offline data and rotates the session — the next request must
@@ -81,7 +106,14 @@ async function setServerConnection(raw) {
     if (normalized === currentUrl) {
       return { changed: false, apiUrl: normalized };
     }
-    await chrome.storage.local.set({ settings: { ...current, apiUrl: normalized } });
+    // A real settings mutation: advance the LWW merge clock in the
+    // same write (see writeSettings). Inlined rather than routed
+    // through writeSettings because this callback already holds the
+    // auth lock, which is not reentrant.
+    await chrome.storage.local.set({
+      settings: { ...current, apiUrl: normalized },
+      settingsModifiedAt: Date.now()
+    });
     await chrome.storage.local.remove([
       'access_token', 'refresh_token', 'user', 'auth',
       'offlineFeeds', 'offlineArticles', 'offlineMode'
@@ -143,6 +175,7 @@ if (typeof module !== 'undefined') {
     rotateAuthSession,
     getAuthSession,
     setServerConnection,
+    writeSettings,
     savedArticlesAdd,
     savedArticlesRemove
   };

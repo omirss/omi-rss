@@ -21,21 +21,33 @@ class FeedSyncState {
   final DateTime? lastSyncAt;
   final String? lastError;
 
+  /// Server article rows dropped by the last sync/refresh because
+  /// their id already belongs to a DIFFERENT feed locally (identity
+  /// conflict — e.g. a backup restored over a previously-synced
+  /// database). The rest of each batch still commits, but these rows
+  /// are skipped on EVERY sync until the conflict is cleared, so the
+  /// count is surfaced here (and logged) instead of the local article
+  /// list silently diverging from the server forever.
+  final int lastSkippedConflicts;
+
   const FeedSyncState({
     this.isSyncing = false,
     this.lastSyncAt,
     this.lastError,
+    this.lastSkippedConflicts = 0,
   });
 
   FeedSyncState copyWith({
     bool? isSyncing,
     DateTime? lastSyncAt,
     String? lastError,
+    int? lastSkippedConflicts,
   }) {
     return FeedSyncState(
       isSyncing: isSyncing ?? this.isSyncing,
       lastSyncAt: lastSyncAt ?? this.lastSyncAt,
       lastError: lastError,
+      lastSkippedConflicts: lastSkippedConflicts ?? this.lastSkippedConflicts,
     );
   }
 }
@@ -306,7 +318,11 @@ class FeedSyncNotifier extends StateNotifier<FeedSyncState> {
     if (!await _syncEnabled()) return;
     if (_disposed || !mounted) return;
 
-    state = state.copyWith(isSyncing: true, lastError: null);
+    state = state.copyWith(
+      isSyncing: true,
+      lastError: null,
+      lastSkippedConflicts: 0,
+    );
     try {
       final user = ref.read(authProvider).user;
       final owner = user == null
@@ -402,17 +418,24 @@ class FeedSyncNotifier extends StateNotifier<FeedSyncState> {
       // fully converge; retention is applied only afterwards. Server
       // rows are reconciled against local identities per row: a local
       // row with the same (feed, guid) but a different id must be
-      // rekeyed, not blindly inserted.
+      // rekeyed, not blindly inserted. Rows whose server id already
+      // belongs to a different feed are skipped (identity conflict) —
+      // counted and surfaced so the divergence is observable instead
+      // of silently dropping the same rows on every sync.
       var page = 1;
+      var skippedConflicts = 0;
       while (true) {
         final result = await _api.getArticlePage(page: page, limit: 200);
         if (_disposed || !mounted) return;
         if (result.articles.isNotEmpty) {
-          await _db.articleDao.upsertServerArticles(result.articles);
+          final skipped =
+              await _db.articleDao.upsertServerArticles(result.articles);
+          skippedConflicts += skipped.length;
         }
         if (page >= result.totalPages) break;
         page++;
       }
+      _reportSkippedConflicts('sync', skippedConflicts);
       await _db.articleDao.enforcePerFeedLimit(await _perFeedLimit());
 
       // Ownership marker (diagnostics / a future explicit binding UI):
@@ -428,7 +451,11 @@ class FeedSyncNotifier extends StateNotifier<FeedSyncState> {
       final now = DateTime.now();
       await _db.setLastSyncAt(now);
       if (_disposed || !mounted) return;
-      state = state.copyWith(isSyncing: false, lastSyncAt: now);
+      state = state.copyWith(
+        isSyncing: false,
+        lastSyncAt: now,
+        lastSkippedConflicts: skippedConflicts,
+      );
     } catch (e) {
       if (mounted) {
         state = state.copyWith(isSyncing: false, lastError: e.toString());
@@ -459,19 +486,28 @@ class FeedSyncNotifier extends StateNotifier<FeedSyncState> {
     });
 
     final syncEnabled = await _syncEnabled();
+    var skippedConflicts = 0;
     for (final feed in due) {
       if (_disposed || !mounted) return;
       if (_connected && syncEnabled) {
-        await _refreshServerFeed(feed);
+        skippedConflicts += await _refreshServerFeed(feed);
       } else {
         await ref
             .read(feedRefreshProvider.notifier)
             .refreshFeed(feed.id);
       }
     }
+    if (skippedConflicts > 0 && mounted) {
+      // Surfaced once per tick batch, not once per feed.
+      state = state.copyWith(lastSkippedConflicts: skippedConflicts);
+    }
   }
 
-  Future<void> _refreshServerFeed(Feed feed) async {
+  /// Refreshes one feed from the server (queued refresh + poll + paged
+  /// pull). Returns how many server article rows were skipped as
+  /// identity conflicts so the caller can surface them once per batch.
+  Future<int> _refreshServerFeed(Feed feed) async {
+    var skippedConflicts = 0;
     try {
       // Baseline the SERVER-side fetch clock before queueing: the local
       // lastFetched is a client timestamp and cannot be compared against
@@ -489,7 +525,7 @@ class FeedSyncNotifier extends StateNotifier<FeedSyncState> {
           // auto-updating while signed in, instead of the 404 being
           // swallowed on every tick forever.
           await _refreshLocalFeed(feed);
-          return;
+          return skippedConflicts;
         }
         // Baseline unknown; proceed with the queued refresh anyway.
       } catch (_) {
@@ -506,18 +542,22 @@ class FeedSyncNotifier extends StateNotifier<FeedSyncState> {
       while (true) {
         final result =
             await _api.getArticlePage(page: page, limit: 200, feedId: feed.id);
-        if (_disposed || !mounted) return;
+        if (_disposed || !mounted) return skippedConflicts;
         if (result.articles.isNotEmpty) {
-          await _db.articleDao.upsertServerArticles(result.articles);
+          final skipped =
+              await _db.articleDao.upsertServerArticles(result.articles);
+          skippedConflicts += skipped.length;
         }
         if (page >= result.totalPages) break;
         page++;
       }
+      _reportSkippedConflicts('refresh of feed ${feed.id}', skippedConflicts);
       await _db.articleDao.enforcePerFeedLimit(await _perFeedLimit());
       await _db.feedDao.setLastFetched(feed.id, DateTime.now());
     } catch (_) {
       // Best-effort; retried on the next tick
     }
+    return skippedConflicts;
   }
 
   /// Refresh a local-only feed straight from its publisher — the same
@@ -548,10 +588,25 @@ class FeedSyncNotifier extends StateNotifier<FeedSyncState> {
     // will pick up anything the queue job wrote late.
   }
 
+  /// Observability for identity-conflict skips: the rows are dropped
+  /// from every sync with no other signal, so each affected sync logs
+  /// the count once — the only trace short of attaching a debugger to
+  /// the DAO.
+  void _reportSkippedConflicts(String context, int count) {
+    if (count <= 0) return;
+    debugPrint(
+      'omi-rss sync: $count server article(s) skipped during $context — '
+      'the article id already belongs to a different feed locally '
+      '(restored-backup identity conflict); those items stay diverged '
+      'from the server until the conflict is cleared.',
+    );
+  }
+
   /// Test hook: run the per-feed server refresh path (poll + paged
-  /// pull) for one feed without going through the timer.
+  /// pull) for one feed without going through the timer. Returns the
+  /// number of skipped identity-conflict rows.
   @visibleForTesting
-  Future<void> debugRefreshServerFeed(Feed feed) => _refreshServerFeed(feed);
+  Future<int> debugRefreshServerFeed(Feed feed) => _refreshServerFeed(feed);
 }
 
 /// Subscribe to a feed. Goes through the server (so extension and other

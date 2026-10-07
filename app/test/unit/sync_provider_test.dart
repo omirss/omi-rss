@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:rss_glassmorphism_reader/config/api_config.dart';
 import 'package:rss_glassmorphism_reader/core/database/database.dart';
+import 'package:rss_glassmorphism_reader/core/models/article.dart';
 import 'package:rss_glassmorphism_reader/core/models/feed.dart';
 import 'package:rss_glassmorphism_reader/core/models/folder.dart';
 import 'package:rss_glassmorphism_reader/core/models/user.dart';
@@ -312,6 +313,67 @@ void main() {
         reason: 'the local fetch marker advances after the poll loop');
   });
 
+  test('B2: identity-conflict rows skipped by a sync are surfaced, not silent',
+      () async {
+    final db = AppDatabase.testing(NativeDatabase.memory());
+    addTearDown(db.close);
+    await db.feedDao.insertOrUpdateFeed(
+        _localFeed('feed-a', 'https://example.com/a.xml'));
+    await db.feedDao.insertOrUpdateFeed(
+        _localFeed('feed-b', 'https://example.com/b.xml'));
+    // A locally-restored row whose id the server ALSO uses, but under
+    // a different feed — the restored-backup identity conflict.
+    await db.articleDao.insertArticles([
+      Article(
+        id: 'art-1',
+        feedId: 'feed-b',
+        guid: 'local-guid',
+        title: 'Local survivor',
+        url: 'https://example.com/local',
+      ),
+    ]);
+
+    // One server page: a normal row plus the poisoned row.
+    final serverPage = [
+      Article(
+        id: 'srv-ok',
+        feedId: 'feed-a',
+        guid: 'srv-guid-ok',
+        title: 'Commits fine',
+        url: 'https://example.com/fine',
+      ),
+      Article(
+        id: 'art-1', // already owned by feed-b locally
+        feedId: 'feed-a',
+        guid: 'srv-guid-conflict',
+        title: 'Identity conflict',
+        url: 'https://example.com/conflict',
+      ),
+    ];
+    final (container, _) = await _boot(
+      (ref) => _PageApi(ref, serverPage)
+        ..serverFeeds.addAll([
+          _localFeed('feed-a', 'https://example.com/a.xml'),
+          _localFeed('feed-b', 'https://example.com/b.xml'),
+        ]),
+      db: db,
+    );
+
+    await container.read(feedSyncProvider.notifier).syncFromServer();
+
+    final state = container.read(feedSyncProvider);
+    expect(state.lastError, isNull, reason: 'a skipped row is not an error');
+    expect(state.lastSkippedConflicts, 1,
+        reason: 'the dropped row is observable on the sync state '
+            '(before the fix it vanished with zero signal)');
+    expect(await db.articleDao.getArticle('srv-ok'), isNotNull,
+        reason: 'the rest of the batch commits');
+    final survivor = await db.articleDao.getArticle('art-1');
+    expect(survivor!.feedId, 'feed-b',
+        reason: 'skip-and-continue semantics are unchanged: the local row '
+            'under its own feed is untouched');
+  });
+
   test('F2: a local-only feed the server 404s still auto-refreshes from '
       'its publisher while signed in', () async {
     // The publisher serving the real feed XML on the loopback.
@@ -364,6 +426,33 @@ class _NotFoundFeedApi extends _SyncApi {
   @override
   Future<Feed> getFeed(String feedId) async =>
       throw const ApiException('Resource not found.', statusCode: 404);
+}
+
+/// Server that always serves one scripted article page.
+class _PageApi extends _SyncApi {
+  _PageApi(super.ref, this.page);
+
+  final List<Article> page;
+
+  @override
+  Future<ArticlePage> getArticlePage({
+    String? feedId,
+    String? folderId,
+    bool? unreadOnly,
+    bool? starredOnly,
+    int page = 1,
+    int limit = 200,
+    String? search,
+  }) async {
+    articlePageCalls++;
+    return ArticlePage(
+      articles: List<Article>.from(this.page),
+      page: page,
+      limit: limit,
+      total: this.page.length,
+      totalPages: 1,
+    );
+  }
 }
 
 /// API whose getFeeds fails on demand.

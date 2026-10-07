@@ -1049,10 +1049,9 @@ async function getFullTextDefault() {
 }
 
 async function setFullTextDefault(enabled) {
-  const { settings = {} } = await chrome.storage.local.get('settings');
-  await chrome.storage.local.set({
-    settings: { ...settings, fullTextDefault: enabled }
-  });
+  // writeSettings keeps the sync merge clock ticking on this local
+  // settings mutation (see config.js).
+  await writeSettings(settings => ({ ...settings, fullTextDefault: enabled }));
 }
 
 // Subscribe via the manual URL row in the feed modal
